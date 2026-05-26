@@ -1,0 +1,2112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instadate — Find a Partner, Not a Match | Premium Curated Gen Z Dating</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Instadate is India's most exclusive, 100% ID-verified dating club for Gen Z (18-28). Curated matchmaking, no bots, real chemistry. Apply to join the social club.">
+    <meta name="keywords" content="Instadate, premium dating India, curated matchmaking, Gen Z dating, verified dating club, Mumbai elite dating, exclusive dating app">
+    <meta name="author" content="Instadate">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://instadate.club/">
+    <meta property="og:title" content="Instadate — Find a Partner, Not a Match">
+    <meta property="og:description" content="India's exclusive, 100% ID-verified dating club for Gen Z. Skip the swiping fatigue and find real chemistry.">
+    <meta property="og:image" content="assets/social_mixer.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://instadate.club/">
+    <meta property="twitter:title" content="Instadate — Find a Partner, Not a Match">
+    <meta property="twitter:description" content="India's exclusive, 100% ID-verified dating club for Gen Z. Skip the swiping fatigue and find real chemistry.">
+    <meta property="twitter:image" content="assets/social_mixer.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="assets/glowing_hearts.png">
+
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Leaflet Interactive Maps CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Background Canvas for Interactive Sparks & Floating Hearts -->
+    <canvas id="particles-canvas"></canvas>
+    
+    <!-- Ambient Neon Glow Orbs -->
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+
+    <!-- Header / Sticky Navbar -->
+    <header class="header">
+        <div class="header-container">
+            <a href="#" class="logo">
+                <span class="logo-text-gradient">Instadate</span>
+            </a>
+            
+            <div class="status-pill">
+                <span class="status-dot animate-pulse"></span>
+                <span>Applications Open • Age 18–28</span>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="#how-it-works" class="nav-link">How It Works</a>
+                <a href="#vibes" class="nav-link">Vibes</a>
+                <a href="#pricing" class="nav-link">Memberships</a>
+                <a href="#safety" class="nav-link">Safety</a>
+                <a href="#testimonials" class="nav-link">Stories</a>
+                <a href="active-users.html" class="nav-link nav-live-btn">
+                    <span class="nav-live-dot"></span>
+                    Active Users
+                    <span class="nav-live-count">1.2k+</span>
+                </a>
+                <a href="#faq" class="nav-link">FAQ</a>
+            </nav>
+
+            <!-- Nav Profile (shown after sign-in) -->
+            <div class="nav-profile" id="nav-profile" style="display: none;">
+                <button class="nav-avatar-btn" id="nav-avatar-btn" onclick="toggleProfileDropdown()">
+                    <div class="nav-avatar" id="nav-avatar-img-container">
+                        <i data-lucide="user" class="nav-avatar-icon" id="nav-avatar-icon"></i>
+                    </div>
+                    <span class="nav-profile-name" id="nav-profile-name">Member</span>
+                    <i data-lucide="chevron-down" class="nav-profile-chevron"></i>
+                </button>
+                <div class="nav-profile-dropdown" id="nav-profile-dropdown">
+                    <div class="dropdown-user-info">
+                        <div class="dropdown-avatar" id="dropdown-avatar-img-container">
+                            <i data-lucide="user" id="dropdown-avatar-icon"></i>
+                        </div>
+                        <div>
+                            <p class="dropdown-name" id="dropdown-display-name">Member</p>
+                            <p class="dropdown-email" id="dropdown-display-email">Signed In</p>
+                            <span id="dropdown-tier-badge" class="tier-badge tier-badge-free">Free Member</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item" onclick="openEditProfileModal()">
+                        <i data-lucide="user-cog"></i>
+                        Edit Profile
+                    </button>
+                    <button class="dropdown-item" id="dropdown-btn-matches" onclick="openCuratedMatchesModal()">
+                        <i data-lucide="heart-handshake"></i>
+                        Curated Matches
+                    </button>
+                    <a href="chat.html" class="dropdown-item" id="dropdown-btn-chat" style="text-decoration: none;">
+                        <i data-lucide="message-square"></i>
+                        Chat Inbox 💬
+                    </a>
+                    <button class="dropdown-item" onclick="openSubscriptionModal()">
+                        <i data-lucide="gem"></i>
+                        Membership Tier
+                    </button>
+                    <button class="dropdown-item" onclick="showQuickSettingsToast()">
+                        <i data-lucide="sliders"></i>
+                        Settings
+                    </button>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item dropdown-item-signout" onclick="handleSignOut()">
+                        <i data-lucide="log-out"></i>
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Menu Toggle -->
+            <button class="mobile-toggle" aria-label="Toggle menu" onclick="toggleMobileMenu()">
+                <i data-lucide="menu" id="menu-icon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Mobile Nav Overlay -->
+    <div class="mobile-nav-overlay" id="mobile-nav">
+        <nav class="mobile-nav-menu">
+            <a href="#how-it-works" class="mobile-nav-link" onclick="toggleMobileMenu()">How It Works</a>
+            <a href="#vibes" class="mobile-nav-link" onclick="toggleMobileMenu()">Vibes</a>
+            <a href="#pricing" class="mobile-nav-link" onclick="toggleMobileMenu()">Memberships</a>
+            <a href="#safety" class="mobile-nav-link" onclick="toggleMobileMenu()">Safety</a>
+            <a href="#testimonials" class="mobile-nav-link" onclick="toggleMobileMenu()">Stories</a>
+            <a href="active-users.html" class="mobile-nav-link mobile-nav-live-btn" onclick="toggleMobileMenu()">
+                <span class="nav-live-dot"></span>
+                Active Users
+                <span class="nav-live-count">1.2k+</span>
+            </a>
+            <a href="#faq" class="mobile-nav-link" onclick="toggleMobileMenu()">FAQ</a>
+
+            <!-- Mobile Profile (shown after sign-in) -->
+            <div class="mobile-nav-profile" id="mobile-nav-profile" style="display: none;">
+                <div class="mobile-profile-divider"></div>
+                <div class="mobile-profile-info">
+                    <div class="mobile-profile-avatar" id="mobile-avatar-img-container">
+                        <i data-lucide="user" id="mobile-avatar-icon"></i>
+                    </div>
+                    <div>
+                        <p class="mobile-profile-name" id="mobile-profile-name">Member</p>
+                        <p class="mobile-profile-email" id="mobile-profile-email">Signed In</p>
+                        <span id="mobile-tier-badge" class="tier-badge tier-badge-free">Free Member</span>
+                    </div>
+                </div>
+                <div class="mobile-profile-actions">
+                    <button class="mobile-action-btn" onclick="toggleMobileMenu(); openEditProfileModal();">
+                        <i data-lucide="user-cog"></i> Edit Profile
+                    </button>
+                    <button class="mobile-action-btn" id="mobile-btn-matches" onclick="toggleMobileMenu(); openCuratedMatchesModal();">
+                        <i data-lucide="heart-handshake"></i> Curated Matches
+                    </button>
+                    <a href="chat.html" class="mobile-action-btn" id="mobile-btn-chat" style="text-decoration: none;" onclick="toggleMobileMenu();">
+                        <i data-lucide="message-square"></i> Chat Inbox 💬
+                    </a>
+                    <button class="mobile-action-btn" onclick="toggleMobileMenu(); openSubscriptionModal();">
+                        <i data-lucide="gem"></i> Upgrade Tier
+                    </button>
+                </div>
+                <button class="btn btn-outline w-full mt-4" onclick="toggleMobileMenu(); handleSignOut();">
+                    <i data-lucide="log-out"></i> Sign Out
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="hero-section" id="hero">
+            <div class="hero-content">
+                <div class="badge-exclusive hover-glow-trigger">
+                    <i data-lucide="sparkles" class="badge-icon"></i>
+                    <span>The Curated Social Club for Serious Daters</span>
+                </div>
+                
+                <h1 class="hero-title">
+                    Find a <span class="text-gradient-pink">partner</span>,<br>
+                    not a <span class="text-gradient-cyan">match</span>.
+                </h1>
+                
+                <p class="hero-subtitle">
+                    Ditch swiping fatigue. Instadate is India’s premium, 100% ID-verified dating network for Gen Z aged 18-28. Handpicked profiles, human-guided chemistry, and exclusive real-life mixers.
+                </p>
+
+                <div class="hero-actions">
+                    <button class="btn btn-primary btn-lg btn-glow animate-float-slow" onclick="openApplyModal()">
+                        Apply Now <i data-lucide="arrow-right" class="btn-arrow"></i>
+                    </button>
+                    <a href="#how-it-works" class="btn btn-outline btn-lg">
+                        Explore Club
+                    </a>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="hero-stats">
+                    <div class="stat-card glass-card">
+                        <h3 class="stat-number">98%</h3>
+                        <p class="stat-label">Vibe Check Accuracy</p>
+                    </div>
+                    <div class="stat-card glass-card">
+                        <h3 class="stat-number">10K+</h3>
+                        <p class="stat-label">Curated Members</p>
+                    </div>
+                    <div class="stat-card glass-card">
+                        <h3 class="stat-number">0%</h3>
+                        <p class="stat-label">Fake Profiles / Bots</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hero Visual Area with Premium 3D Generated Assets -->
+            <div class="hero-visual">
+                <div class="floating-asset-container">
+                    <!-- Custom 3D Glass Heart Asset generated via DALL-E -->
+                    <img src="assets/glowing_hearts.png" alt="Instadate Glowing Glass Heart" class="hero-3d-heart floating-heart-1">
+                    
+                    <!-- Decorative Glowing Card overlays simulating application approvals -->
+                    <div class="floating-glass-card match-card card-1 glass-card">
+                        <div class="card-user">
+                            <div class="user-avatar avatar-1"></div>
+                            <div class="user-info">
+                                <h4>Kavya, 22</h4>
+                                <p class="user-loc"><i data-lucide="map-pin"></i> Mumbai</p>
+                            </div>
+                        </div>
+                        <div class="card-status-pill verified">
+                            <i data-lucide="shield-check"></i> Verified
+                        </div>
+                    </div>
+
+                    <div class="floating-glass-card match-card card-2 glass-card">
+                        <div class="card-user">
+                            <div class="user-avatar avatar-2"></div>
+                            <div class="user-info">
+                                <h4>Rohan, 24</h4>
+                                <p class="user-loc"><i data-lucide="map-pin"></i> Bangalore</p>
+                            </div>
+                        </div>
+                        <div class="card-status-pill compatibility">
+                            <i data-lucide="heart"></i> 96% Match
+                        </div>
+                    </div>
+                    
+                    <!-- Main visual image displaying our highly romantic couple scene -->
+                    <div class="visual-glow-border">
+                        <div class="visual-img-container">
+                            <img src="assets/social_mixer.png" alt="Instadate Premium Mixer Event" class="hero-main-img">
+                            <div class="visual-overlay"></div>
+                            <div class="mixer-status-tag">
+                                <i data-lucide="calendar"></i> Next Mixer: Friday, Mumbai
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- How Instadate Works -->
+        <section class="section how-it-works-section" id="how-it-works">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">The Blueprint</span>
+                    <h2 class="section-title">How Instadate Works</h2>
+                    <p class="section-subtitle">We designed a process that respects your time, values real chemistry, and eliminates the modern swiping lottery.</p>
+                </div>
+
+                <div class="steps-grid">
+                    <!-- Step 1 -->
+                    <div class="step-card glass-card reveal-slide-up">
+                        <div class="step-badge">01</div>
+                        <div class="step-icon-wrapper circle-glow-pink">
+                            <i data-lucide="clipboard-signature" class="step-icon text-pink"></i>
+                        </div>
+                        <h3 class="step-title">Strict Curation Application</h3>
+                        <p class="step-desc">Fill out our quick vibe check. We screen for age (18-28), values, relationship intent, and strict identity verification to lock out bots and catfish.</p>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="step-card glass-card reveal-slide-up">
+                        <div class="step-badge">02</div>
+                        <div class="step-icon-wrapper circle-glow-purple">
+                            <i data-lucide="sparkles" class="step-icon text-purple"></i>
+                        </div>
+                        <h3 class="step-title">Psychological Synergy</h3>
+                        <p class="step-desc">No mindless swiping algorithms. Our human-in-the-loop matching system connects you based on deep emotional core values, hobbies, and mutual dating goals.</p>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="step-card glass-card reveal-slide-up">
+                        <div class="step-badge">03</div>
+                        <div class="step-icon-wrapper circle-glow-cyan">
+                            <i data-lucide="glass-water" class="step-icon text-cyan"></i>
+                        </div>
+                        <h3 class="step-title">Exclusive Club Access</h3>
+                        <p class="step-desc">Unlock direct curated intro chats or invites to our invite-only physical mixer events in premium cities. Safe, thrilling, and extremely fun.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Vibes Dashboard Section -->
+        <section class="section vibes-section" id="vibes">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Your Coordinates</span>
+                    <h2 class="section-title">Choose Your Vibe ✨</h2>
+                    <p class="section-subtitle">We don't group you in generic lists. Select the active communities you want to unlock and find compatible partners instantly.</p>
+                </div>
+
+                <div class="vibes-grid">
+                    <!-- Card 1: Find a Date -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow pink-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-pink">
+                            <span class="vibe-emoji-icon">💘</span>
+                        </div>
+                        <h3 class="vibe-card-title">Find a Date</h3>
+                        <p class="vibe-card-desc">Meet verified people for genuine romantic connections.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Find a Date')">Join Now</button>
+                    </div>
+
+                    <!-- Card 2: Cafe Partner -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow purple-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-purple">
+                            <span class="vibe-emoji-icon">☕</span>
+                        </div>
+                        <h3 class="vibe-card-title">Cafe Partner</h3>
+                        <p class="vibe-card-desc">Find someone for coffee chats, cafe hopping, and cozy conversations.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Cafe Partner')">Join Now</button>
+                    </div>
+
+                    <!-- Card 3: Pickleball Group -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow cyan-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-cyan">
+                            <span class="vibe-emoji-icon">🎾</span>
+                        </div>
+                        <h3 class="vibe-card-title">Pickleball Group</h3>
+                        <p class="vibe-card-desc">Join local pickleball players and social sports meetups.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Pickleball Group')">Join Now</button>
+                    </div>
+
+                    <!-- Card 4: White Flea Buddy -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow pink-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-pink">
+                            <span class="vibe-emoji-icon">🛍️</span>
+                        </div>
+                        <h3 class="vibe-card-title">White Flea Buddy</h3>
+                        <p class="vibe-card-desc">Explore flea markets, shopping events, and pop-ups together.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'White Flea Buddy')">Join Now</button>
+                    </div>
+
+                    <!-- Card 5: Concert Partner -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow purple-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-purple">
+                            <span class="vibe-emoji-icon">🎵</span>
+                        </div>
+                        <h3 class="vibe-card-title">Concert Partner</h3>
+                        <p class="vibe-card-desc">Find people who match your music vibe and attend concerts together.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Concert Partner')">Join Now</button>
+                    </div>
+
+                    <!-- Card 6: Late Night Drive -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow cyan-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-cyan">
+                            <span class="vibe-emoji-icon">🌃</span>
+                        </div>
+                        <h3 class="vibe-card-title">Late Night Drive</h3>
+                        <p class="vibe-card-desc">Connect with spontaneous people for chill night drives and city vibes.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Late Night Drive')">Join Now</button>
+                    </div>
+
+                    <!-- Card 7: Photoshoot Buddy -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow pink-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-pink">
+                            <span class="vibe-emoji-icon">📸</span>
+                        </div>
+                        <h3 class="vibe-card-title">Photoshoot Buddy</h3>
+                        <p class="vibe-card-desc">Meet creators, models, and aesthetic people for content shoots.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Photoshoot Buddy')">Join Now</button>
+                    </div>
+
+                    <!-- Card 8: Travel Buddy -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow purple-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-purple">
+                            <span class="vibe-emoji-icon">✈️</span>
+                        </div>
+                        <h3 class="vibe-card-title">Travel Buddy</h3>
+                        <p class="vibe-card-desc">Find companions for weekend trips, cafes, and travel adventures.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Travel Buddy')">Join Now</button>
+                    </div>
+
+                    <!-- Card 9: Startup Networking -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow cyan-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-cyan">
+                            <span class="vibe-emoji-icon">🚀</span>
+                        </div>
+                        <h3 class="vibe-card-title">Startup Networking</h3>
+                        <p class="vibe-card-desc">Meet ambitious founders, creators, and future business partners.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'Startup Networking')">Join Now</button>
+                    </div>
+
+                    <!-- Card 10: House Party Circle -->
+                    <div class="vibe-card glass-card reveal-slide-up">
+                        <div class="vibe-card-glow pink-glow"></div>
+                        <div class="vibe-icon-wrapper circle-glow-pink">
+                            <span class="vibe-emoji-icon">🪩</span>
+                        </div>
+                        <h3 class="vibe-card-title">House Party Circle</h3>
+                        <p class="vibe-card-desc">Join exclusive social circles, parties, and private events.</p>
+                        <button class="btn btn-outline btn-vibe w-full" onclick="openApplyModal('Premium', 'House Party Circle')">Join Now</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Vibe Matcher Section -->
+        <section class="section vibe-matcher-section" id="vibe-matcher">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Vibe Synchronizer</span>
+                    <h2 class="section-title">Find Your Frequency ⚡</h2>
+                    <p class="section-subtitle">Let's check if your vibe matches our active elite circles. Select your style, soundtrack, and city below to find compatible partners.</p>
+                </div>
+
+                <div class="matcher-container glass-card reveal-slide-up">
+                    <div class="matcher-form-grid">
+                        <!-- Weekend Vibe -->
+                        <div class="form-group">
+                            <label>My Weekend Style</label>
+                            <div class="custom-select-wrapper" id="style-select-wrapper">
+                                <div class="custom-select-trigger">
+                                    <i data-lucide="compass" class="select-icon-left"></i>
+                                    <span class="selected-value-text">Select weekend vibe</span>
+                                    <i data-lucide="chevron-down" class="select-chevron-right"></i>
+                                </div>
+                                <div class="custom-options-container">
+                                    <div class="custom-option selected" data-value="">Select weekend vibe</div>
+                                    <div class="custom-option" data-value="Find a Date">💘 Serious Romantic Dating</div>
+                                    <div class="custom-option" data-value="Cafe Partner">☕ Cozy Cafe Hopping</div>
+                                    <div class="custom-option" data-value="Pickleball Group">🎾 Social Sports & Meetups</div>
+                                    <div class="custom-option" data-value="White Flea Buddy">🛍️ Exploring Pop-up Fleas</div>
+                                    <div class="custom-option" data-value="Concert Partner">🎵 Attending Live Concerts</div>
+                                    <div class="custom-option" data-value="Late Night Drive">🌃 Spontaneous Late Drives</div>
+                                    <div class="custom-option" data-value="Photoshoot Buddy">📸 Creating Aesthetic Shoots</div>
+                                    <div class="custom-option" data-value="Travel Buddy">✈️ Exploring Weekend Roadtrips</div>
+                                    <div class="custom-option" data-value="Startup Networking">🚀 Building New Ventures</div>
+                                    <div class="custom-option" data-value="House Party Circle">🪩 Deep Talks & House Parties</div>
+                                </div>
+                                <input type="hidden" id="matcher-style" value="" required>
+                            </div>
+                        </div>
+
+                        <!-- Soundtrack -->
+                        <div class="form-group">
+                            <label>My Soundtrack</label>
+                            <div class="custom-select-wrapper" id="soundtrack-select-wrapper">
+                                <div class="custom-select-trigger">
+                                    <i data-lucide="music" class="select-icon-left"></i>
+                                    <span class="selected-value-text">Select music vibe</span>
+                                    <i data-lucide="chevron-down" class="select-chevron-right"></i>
+                                </div>
+                                <div class="custom-options-container">
+                                    <div class="custom-option selected" data-value="">Select music vibe</div>
+                                    <div class="custom-option" data-value="Techno">🔊 Techno / Deep House</div>
+                                    <div class="custom-option" data-value="Indie">🎸 Indie / Dream-pop</div>
+                                    <div class="custom-option" data-value="Punjabi">🕺 Punjabi Beats / Diljit</div>
+                                    <div class="custom-option" data-value="HipHop">🎤 Hip Hop / Trap</div>
+                                    <div class="custom-option" data-value="Retro">🎹 Retro 90s Bollywood</div>
+                                </div>
+                                <input type="hidden" id="matcher-soundtrack" value="" required>
+                            </div>
+                        </div>
+
+                        <!-- City -->
+                        <div class="form-group">
+                            <label>My Current City</label>
+                            <div class="custom-select-wrapper" id="matcher-city-wrapper">
+                                <div class="custom-select-trigger">
+                                    <i data-lucide="map-pin" class="select-icon-left"></i>
+                                    <span class="selected-value-text">Select location</span>
+                                    <i data-lucide="chevron-down" class="select-chevron-right"></i>
+                                </div>
+                                <div class="custom-options-container">
+                                    <div class="custom-option selected" data-value="">Select location</div>
+                                    <div class="custom-option" data-value="Mumbai">Mumbai</div>
+                                    <div class="custom-option" data-value="Delhi NCR">Delhi NCR</div>
+                                    <div class="custom-option" data-value="Bangalore">Bangalore</div>
+                                    <div class="custom-option" data-value="Pune">Pune</div>
+                                    <div class="custom-option" data-value="Hyderabad">Hyderabad</div>
+                                </div>
+                                <input type="hidden" id="matcher-city" value="" required>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scan Action Button -->
+                    <button class="btn btn-primary w-full btn-lg btn-glow mt-4" id="vibe-check-btn" onclick="runVibeCalculator()">
+                        Vibe Check Compatibility <i data-lucide="zap" class="btn-arrow"></i>
+                    </button>
+
+                    <!-- Scanning Progress Bar Overlay (Hidden by Default) -->
+                    <div class="scanning-overlay" id="scanning-loader" style="display: none;">
+                        <div class="scanner-laser"></div>
+                        <div class="scanner-container text-center">
+                            <div class="scan-pulse animate-pulse"><i data-lucide="fingerprint" class="scan-finger"></i></div>
+                            <h3 class="scanner-text mt-4">Synchronizing Frequencies...</h3>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="scanner-progress"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Vibe Match Result Area (Hidden by Default) -->
+                    <div class="matcher-result-card text-center" id="matcher-result" style="display: none;">
+                        <div class="result-score-container circle-glow-cyan">
+                            <span class="result-score" id="result-score-text">98%</span>
+                            <span class="result-score-label">Match</span>
+                        </div>
+
+                        <h3 class="result-headline text-gradient-pink mt-4">Vibe Frequency Confirmed!</h3>
+
+                        <div class="matched-profile-glass mt-4">
+                            <div class="matched-user-header">
+                                <div class="matched-avatar" id="result-avatar"></div>
+                                <div class="matched-details">
+                                    <h4 class="matched-name" id="result-match-name">Kavya, 22</h4>
+                                    <p class="matched-city" id="result-match-city"><i data-lucide="map-pin"></i> Mumbai</p>
+                                </div>
+                            </div>
+                            <hr class="result-card-line">
+                            <p class="matched-bio-text" id="result-match-bio">
+                                "Looking for someone to cruise around Bandra at 1 AM listening to Fred again.. and talking about late-night chai. Let's build a real connection."
+                            </p>
+                        </div>
+
+                        <div class="result-actions mt-6">
+                            <button class="btn btn-primary btn-glow btn-lg w-full" id="result-modal-btn">
+                                Claim Match & Apply <i data-lucide="arrow-right" class="btn-arrow"></i>
+                            </button>
+                            <button class="btn btn-outline w-full mt-3" onclick="resetVibeCalculator()">
+                                Check Another Vibe
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Verification & Safety Bento Grid -->
+        <section class="section safety-section" id="safety">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Zero Compromise</span>
+                    <h2 class="section-title">Ironclad Safety & Verification</h2>
+                    <p class="section-subtitle">Your physical and emotional safety is our absolute baseline. We have engineered the safest ecosystem for dating in India.</p>
+                </div>
+
+                <div class="bento-grid">
+                    <!-- Bento Box 1: Large Box for ID Verification -->
+                    <div class="bento-box bento-large glass-card reveal-slide-up">
+                        <div class="bento-content">
+                            <div class="bento-badge safety-badge">
+                                <i data-lucide="shield-check"></i> 100% Verified
+                            </div>
+                            <h3 class="bento-title">Government ID & Face-Match Verification</h3>
+                            <p class="bento-desc">Every single profile is cross-referenced using AI biometrics and valid official IDs. Say goodbye to catfishing, fake avatars, or malicious elements forever. If they are on Instadate, they are exactly who they say they are.</p>
+                            
+                            <div class="bento-visual-diagram">
+                                <div class="id-scan-mockup">
+                                    <div class="scan-line"></div>
+                                    <i data-lucide="user-check" class="scan-icon text-pink"></i>
+                                    <span class="scan-text">InstaID™ Verified</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bento Box 2: Medium Box for Bot Shield -->
+                    <div class="bento-box glass-card reveal-slide-up">
+                        <div class="bento-content">
+                            <div class="bento-icon-box circle-glow-purple">
+                                <i data-lucide="user-minus" class="text-purple"></i>
+                            </div>
+                            <h3 class="bento-title">Strict Anti-Bot Protocol</h3>
+                            <p class="bento-desc">No corporate advertising accounts, no spam accounts, and absolutely zero AI chat bots. Our active human moderating panel vets all messages.</p>
+                        </div>
+                    </div>
+
+                    <!-- Bento Box 3: Medium Box for Safe-Haven Chat -->
+                    <div class="bento-box glass-card reveal-slide-up">
+                        <div class="bento-content">
+                            <div class="bento-icon-box circle-glow-cyan">
+                                <i data-lucide="lock" class="text-cyan"></i>
+                            </div>
+                            <h3 class="bento-title">Safe Haven Interactions</h3>
+                            <p class="bento-desc">Anti-screenshot capabilities, encrypted data storage, and one-tap instantly active SOS reporting to our rapid support squad.</p>
+                        </div>
+                    </div>
+
+                    <!-- Bento Box 4: Large Box for Club Vibe Check -->
+                    <div class="bento-box bento-large glass-card reveal-slide-up">
+                        <div class="bento-content">
+                            <div class="bento-badge social-badge">
+                                <i data-lucide="party-popper"></i> Community Rules
+                            </div>
+                            <h3 class="bento-title">The Social Club Honor Code</h3>
+                            <p class="bento-desc">Instadate isn't just an app; it's a social club. Members who showcase toxic dating behaviors, ghost repeatedly, or display disrespect are immediately blacklisted from the ecosystem. We nurture high-respect, high-emotional intelligence interactions.</p>
+                            
+                            <div class="honor-code-grid">
+                                <div class="honor-item"><i data-lucide="smile"></i> Mutual Respect</div>
+                                <div class="honor-item"><i data-lucide="message-square"></i> Active Honesty</div>
+                                <div class="honor-item"><i data-lucide="shield"></i> Physical Safety First</div>
+                                <div class="honor-item"><i data-lucide="ban"></i> Zero Ghosting Culture</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Membership Pricing -->
+        <section class="section pricing-section" id="pricing">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Exclusive Access</span>
+                    <h2 class="section-title">Choose Your Access Level</h2>
+                    <p class="section-subtitle">Luxury matchmaking tailored to every modern dating preference. Select your exclusive tier.</p>
+                    
+                    <!-- Pricing Toggle -->
+                    <div class="pricing-toggle-container">
+                        <span class="toggle-label active" id="label-monthly">Monthly</span>
+                        <button class="pricing-toggle-btn" id="price-toggle" onclick="togglePricing()">
+                            <span class="toggle-ball"></span>
+                        </button>
+                        <span class="toggle-label" id="label-yearly">Annual <span class="discount-badge">Save 30%</span></span>
+                    </div>
+                </div>
+
+                <div class="pricing-grid">
+                    <!-- Basic Card -->
+                    <div class="pricing-card glass-card reveal-slide-up">
+                        <div class="pricing-header">
+                            <h3 class="tier-name">Basic</h3>
+                            <p class="tier-desc">Perfect entry into our handpicked verified dating network.</p>
+                            <div class="price-container">
+                                <span class="currency">₹</span>
+                                <span class="price-amount" data-monthly="199" data-yearly="139">199</span>
+                                <span class="billing-period">/mo</span>
+                            </div>
+                        </div>
+                        
+                        <div class="pricing-features">
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span>100% ID-Verified Member Pool Access</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span>3 Curated Matches per month</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span>Secure In-App Texting & Voice</span>
+                            </div>
+                            <div class="feature-item text-muted">
+                                <i data-lucide="x" class="feature-icon check-muted"></i>
+                                <span>Dedicated Matchmaking Assistant</span>
+                            </div>
+                            <div class="feature-item text-muted">
+                                <i data-lucide="x" class="feature-icon check-muted"></i>
+                                <span>Invite-only Offline Social Mixers</span>
+                            </div>
+                        </div>
+
+                        <div class="pricing-action">
+                            <button class="btn btn-outline w-full" onclick="openApplyModal('Basic')">Apply for Basic</button>
+                        </div>
+                    </div>
+
+                    <!-- Premium Card (Most Popular) -->
+                    <div class="pricing-card glass-card premium-tier-card reveal-slide-up">
+                        <div class="popular-ribbon">
+                            <i data-lucide="sparkles"></i> MOST POPULAR
+                        </div>
+                        <div class="pricing-header">
+                            <h3 class="tier-name text-gradient-pink">Premium</h3>
+                            <p class="tier-desc">Our flagship matchmaker-driven experience for conscious daters.</p>
+                            <div class="price-container">
+                                <span class="currency">₹</span>
+                                <span class="price-amount" data-monthly="399" data-yearly="279">399</span>
+                                <span class="billing-period">/mo</span>
+                            </div>
+                        </div>
+                        
+                        <div class="pricing-features">
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span>100% ID-Verified Member Pool Access</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span><strong>8 Curated Matches</strong> per month</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span>Secure In-App Texting, Voice & Video</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span><strong>Dedicated Human Matchmaker</strong> support</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-pink"></i>
+                                <span>Invites to Offline Social Mixers (Tier-2)</span>
+                            </div>
+                        </div>
+
+                        <div class="pricing-action">
+                            <button class="btn btn-primary w-full btn-glow" onclick="openApplyModal('Premium')">Apply for Premium</button>
+                        </div>
+                    </div>
+
+                    <!-- Elite Card -->
+                    <div class="pricing-card glass-card reveal-slide-up">
+                        <div class="pricing-header">
+                            <h3 class="tier-name text-gradient-cyan">Elite</h3>
+                            <p class="tier-desc">Ultra-exclusive matching pool with offline bespoke styling & dining events.</p>
+                            <div class="price-container">
+                                <span class="currency">₹</span>
+                                <span class="price-amount" data-monthly="699" data-yearly="489">699</span>
+                                <span class="billing-period">/mo</span>
+                            </div>
+                        </div>
+                        
+                        <div class="pricing-features">
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-cyan"></i>
+                                <span><strong>VIP matching tier</strong> (Exclusive members only)</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-cyan"></i>
+                                <span><strong>Unlimited</strong> curated hand-guided matches</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-cyan"></i>
+                                <span><strong>24/7 Premium Concierge Matchmaker</strong></span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-cyan"></i>
+                                <span><strong>VVIP access passes</strong> to all Offline Mixers</span>
+                            </div>
+                            <div class="feature-item">
+                                <i data-lucide="check" class="feature-icon check-cyan"></i>
+                                <span>Bespoke offline date curating (Reservations, etc)</span>
+                            </div>
+                        </div>
+
+                        <div class="pricing-action">
+                            <button class="btn btn-outline w-full" onclick="openApplyModal('Elite')">Apply for Elite</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Testimonials -->
+        <section class="section testimonials-section" id="testimonials">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Success Stories</span>
+                    <h2 class="section-title">Couples Who Vibe Checked</h2>
+                    <p class="section-subtitle">Real Indian Gen Z couples who skipped the swipes and found their exclusive partner.</p>
+                </div>
+
+                <div class="testimonials-container glass-card">
+                    <!-- Testimonials Track -->
+                    <div class="testimonials-wrapper">
+                        <!-- Testimonial 1 -->
+                        <div class="testimonial-card">
+                            <div class="test-quote">“</div>
+                            <p class="test-text">I was exhausted by standard dating apps in Delhi. It felt like shopping. Instadate's human verification and core value matching helped me meet Ishan. We connected over our love for techno and street food. We are now official and couldn't be happier!”</p>
+                            <hr class="test-line">
+                            <div class="test-user">
+                                <div class="test-avatar test-av-1"></div>
+                                <div class="test-user-info">
+                                    <h4>Riya & Ishan</h4>
+                                    <p>Delhi • Matched in Premium Tier</p>
+                                </div>
+                                <div class="test-heart-pill"><i data-lucide="heart"></i> Official</div>
+                            </div>
+                        </div>
+
+                        <!-- Testimonial 2 -->
+                        <div class="testimonial-card">
+                            <div class="test-quote">“</div>
+                            <p class="test-text">The offline mixers are incredible! There are no awkward blind dates. You are placed in a room of verified high-vibe individuals at an elegant club. I met Ananya at the Mumbai rooftop mixer. Finding a partner was so effortless.</p>
+                            <hr class="test-line">
+                            <div class="test-user">
+                                <div class="test-avatar test-av-2"></div>
+                                <div class="test-user-info">
+                                    <h4>Ananya & Rohit</h4>
+                                    <p>Mumbai • Matched at Rooftop Mixer</p>
+                                </div>
+                                <div class="test-heart-pill"><i data-lucide="glass-water"></i> Official</div>
+                            </div>
+                        </div>
+
+                        <!-- Testimonial 3 -->
+                        <div class="testimonial-card">
+                            <div class="test-quote">“</div>
+                            <p class="test-text">I joined Instadate Elite, and the experience was premium class. No wasting days texting ghost profiles. My concierge hand-curated three dates. The third was Divya. We are both startup founders and vibed instantly on ambition.”</p>
+                            <hr class="test-line">
+                            <div class="test-user">
+                                <div class="test-avatar test-av-3"></div>
+                                <div class="test-user-info">
+                                    <h4>Divya & Kabir</h4>
+                                    <p>Bangalore • Matched in Elite Tier</p>
+                                </div>
+                                <div class="test-heart-pill"><i data-lucide="sparkles"></i> Official</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Slider Navigation dots -->
+                    <div class="testimonial-dots">
+                        <span class="test-dot active" onclick="jumpToTestimonial(0)"></span>
+                        <span class="test-dot" onclick="jumpToTestimonial(1)"></span>
+                        <span class="test-dot" onclick="jumpToTestimonial(2)"></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Instagram-style gallery -->
+        <section class="section gallery-section" id="gallery">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Visual Diary</span>
+                    <h2 class="section-title">Instadate Social Vibe</h2>
+                    <p class="section-subtitle">Catch a glimpse of the social energy, exclusive physical mixers, and aesthetic date coordinates inside the club.</p>
+                </div>
+
+                <div class="gallery-grid">
+                    <!-- Item 1 -->
+                    <div class="gallery-item glass-card reveal-slide-up">
+                        <div class="gallery-img-wrapper">
+                            <div class="gallery-bg-glow scale-1"></div>
+                            <div class="gallery-img-placeholder g-bg-1"></div>
+                            <div class="gallery-info-overlay">
+                                <div class="gallery-meta">
+                                    <span class="g-likes"><i data-lucide="heart"></i> 1.2k</span>
+                                    <span class="g-comments"><i data-lucide="message-circle"></i> 48</span>
+                                </div>
+                                <p class="gallery-caption">Sparks flying at our Mumbai Rooftop Mixer ✨ #InstadateMixer</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 2 -->
+                    <div class="gallery-item glass-card reveal-slide-up">
+                        <div class="gallery-img-wrapper">
+                            <div class="gallery-bg-glow scale-2"></div>
+                            <div class="gallery-img-placeholder g-bg-2"></div>
+                            <div class="gallery-info-overlay">
+                                <div class="gallery-meta">
+                                    <span class="g-likes"><i data-lucide="heart"></i> 894</span>
+                                    <span class="g-comments"><i data-lucide="message-circle"></i> 23</span>
+                                </div>
+                                <p class="gallery-caption">Aesthetic date spots curated for Premium members. 🕯️</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 3 -->
+                    <div class="gallery-item glass-card reveal-slide-up">
+                        <div class="gallery-img-wrapper">
+                            <div class="gallery-bg-glow scale-3"></div>
+                            <div class="gallery-img-placeholder g-bg-3"></div>
+                            <div class="gallery-info-overlay">
+                                <div class="gallery-meta">
+                                    <span class="g-likes"><i data-lucide="heart"></i> 2.1k</span>
+                                    <span class="g-comments"><i data-lucide="message-circle"></i> 92</span>
+                                </div>
+                                <p class="gallery-caption">Handpicking connections based on values, not pixels. 🫶</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 4 -->
+                    <div class="gallery-item glass-card reveal-slide-up">
+                        <div class="gallery-img-wrapper">
+                            <div class="gallery-bg-glow scale-4"></div>
+                            <div class="gallery-img-placeholder g-bg-4"></div>
+                            <div class="gallery-info-overlay">
+                                <div class="gallery-meta">
+                                    <span class="g-likes"><i data-lucide="heart"></i> 643</span>
+                                    <span class="g-comments"><i data-lucide="message-circle"></i> 11</span>
+                                </div>
+                                <p class="gallery-caption">Exclusive Bangalore Club Lounge dating mixers. 🍸</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 5 -->
+                    <div class="gallery-item glass-card reveal-slide-up">
+                        <div class="gallery-img-wrapper">
+                            <div class="gallery-bg-glow scale-1"></div>
+                            <div class="gallery-img-placeholder g-bg-5"></div>
+                            <div class="gallery-info-overlay">
+                                <div class="gallery-meta">
+                                    <span class="g-likes"><i data-lucide="heart"></i> 1.5k</span>
+                                    <span class="g-comments"><i data-lucide="message-circle"></i> 34</span>
+                                </div>
+                                <p class="gallery-caption">Matches that make sense. Official couples share their joy! ❤️</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 6 -->
+                    <div class="gallery-item glass-card reveal-slide-up">
+                        <div class="gallery-img-wrapper">
+                            <div class="gallery-bg-glow scale-2"></div>
+                            <div class="gallery-img-placeholder g-bg-6"></div>
+                            <div class="gallery-info-overlay">
+                                <div class="gallery-meta">
+                                    <span class="g-likes"><i data-lucide="heart"></i> 934</span>
+                                    <span class="g-comments"><i data-lucide="message-circle"></i> 19</span>
+                                </div>
+                                <p class="gallery-caption">Vetted, secure, curated experiences. Say yes to genuine chemistry. 🔗</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Live Event Coordinates Map Section -->
+        <section class="section map-section animate-on-scroll" id="live-map">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Live Coordinates</span>
+                    <h2 class="section-title">Club Event Coordinates 📍</h2>
+                    <p class="section-subtitle">Real-time coordinates of our current offline mixers, secret parties, and elite cafe hoppings in your city.</p>
+                </div>
+
+                <div class="map-grid glass-card reveal-slide-up">
+                    <!-- Map Interactive Sidebar -->
+                    <div class="map-sidebar">
+                        <!-- Tab switcher -->
+                        <div class="map-tab-container" id="map-tab-wrapper">
+                            <div class="map-tab-slider"></div>
+                            <button class="map-tab-btn active" id="btn-tab-event" onclick="switchMapLayer('event')">
+                                <i data-lucide="radar"></i> Live Event
+                            </button>
+                            <button class="map-tab-btn" id="btn-tab-couples" onclick="switchMapLayer('couples')">
+                                <i data-lucide="heart"></i> Success Matches
+                            </button>
+                            <button class="map-tab-btn" id="btn-tab-members" onclick="switchMapLayer('members')">
+                                <i data-lucide="users"></i> Active Members
+                            </button>
+                        </div>
+
+                        <!-- Panel 1: Live Event Details -->
+                        <div id="map-event-panel">
+                            <div class="event-status-badge">
+                                <span class="status-dot pulse-animation"></span> LIVE NOW: MUMBAI MIXER
+                            </div>
+                            <h3 class="map-event-title">Midnight Mirage Rooftop Mixer 🪩</h3>
+                            <p class="map-event-desc">Our flagship weekly social gathering. Mingle with verified high-value members, listen to deep tech-house, and enjoy curated mocktails under the stars.</p>
+                            
+                            <div class="map-details-list">
+                                <div class="map-detail-item">
+                                    <i data-lucide="map-pin" class="text-pink"></i>
+                                    <div>
+                                        <h4>Secret Rooftop Lounge</h4>
+                                        <p>Linking Road, Bandra West, Mumbai</p>
+                                    </div>
+                                </div>
+                                <div class="map-detail-item">
+                                    <i data-lucide="clock" class="text-purple"></i>
+                                    <div>
+                                        <h4>Date & Time</h4>
+                                        <p>Tonight, 9:00 PM onwards</p>
+                                    </div>
+                                </div>
+                                <div class="map-detail-item">
+                                    <i data-lucide="users" class="text-cyan"></i>
+                                    <div>
+                                        <h4>RSVP Status</h4>
+                                        <p><strong>82 Members</strong> attending • 8 Spots left</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="map-rsvp-box glass-card">
+                                <p class="rsvp-warning"><i data-lucide="shield-alert"></i> Strict 18–28 age check & active membership pass required at door.</p>
+                                <button class="btn btn-primary w-full btn-glow" onclick="openApplyModal('Premium', 'House Party Circle')">
+                                    Request Entry Pass <i data-lucide="ticket" class="btn-arrow"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Panel 2: Success Couples list (Hidden by default) -->
+                        <div id="map-couples-panel" style="display: none;">
+                            <div class="event-status-badge">
+                                <span class="status-dot pulse-animation" style="background-color: var(--primary-purple); box-shadow: 0 0 10px var(--primary-purple);"></span> LOVE RADAR
+                            </div>
+                            <h3 class="map-event-title" style="font-size: 1.5rem; margin-bottom: 0.5rem;">Match Coordinates 💖</h3>
+                            <p class="map-event-desc" style="font-size: 0.8rem; margin-bottom: 1rem;">Click on any couple card to zoom the live coordinates map to their romantic match location!</p>
+                            
+                            <div class="couples-sidebar-list">
+                                <!-- Couple 1 -->
+                                <div class="couple-map-card glass-card" onclick="focusCoupleMatch(0)">
+                                    <div class="couple-map-header">
+                                        <div class="couple-map-avatar test-av-1"></div>
+                                        <div>
+                                            <h4>Riya & Ishan</h4>
+                                            <p class="text-purple" style="font-size: 0.75rem; font-weight: bold; margin: 0;">Delhi NCR • Matched in Premium</p>
+                                        </div>
+                                    </div>
+                                    <p class="couple-map-quote">"Connected over techno and street food. We are now official and couldn't be happier!"</p>
+                                </div>
+
+                                <!-- Couple 2 -->
+                                <div class="couple-map-card glass-card" onclick="focusCoupleMatch(1)">
+                                    <div class="couple-map-header">
+                                        <div class="couple-map-avatar test-av-2"></div>
+                                        <div>
+                                            <h4>Ananya & Rohit</h4>
+                                            <p class="text-pink" style="font-size: 0.75rem; font-weight: bold; margin: 0;">Mumbai • Matched at Mixer</p>
+                                        </div>
+                                    </div>
+                                    <p class="couple-map-quote">"Met at the Rooftop Mixer. Effortless conversation, zero awkwardness, instant chemistry."</p>
+                                </div>
+
+                                <!-- Couple 3 -->
+                                <div class="couple-map-card glass-card" onclick="focusCoupleMatch(2)">
+                                    <div class="couple-map-header">
+                                        <div class="couple-map-avatar test-av-3"></div>
+                                        <div>
+                                            <h4>Divya & Kabir</h4>
+                                            <p class="text-cyan" style="font-size: 0.75rem; font-weight: bold; margin: 0;">Bangalore • Matched in Elite</p>
+                                        </div>
+                                    </div>
+                                    <p class="couple-map-quote">"Both startup founders. Vibed instantly on ambition and values alignment."</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Panel 3: Active Members list (Hidden by default) -->
+                        <div id="map-members-panel" style="display: none;">
+                            <div class="event-status-badge" style="background: rgba(37, 211, 102, 0.1); color: var(--whatsapp-green); border-color: rgba(37, 211, 102, 0.2);">
+                                <span class="status-dot pulse-animation" style="background-color: var(--whatsapp-green); box-shadow: 0 0 10px var(--whatsapp-green);"></span> LIVE TELEMETRY
+                            </div>
+                            <h3 class="map-event-title" style="font-size: 1.5rem; margin-bottom: 0.5rem;">Active Members ⚡</h3>
+                            <p class="map-event-desc" style="font-size: 0.8rem; margin-bottom: 1rem;">Verified members active on this page right now. Click to fly the map to their live location!</p>
+                            
+                            <div class="couples-sidebar-list">
+                                <!-- Member 1 -->
+                                <div class="couple-map-card glass-card" onclick="focusActiveMember(0)">
+                                    <div class="couple-map-header">
+                                        <div class="couple-map-avatar active-av-1"></div>
+                                        <div style="flex-grow: 1; min-width: 0;">
+                                            <h4 style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Kavya, 22</span>
+                                                <span class="member-status-pill"><span class="online-indicator"></span> Online</span>
+                                            </h4>
+                                            <p class="text-pink" style="font-size: 0.75rem; font-weight: bold; margin: 0;">Mumbai • Cafe Partner</p>
+                                        </div>
+                                    </div>
+                                    <p class="couple-map-quote" style="font-style: normal; color: var(--text-secondary); margin-top: 4px;">"Looking for a cozy coffee spot around Bandra. Active Vibe: Sunsets & Tech House 🎧"</p>
+                                </div>
+
+                                <!-- Member 2 -->
+                                <div class="couple-map-card glass-card" onclick="focusActiveMember(1)">
+                                    <div class="couple-map-header">
+                                        <div class="couple-map-avatar active-av-2"></div>
+                                        <div style="flex-grow: 1; min-width: 0;">
+                                            <h4 style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Rohan, 24</span>
+                                                <span class="member-status-pill"><span class="online-indicator"></span> Online</span>
+                                            </h4>
+                                            <p class="text-purple" style="font-size: 0.75rem; font-weight: bold; margin: 0;">Delhi NCR • Concert Buddy</p>
+                                        </div>
+                                    </div>
+                                    <p class="couple-map-quote" style="font-style: normal; color: var(--text-secondary); margin-top: 4px;">"Looking for partners for upcoming music festivals. Active Vibe: Espresso & Indietechnical ☕"</p>
+                                </div>
+
+                                <!-- Member 3 -->
+                                <div class="couple-map-card glass-card" onclick="focusActiveMember(2)">
+                                    <div class="couple-map-header">
+                                        <div class="couple-map-avatar active-av-3"></div>
+                                        <div style="flex-grow: 1; min-width: 0;">
+                                            <h4 style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Zara, 23</span>
+                                                <span class="member-status-pill"><span class="online-indicator"></span> Online</span>
+                                            </h4>
+                                            <p class="text-cyan" style="font-size: 0.75rem; font-weight: bold; margin: 0;">Bangalore • Travel Buddy</p>
+                                        </div>
+                                    </div>
+                                    <p class="couple-map-quote" style="font-style: normal; color: var(--text-secondary); margin-top: 4px;">"Let's explore indie bookstores. Active Vibe: Thrifted hoodies & film cameras 📸"</p>
+                                </div>
+
+                                <!-- Launch Full Profiles Portal -->
+                                <div style="margin-top: 1.25rem;">
+                                    <a href="active-users.html" class="btn btn-primary w-full text-center" style="display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.5); box-shadow: 0 0 20px rgba(255, 107, 107, 0.25); background: linear-gradient(135deg, var(--primary-pink), var(--primary-purple)); border: none; font-size: 0.85rem; padding: 0.75rem 1rem; border-radius: 12px; text-decoration: none;">
+                                        <span>Launch Full Profiles Portal</span>
+                                        <i data-lucide="external-link" style="width: 14px; height: 14px;"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Map Visual Display -->
+                    <div class="map-visual-container" style="padding: 0; background: #020203;">
+                        <!-- Real Leaflet Map Container -->
+                        <div id="interactive-leaflet-map" style="width: 100%; height: 100%; min-height: 420px; z-index: 1;"></div>
+                        
+                        <!-- Premium overlay card -->
+                        <div class="map-floating-glass" style="top: 20px; left: 20px; z-index: 2; pointer-events: none;">
+                            <div class="floating-glass-header">
+                                <i data-lucide="radar" class="text-pink animate-spin-slow"></i>
+                                <div>
+                                    <h5>PULSE RADAR</h5>
+                                    <p class="text-pink">Active Ping • Mumbai Sector</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FAQ section -->
+        <section class="section faq-section" id="faq">
+            <div class="container">
+                <div class="section-header text-center">
+                    <span class="section-tag font-outfit">Curiosity Room</span>
+                    <h2 class="section-title">Frequently Asked Questions</h2>
+                    <p class="section-subtitle">Everything you need to know about India's most curated matchmaking ecosystem.</p>
+                </div>
+
+                <div class="faq-accordion">
+                    <!-- FAQ 1 -->
+                    <div class="faq-item glass-card">
+                        <button class="faq-trigger" onclick="toggleFaq(this)">
+                            <span>How does the screening/curation process work?</span>
+                            <i data-lucide="chevron-down" class="faq-chevron"></i>
+                        </button>
+                        <div class="faq-content">
+                            <p>Once you submit your application, our curation board reviews your answers. We verify your government ID (Aadhaar/Passport/DL) and face-scan to confirm you are real. We screen for age (strictly 18-28), city, relationship goals, and social conduct. Standard approvals take 24–48 hours depending on queue size.</p>
+                        </div>
+                    </div>
+
+                    <!-- FAQ 2 -->
+                    <div class="faq-item glass-card">
+                        <button class="faq-trigger" onclick="toggleFaq(this)">
+                            <span>Is this matching done by AI or real humans?</span>
+                            <i data-lucide="chevron-down" class="faq-chevron"></i>
+                        </button>
+                        <div class="faq-content">
+                            <p>We use a hybrid approach! While secure systems analyze structural preferences and values compatibility, all final matches are reviewed, curated, and custom-approved by our professional human matchmakers. This human touch prevents swipe fatigue and delivers high emotional accuracy.</p>
+                        </div>
+                    </div>
+
+                    <!-- FAQ 3 -->
+                    <div class="faq-item glass-card">
+                        <button class="faq-trigger" onclick="toggleFaq(this)">
+                            <span>What happens at the offline social mixers?</span>
+                            <i data-lucide="chevron-down" class="faq-chevron"></i>
+                        </button>
+                        <div class="faq-content">
+                            <p>Our offline mixers are exclusive social gatherings held in high-end partner rooftop lounges and speakeasies. The atmosphere is high-vibe, safe, and curated. There are active conversation icebreakers, custom cocktails/mocktails, and matchmakers present to introduce you to compatible members smoothly. Guests must be verified members to purchase entry passes.</p>
+                        </div>
+                    </div>
+
+                    <!-- FAQ 4 -->
+                    <div class="faq-item glass-card">
+                        <button class="faq-trigger" onclick="toggleFaq(this)">
+                            <span>Is there a strict refund policy on memberships?</span>
+                            <i data-lucide="chevron-down" class="faq-chevron"></i>
+                        </button>
+                        <div class="faq-content">
+                            <p>Yes. If we fail to deliver verified compatibility matches during your active membership month, we refund 100% of your membership fee, no questions asked. We pride ourselves on relationship integrity and value.</p>
+                        </div>
+                    </div>
+
+                    <!-- FAQ 5 -->
+                    <div class="faq-item glass-card">
+                        <button class="faq-trigger" onclick="toggleFaq(this)">
+                            <span>Can I pause my membership if I meet someone?</span>
+                            <i data-lucide="chevron-down" class="faq-chevron"></i>
+                        </button>
+                        <div class="faq-content">
+                            <p>Absolutely! That is the ultimate goal. You can pause or freeze your subscription at any time with one click inside your settings panel, saving your matching balance for whenever you need it.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- WhatsApp contact CTA & Bottom Banner -->
+        <section class="section whatsapp-cta-section" id="contact">
+            <div class="container">
+                <div class="whatsapp-banner glass-card text-center reveal-slide-up">
+                    <div class="wa-badge circle-glow-green">
+                        <i data-lucide="message-square" class="wa-icon-main"></i>
+                    </div>
+                    
+                    <h2 class="wa-banner-title">Prefer to chat on WhatsApp?</h2>
+                    
+                    <p class="wa-banner-subtitle">
+                        Skip the forms! Talk directly with our Chief Matchmaking Concierge. Get verified, ask questions, or apply instantly over text.
+                    </p>
+
+                    <div class="wa-actions">
+                        <a href="https://wa.me/919999999999?text=Hey%20Instadate,%20I'm%20interested%20in%20applying%20for%20the%20exclusive%20dating%20club!" target="_blank" class="btn btn-whatsapp btn-lg btn-glow">
+                            <i class="wa-whatsapp-icon"></i> Chat with Matchmaker
+                        </a>
+                        <button class="btn btn-outline btn-lg" onclick="openApplyModal()">
+                            Open Application Form
+                        </button>
+                    </div>
+
+                    <div class="wa-trust-indicators">
+                        <span><i data-lucide="shield-check"></i> Vibe Vetted</span>
+                        <span><i data-lucide="sparkles"></i> 2-Min Response</span>
+                        <span><i data-lucide="users"></i> Live Matchmakers</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container footer-grid">
+            <div class="footer-brand">
+                <a href="#" class="logo footer-logo">
+                    <span class="logo-text-gradient">Instadate</span>
+                </a>
+                <p class="footer-tagline">“Find a partner, not a match.”</p>
+                <p class="footer-desc">India's leading futuristic matchmaking social club for young conscious adults.</p>
+            </div>
+
+            <div class="footer-links-col">
+                <h4 class="footer-title">Club</h4>
+                <ul class="footer-links">
+                    <li><a href="#how-it-works">How It Works</a></li>
+                    <li><a href="#pricing">Memberships</a></li>
+                    <li><a href="#safety">Safety Shield</a></li>
+                    <li><a href="#testimonials">Stories</a></li>
+                    <li><a href="active-users.html">Active Users</a></li>
+                </ul>
+            </div>
+
+            <div class="footer-links-col">
+                <h4 class="footer-title">Legal</h4>
+                <ul class="footer-links">
+                    <li><a href="#privacy">Privacy Code</a></li>
+                    <li><a href="#terms">Honor Terms</a></li>
+                    <li><a href="#cookies">Cookie Policy</a></li>
+                    <li><a href="#safety">Safety Pledge</a></li>
+                </ul>
+            </div>
+
+            <div class="footer-links-col">
+                <h4 class="footer-title">Get in Touch</h4>
+                <p class="footer-contact-info"><i data-lucide="mail"></i> concierge@instadate.club</p>
+                <p class="footer-contact-info"><i data-lucide="map-pin"></i> Bandra West, Mumbai, MH</p>
+                <div class="footer-socials">
+                    <a href="https://instagram.com" target="_blank" class="social-icon-link" aria-label="Instagram"><i data-lucide="instagram"></i></a>
+                    <a href="https://twitter.com" target="_blank" class="social-icon-link" aria-label="Twitter"><i data-lucide="twitter"></i></a>
+                    <a href="https://linkedin.com" target="_blank" class="social-icon-link" aria-label="LinkedIn"><i data-lucide="linkedin"></i></a>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-bottom text-center">
+            <div class="age-restriction-tag">
+                <i data-lucide="info"></i> Strictly 18–28 Years Only. Verification Required.
+            </div>
+            <p class="copyright-text">&copy; 2026 Instadate Social Club Inc. Made with ❤️ for Indian Gen Z.</p>
+        </div>
+    </footer>
+
+    <!-- Floating Quick WhatsApp Helper Badge -->
+    <a href="https://wa.me/919999999999?text=Hey%20Instadate,%20I'm%20interested%20in%20applying%20for%20the%20exclusive%20dating%20club!" target="_blank" class="floating-wa-badge" aria-label="Chat on WhatsApp">
+        <i class="wa-whatsapp-icon font-24"></i>
+        <span class="floating-wa-pulse"></span>
+    </a>
+
+    <div class="apply-modal-overlay" id="apply-modal" onclick="closeApplyModalOnOverlay(event)">
+        <div class="apply-modal glass-card">
+            <button class="modal-close-btn" onclick="closeApplyModal()" aria-label="Close modal">
+                <i data-lucide="x"></i>
+            </button>
+            
+            <div class="modal-body-container">
+                <!-- Modal Step Progress Tracker -->
+                <div class="onboard-progress-container" id="onboard-progress-container">
+                    <div class="onboard-progress-line">
+                        <div class="onboard-progress-fill" id="onboard-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="onboard-steps-labels">
+                        <div class="onboard-step active" data-step="1" id="step-label-1"><span class="step-num">1</span><span class="step-lbl">Sign In</span></div>
+                        <div class="onboard-step" data-step="2" id="step-label-2"><span class="step-num">2</span><span class="step-lbl">Profile</span></div>
+                        <div class="onboard-step" data-step="3" id="step-label-3"><span class="step-num">3</span><span class="step-lbl">Vibe Check</span></div>
+                        <div class="onboard-step" data-step="4" id="step-label-4"><span class="step-num">4</span><span class="step-lbl">Benefits</span></div>
+                        <div class="onboard-step" data-step="5" id="step-label-5"><span class="step-num">5</span><span class="step-lbl">Checkout</span></div>
+                        <div class="onboard-step" data-step="6" id="step-label-6"><span class="step-num">6</span><span class="step-lbl">Review</span></div>
+                    </div>
+                </div>
+
+                <!-- STAGE 1: SIGN IN / SIGN UP -->
+                <div class="onboard-stage-panel" id="onboard-stage-auth">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-purple">
+                            <i data-lucide="lock-keyhole" class="text-purple"></i>
+                        </div>
+                        <h2 class="modal-title">Your Next Real Relationship Starts Here</h2>
+                        <p class="modal-subtitle">Sign Up / Sign In in seconds to continue your curation request.</p>
+                        <div class="modal-tier-pill" id="auth-tier-pill" style="display: none;">
+                            Selected Plan: <span id="auth-tier-name">Premium</span>
+                        </div>
+                    </div>
+
+                    <div class="signin-options">
+                        <!-- Google Sign-In -->
+                        <button class="signin-btn signin-google" onclick="handleOnboardGoogleSignIn()">
+                            <svg class="signin-btn-icon" viewBox="0 0 24 24" width="22" height="22">
+                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                            </svg>
+                            Continue with Google
+                        </button>
+
+                        <div class="signin-divider">
+                            <span>or</span>
+                        </div>
+
+                        <!-- Phone Number Sign-In -->
+                        <form id="onboard-phone-form" onsubmit="handleOnboardPhoneSignIn(event)">
+                            <div class="form-group text-left">
+                                <label for="onboard-signin-phone">WhatsApp Phone Number</label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="smartphone" class="input-icon"></i>
+                                    <input type="tel" id="onboard-signin-phone" pattern="[0-9]{10}" placeholder="10-digit mobile number" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-full btn-lg btn-glow mt-4">
+                                Send Verification OTP <i data-lucide="arrow-right" class="btn-arrow"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- STAGE 1b: OTP STAGE -->
+                <div class="onboard-stage-panel" id="onboard-stage-otp" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-cyan">
+                            <i data-lucide="shield-check" class="text-cyan"></i>
+                        </div>
+                        <h2 class="modal-title">Enter Verification Code</h2>
+                        <p class="modal-subtitle">We sent a 6-digit OTP code to <span id="onboard-otp-phone-display" class="text-pink font-semibold"></span></p>
+                    </div>
+
+                    <form id="onboard-otp-verify-form" onsubmit="handleOnboardOtpVerify(event)">
+                        <div class="otp-input-group">
+                            <input type="text" maxlength="1" class="otp-box onboard-otp-box" data-otp-index="0" inputmode="numeric" required>
+                            <input type="text" maxlength="1" class="otp-box onboard-otp-box" data-otp-index="1" inputmode="numeric" required>
+                            <input type="text" maxlength="1" class="otp-box onboard-otp-box" data-otp-index="2" inputmode="numeric" required>
+                            <input type="text" maxlength="1" class="otp-box onboard-otp-box" data-otp-index="3" inputmode="numeric" required>
+                            <input type="text" maxlength="1" class="otp-box onboard-otp-box" data-otp-index="4" inputmode="numeric" required>
+                            <input type="text" maxlength="1" class="otp-box onboard-otp-box" data-otp-index="5" inputmode="numeric" required>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-full btn-lg btn-glow mt-6">
+                            Verify OTP & Continue <i data-lucide="check" class="btn-arrow"></i>
+                        </button>
+
+                        <p class="signin-resend-text text-center mt-4">
+                            Didn't receive? <button type="button" class="signin-resend-btn" onclick="resendOnboardOtp()">Resend OTP</button>
+                        </p>
+                    </form>
+                </div>
+
+                <!-- STAGE 2: PROFILE COMPLETION -->
+                <div class="onboard-stage-panel" id="onboard-stage-profile" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-pink">
+                            <i data-lucide="user-cog" class="text-pink"></i>
+                        </div>
+                        <h2 class="modal-title">Complete Your Club Profile</h2>
+                        <p class="modal-subtitle">Let the community know your vibe.</p>
+                    </div>
+
+                    <form id="onboard-profile-form" onsubmit="handleOnboardProfileSubmit(event)">
+                        <div class="form-row-grid">
+                            <div class="form-group text-left">
+                                <label for="onboard-profile-name">Full Name <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="user" class="input-icon"></i>
+                                    <input type="text" id="onboard-profile-name" placeholder="Ishaan Sharma" required>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group text-left">
+                                <label for="onboard-profile-age">Age (18-28 Only) <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="calendar" class="input-icon"></i>
+                                    <input type="number" id="onboard-profile-age" min="18" max="28" placeholder="22" required>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row-grid">
+                            <div class="form-group text-left">
+                                <label for="onboard-profile-instagram">Instagram Handle <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="instagram" class="input-icon"></i>
+                                    <input type="text" id="onboard-profile-instagram" placeholder="@ishaan_s" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group text-left">
+                                <label>City <span class="required">*</span></label>
+                                <div class="custom-select-wrapper" id="onboard-profile-city-wrapper">
+                                    <div class="custom-select-trigger">
+                                        <i data-lucide="map-pin" class="select-icon-left"></i>
+                                        <span class="selected-value-text">Select city</span>
+                                        <i data-lucide="chevron-down" class="select-chevron-right"></i>
+                                    </div>
+                                    <div class="custom-options-container">
+                                        <div class="custom-option" data-value="Mumbai">Mumbai</div>
+                                        <div class="custom-option" data-value="Delhi NCR">Delhi NCR</div>
+                                        <div class="custom-option" data-value="Bangalore">Bangalore</div>
+                                        <div class="custom-option" data-value="Pune">Pune</div>
+                                        <div class="custom-option" data-value="Hyderabad">Hyderabad</div>
+                                    </div>
+                                    <input type="hidden" id="onboard-profile-city" value="" required>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row-grid">
+                            <div class="form-group text-left">
+                                <label for="onboard-profile-whatsapp">WhatsApp Number <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="phone" class="input-icon"></i>
+                                    <input type="tel" id="onboard-profile-whatsapp" pattern="[0-9]{10}" placeholder="WhatsApp number" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group text-left">
+                                <label>Looking for <span class="required">*</span></label>
+                                <div class="custom-select-wrapper" id="onboard-profile-interest-wrapper">
+                                    <div class="custom-select-trigger">
+                                        <i data-lucide="heart-handshake" class="select-icon-left"></i>
+                                        <span class="selected-value-text">Select preference</span>
+                                        <i data-lucide="chevron-down" class="select-chevron-right"></i>
+                                    </div>
+                                    <div class="custom-options-container">
+                                        <div class="custom-option" data-value="Men">Men</div>
+                                        <div class="custom-option" data-value="Women">Women</div>
+                                        <div class="custom-option" data-value="Everyone">Everyone</div>
+                                    </div>
+                                    <input type="hidden" id="onboard-profile-interest" value="" required>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group text-left">
+                            <label for="onboard-profile-bio">What makes you a high-value partner? <span class="required">*</span></label>
+                            <textarea id="onboard-profile-bio" rows="2" placeholder="My vibe statement, passions, and core values..." required></textarea>
+                        </div>
+
+                        <!-- Interactive Curated presets selector -->
+                        <div class="form-group text-left">
+                            <label>Pick Your Visual Archetype <span class="required">*</span></label>
+                            <div class="avatar-presets-grid">
+                                <div class="avatar-preset-card active" data-avatar="neon-cupid" onclick="selectPresetAvatar('neon-cupid')">
+                                    <div class="preset-avatar-circle cupid-glow">💘</div>
+                                    <span class="preset-avatar-name">Neon Cupid</span>
+                                </div>
+                                <div class="avatar-preset-card" data-avatar="mystic-dreamer" onclick="selectPresetAvatar('mystic-dreamer')">
+                                    <div class="preset-avatar-circle dreamer-glow">✨</div>
+                                    <span class="preset-avatar-name">Mystic Dreamer</span>
+                                </div>
+                                <div class="avatar-preset-card" data-avatar="cyber-flirt" onclick="selectPresetAvatar('cyber-flirt')">
+                                    <div class="preset-avatar-circle cyber-glow">👾</div>
+                                    <span class="preset-avatar-name">Cyber Flirt</span>
+                                </div>
+                                <div class="avatar-preset-card" data-avatar="golden-glow" onclick="selectPresetAvatar('golden-glow')">
+                                    <div class="preset-avatar-circle golden-glow-class">👑</div>
+                                    <span class="preset-avatar-name">Golden Glow</span>
+                                </div>
+                                <div class="avatar-preset-card" data-avatar="ruby-seduction" onclick="selectPresetAvatar('ruby-seduction')">
+                                    <div class="preset-avatar-circle ruby-glow">🌹</div>
+                                    <span class="preset-avatar-name">Ruby Vibe</span>
+                                </div>
+                                <div class="avatar-preset-card" data-avatar="silver-spark" onclick="selectPresetAvatar('silver-spark')">
+                                    <div class="preset-avatar-circle silver-glow">💎</div>
+                                    <span class="preset-avatar-name">Silver Spark</span>
+                                </div>
+                            </div>
+                            <input type="hidden" id="onboard-profile-avatar" value="neon-cupid">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-full btn-lg btn-glow mt-4">
+                            Save & Continue to Vibe Check <i data-lucide="arrow-right" class="btn-arrow"></i>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- STAGE 3: COMPATIBILITY QUESTIONS -->
+                <div class="onboard-stage-panel" id="onboard-stage-compatibility" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-cyan">
+                            <i data-lucide="sparkles" class="text-cyan"></i>
+                        </div>
+                        <h2 class="modal-title">Compatibility Vibe Check</h2>
+                        <p class="modal-subtitle">Answer 3 simple questions to calculate your mutual alignment quotient.</p>
+                    </div>
+
+                    <div class="compatibility-quiz-container">
+                        <!-- Question 1 -->
+                        <div class="quiz-question-card active" data-q-index="1">
+                            <p class="quiz-question-title">1. What defines your absolute ideal weekend evening?</p>
+                            <div class="quiz-options-list">
+                                <div class="quiz-option-item" onclick="selectQuizOption(1, 'A', this)">
+                                    <span class="quiz-option-letter">A</span>
+                                    <span class="quiz-option-text">Cozy cafe reading / Acoustic guitar & warm conversations ☕</span>
+                                </div>
+                                <div class="quiz-option-item" onclick="selectQuizOption(1, 'B', this)">
+                                    <span class="quiz-option-letter">B</span>
+                                    <span class="quiz-option-text">High-energy techno beats on a Bandra rooftop lounge 🌃</span>
+                                </div>
+                                <div class="quiz-option-item" onclick="selectQuizOption(1, 'C', this)">
+                                    <span class="quiz-option-letter">C</span>
+                                    <span class="quiz-option-text">Curating a secret culinary trail / street-food hunting 🍣</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Question 2 -->
+                        <div class="quiz-question-card" data-q-index="2" style="display: none;">
+                            <p class="quiz-question-title">2. In a conscious connection, what is your primary love language?</p>
+                            <div class="quiz-options-list">
+                                <div class="quiz-option-item" onclick="selectQuizOption(2, 'A', this)">
+                                    <span class="quiz-option-letter">A</span>
+                                    <span class="quiz-option-text">Intellectual validation & deep, vulnerable late-night voice calls 🧠</span>
+                                </div>
+                                <div class="quiz-option-item" onclick="selectQuizOption(2, 'B', this)">
+                                    <span class="quiz-option-letter">B</span>
+                                    <span class="quiz-option-text">Thoughtful acts, customized letters, and micro-surprises 🎁</span>
+                                </div>
+                                <div class="quiz-option-item" onclick="selectQuizOption(2, 'C', this)">
+                                    <span class="quiz-option-letter">C</span>
+                                    <span class="quiz-option-text">Spontaneous weekend road trips, hiking, and physical presence ✈️</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Question 3 -->
+                        <div class="quiz-question-card" data-q-index="3" style="display: none;">
+                            <p class="quiz-question-title">3. Which energy profile matches your typical social frequency?</p>
+                            <div class="quiz-options-list">
+                                <div class="quiz-option-item" onclick="selectQuizOption(3, 'A', this)">
+                                    <span class="quiz-option-letter">A</span>
+                                    <span class="quiz-option-text">Intimate Ambience (Recharging in small 1-on-1 bubbles) 🤫</span>
+                                </div>
+                                <div class="quiz-option-item" onclick="selectQuizOption(3, 'B', this)">
+                                    <span class="quiz-option-letter">B</span>
+                                    <span class="quiz-option-text">Social Butterfly (Vibrant, high-energy gatherings) 🦋</span>
+                                </div>
+                                <div class="quiz-option-item" onclick="selectQuizOption(3, 'C', this)">
+                                    <span class="quiz-option-letter">C</span>
+                                    <span class="quiz-option-text">Fluid Spectrum (Perfect mix of deep chill & dancing nights) ⚖️</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Progress indicator within quiz -->
+                    <div class="quiz-footer-meta mt-6 text-center">
+                        <span class="quiz-tracker-text">Question <span id="quiz-current-q">1</span> of 3</span>
+                        <div class="quiz-dot-indicators mt-2">
+                            <span class="quiz-dot active" data-q="1"></span>
+                            <span class="quiz-dot" data-q="2"></span>
+                            <span class="quiz-dot" data-q="3"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STAGE 4: PREMIUM UPGRADE PITCH -->
+                <div class="onboard-stage-panel" id="onboard-stage-pitch" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-pink">
+                            <i data-lucide="trending-up" class="text-pink"></i>
+                        </div>
+                        <h2 class="modal-title">Compatibility Index Calculated</h2>
+                        <h3 class="compatibility-match-score text-gradient-pink font-bold mt-2 font-outfit" style="font-size: 2.5rem;">96% MATCH</h3>
+                        <p class="modal-subtitle max-w-sm mx-auto mt-2">Outstanding score! You are a highly-rated candidate for the exclusive Instadate Club.</p>
+                    </div>
+
+                    <div class="pitch-container glass-card mt-4 p-4 text-center">
+                        <h4 class="pitch-card-title text-cyan" id="pitch-tier-display">Premium Club Plan</h4>
+                        <p class="pitch-card-description mt-2 text-muted">Elevate your conscious matching cycle with personalized matchmaking and offline socials.</p>
+                        
+                        <div class="price-container justify-center mt-3 mb-3">
+                            <span class="currency">₹</span>
+                            <span class="price-amount" id="pitch-price-display">399</span>
+                            <span class="billing-period">/mo</span>
+                        </div>
+
+                        <button class="btn btn-primary w-full btn-glow btn-lg mt-3" onclick="goToOnboardStage(5)">
+                            Unlock Premium Benefits <i data-lucide="sparkles" class="btn-arrow"></i>
+                        </button>
+                        <button type="button" class="btn-explore-free w-full mt-3" onclick="skipToFreeTierOnboard()">
+                            Explore for Free ➔
+                        </button>
+                    </div>
+                </div>
+
+                <!-- STAGE 5: PREMIUM BENEFITS SCREEN -->
+                <div class="onboard-stage-panel" id="onboard-stage-benefits" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-cyan">
+                            <i data-lucide="gem" class="text-cyan"></i>
+                        </div>
+                        <h2 class="modal-title">Exclusive Club Benefits</h2>
+                        <p class="modal-subtitle">Here is everything included in your handpicked member tier.</p>
+                    </div>
+
+                    <div class="benefits-scroller glass-card p-4 mt-4">
+                        <div class="onboard-features-list" id="onboard-benefits-list">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary w-full btn-lg btn-glow mt-6" onclick="goToOnboardStage(6)">
+                        Proceed to Secure Payment <i data-lucide="credit-card" class="btn-arrow"></i>
+                    </button>
+                    <button type="button" class="btn-explore-free w-full mt-3" onclick="skipToFreeTierOnboard()">
+                        Explore for Free ➔
+                    </button>
+                </div>
+
+                <!-- STAGE 6: SECURE PAYMENT -->
+                <div class="onboard-stage-panel" id="onboard-stage-payment" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-green">
+                            <i data-lucide="shield-check" class="text-green"></i>
+                        </div>
+                        <h2 class="modal-title">Secure Checkout</h2>
+                        <p class="modal-subtitle">Transaction processed via verified payment networks.</p>
+                    </div>
+
+                    <div class="payment-card-body mt-4">
+                        <div class="payment-summary glass-card p-3 mb-4 d-flex justify-between align-center">
+                            <span class="text-muted">Total Due:</span>
+                            <span class="text-white font-bold font-outfit" id="payment-amount-display">₹399 / month</span>
+                        </div>
+
+                        <div class="payment-tabs-selectors mb-4">
+                            <button class="pay-tab active" onclick="selectPaymentMethod('upi')">
+                                <i data-lucide="smartphone"></i> UPI / QR Code
+                            </button>
+                            <button class="pay-tab" onclick="selectPaymentMethod('card')">
+                                <i data-lucide="credit-card"></i> Card
+                            </button>
+                        </div>
+
+                        <!-- UPI form -->
+                        <form id="payment-form-upi" onsubmit="handleOnboardPaymentSubmit(event)">
+                            <div class="form-group text-left">
+                                <label for="payment-upi-id">UPI ID <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="at-sign" class="input-icon"></i>
+                                    <input type="text" id="payment-upi-id" placeholder="ishaan@okaxis" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-full btn-lg btn-glow mt-4">
+                                Pay Now Securely <i data-lucide="lock" class="btn-arrow"></i>
+                            </button>
+                        </form>
+
+                        <!-- Card form -->
+                        <form id="payment-form-card" onsubmit="handleOnboardPaymentSubmit(event)" style="display: none;">
+                            <div class="form-group text-left">
+                                <label for="payment-card-num">Card Number <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="credit-card" class="input-icon"></i>
+                                    <input type="text" id="payment-card-num" placeholder="4321 0987 6543 2109" required>
+                                </div>
+                            </div>
+                            <div class="form-row-grid">
+                                <div class="form-group text-left">
+                                    <label for="payment-card-exp">Expiry <span class="required">*</span></label>
+                                    <input type="text" id="payment-card-exp" placeholder="MM/YY" required>
+                                </div>
+                                <div class="form-group text-left">
+                                    <label for="payment-card-cvv">CVV <span class="required">*</span></label>
+                                    <input type="password" id="payment-card-cvv" placeholder="•••" cvv-mask="" maxlength="3" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-full btn-lg btn-glow mt-4">
+                                Pay Now Securely <i data-lucide="lock" class="btn-arrow"></i>
+                            </button>
+                        </form>
+
+                        <div class="checkout-footer-options text-center mt-3">
+                            <button type="button" class="btn-explore-free w-full" onclick="skipToFreeTierOnboard()">
+                                Explore for Free ➔
+                            </button>
+                        </div>
+
+                        <!-- Payment Processing Spinner Overlay -->
+                        <div class="payment-processing-overlay" id="payment-processing-spinner" style="display: none;">
+                            <div class="spinner-box text-center">
+                                <div class="spin-circle"></div>
+                                <h3 class="mt-4 font-outfit text-white">Authorizing Secure Transaction...</h3>
+                                <p class="text-muted mt-2">Please do not refresh this page.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STAGE 7: APPLICATION UNDER REVIEW -->
+                <div class="onboard-stage-panel" id="onboard-stage-review" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="modal-icon-wrapper circle-glow-cyan animate-pulse">
+                            <i data-lucide="search" class="text-cyan"></i>
+                        </div>
+                        <h2 class="modal-title">Curation Verification</h2>
+                        <p class="modal-subtitle">Processing secure credentials & credentials match indexes.</p>
+                    </div>
+
+                    <div class="review-status-container mt-6">
+                        <div class="review-status-timeline">
+                            <div class="review-timeline-item completed" id="rev-step-1">
+                                <i data-lucide="check-circle-2" class="rev-icon text-green"></i>
+                                <div class="rev-content">
+                                    <h4>Profile Validated</h4>
+                                    <p>Account identity and contact strings saved.</p>
+                                </div>
+                            </div>
+                            <div class="review-timeline-item completed" id="rev-step-2">
+                                <i data-lucide="check-circle-2" class="rev-icon text-green"></i>
+                                <div class="rev-content">
+                                    <h4>Compatibility Scored</h4>
+                                    <p>Vibe answers generated a 96% match rating.</p>
+                                </div>
+                            </div>
+                            <div class="review-timeline-item completed" id="rev-step-3">
+                                <i data-lucide="check-circle-2" class="rev-icon text-green"></i>
+                                <div class="rev-content">
+                                    <h4>Upgrade Checkout Authorized</h4>
+                                    <p>Payment authorized via UPI/Credit gateway.</p>
+                                </div>
+                            </div>
+                            <div class="review-timeline-item active" id="rev-step-4">
+                                <i data-lucide="loader" class="rev-icon text-cyan spin"></i>
+                                <div class="rev-content">
+                                    <h4>Curation Matchmaking Check</h4>
+                                    <p>Verifying profile details with curated Bandra concierge board.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Curation Scanning Laser bar -->
+                        <div class="laser-scanner-box mt-6">
+                            <div class="laser-scanner-beam"></div>
+                            <div class="laser-scanner-text text-center mt-2 text-cyan font-semibold">Curation scanning in progress...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STAGE 8: APPROVAL & MATCHMAKING STARTS (HOLOGRAM) -->
+                <div class="onboard-stage-panel" id="onboard-stage-approval" style="display: none;">
+                    <div class="modal-header text-center">
+                        <div class="success-icon-wrapper circle-glow-green animate-bounce-slow">
+                            <i data-lucide="party-popper" class="text-green font-48"></i>
+                        </div>
+                        <h2 class="modal-title mt-4 text-gradient-pink">Welcome to Instadate Club!</h2>
+                        <p class="modal-subtitle">Your priorities have been verified. Your club credentials has been generated!</p>
+                    </div>
+
+                    <!-- Holographic Club Membership Card -->
+                    <div class="member-card-wrapper mt-6">
+                        <div class="member-id-card glass-card hover-glow-trigger" id="hologram-member-card">
+                            <div class="card-glow-overlay"></div>
+                            <div class="card-shimmer"></div>
+                            
+                            <div class="card-header-logo">
+                                <span class="card-logo-text"><span class="text-pink">insta</span>date</span>
+                                <span class="card-badge" id="card-tier-badge">Premium Pass</span>
+                            </div>
+                            
+                            <div class="card-body-details">
+                                <div class="card-avatar-placeholder" id="card-avatar-box">👤</div>
+                                <div class="card-text-details">
+                                    <h3 class="card-user-name" id="card-display-name">Ishaan Sharma</h3>
+                                    <p class="card-user-meta"><span id="card-display-age">22</span> • <span id="card-display-city">Mumbai</span></p>
+                                    <p class="card-user-handle" id="card-display-insta">@ishaan_s</p>
+                                </div>
+                            </div>
+                            
+                            <div class="card-footer-meta">
+                                <div>
+                                    <span class="meta-label">Member ID</span>
+                                    <span class="meta-val" id="card-display-id">IND-882-411</span>
+                                </div>
+                                <div class="card-qr-box">
+                                    <div class="card-qr-code"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="success-actions mt-6">
+                        <a id="whatsapp-concierge-btn" href="#" target="_blank" class="btn btn-whatsapp btn-lg btn-glow w-full">
+                            <i class="wa-whatsapp-icon"></i> Fast-Track Concierge WhatsApp
+                        </a>
+                        <button class="btn btn-outline w-full mt-3" onclick="closeApplyModal(); navigateToMatchesIfWanted();">
+                            Explore Matches Portal
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div class="apply-modal-overlay" id="edit-profile-modal" onclick="closeEditProfileModalOnOverlay(event)">
+        <div class="apply-modal glass-card">
+            <button class="modal-close-btn" onclick="closeEditProfileModal()" aria-label="Close modal">
+                <i data-lucide="x"></i>
+            </button>
+            <div class="modal-body-container">
+                <div class="modal-header text-center">
+                    <div class="modal-icon-wrapper circle-glow-pink">
+                        <i data-lucide="user-cog" class="text-pink"></i>
+                    </div>
+                    <h2 class="modal-title">Edit Your Instadate Profile</h2>
+                    <p class="modal-subtitle">Update your personal vibe and preferences.</p>
+                </div>
+                <form id="edit-profile-form" onsubmit="saveProfileChanges(event)">
+                    <div class="form-row-grid">
+                        <div class="form-group text-left">
+                            <label for="edit-profile-name">Full Name <span class="required">*</span></label>
+                            <div class="input-wrapper">
+                                <i data-lucide="user" class="input-icon"></i>
+                                <input type="text" id="edit-profile-name" placeholder="E.g., Ishaan Sharma" required>
+                            </div>
+                        </div>
+                        <div class="form-group text-left">
+                            <label for="edit-profile-age">Age (18-28 Only) <span class="required">*</span></label>
+                            <div class="input-wrapper">
+                                <i data-lucide="calendar" class="input-icon"></i>
+                                <input type="number" id="edit-profile-age" min="18" max="28" placeholder="E.g., 22" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row-grid">
+                        <div class="form-group text-left">
+                            <label for="edit-profile-instagram">Instagram Handle <span class="required">*</span></label>
+                            <div class="input-wrapper">
+                                <i data-lucide="instagram" class="input-icon"></i>
+                                <input type="text" id="edit-profile-instagram" placeholder="E.g., @ishaan_s" required>
+                            </div>
+                        </div>
+                        <div class="form-group text-left">
+                            <label>City <span class="required">*</span></label>
+                            <div class="custom-select-wrapper" id="edit-profile-city-wrapper">
+                                <div class="custom-select-trigger">
+                                    <i data-lucide="map-pin" class="select-icon-left"></i>
+                                    <span class="selected-value-text">Select city</span>
+                                    <i data-lucide="chevron-down" class="select-chevron-right"></i>
+                                </div>
+                                <div class="custom-options-container">
+                                    <div class="custom-option" data-value="Mumbai">Mumbai</div>
+                                    <div class="custom-option" data-value="Delhi NCR">Delhi NCR</div>
+                                    <div class="custom-option" data-value="Bangalore">Bangalore</div>
+                                    <div class="custom-option" data-value="Pune">Pune</div>
+                                    <div class="custom-option" data-value="Hyderabad">Hyderabad</div>
+                                </div>
+                                <input type="hidden" id="edit-profile-city" value="" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row-grid">
+                        <div class="form-group text-left">
+                            <label for="edit-profile-whatsapp">WhatsApp Number <span class="required">*</span></label>
+                            <div class="input-wrapper">
+                                <i data-lucide="phone" class="input-icon"></i>
+                                <input type="tel" id="edit-profile-whatsapp" pattern="[0-9]{10}" placeholder="WhatsApp number" required>
+                            </div>
+                        </div>
+                        <div class="form-group text-left">
+                            <label>Looking for <span class="required">*</span></label>
+                            <div class="custom-select-wrapper" id="edit-profile-interest-wrapper">
+                                <div class="custom-select-trigger">
+                                    <i data-lucide="heart-handshake" class="select-icon-left"></i>
+                                    <span class="selected-value-text">Select preference</span>
+                                    <i data-lucide="chevron-down" class="select-chevron-right"></i>
+                                </div>
+                                <div class="custom-options-container">
+                                    <div class="custom-option" data-value="Men">Men</div>
+                                    <div class="custom-option" data-value="Women">Women</div>
+                                    <div class="custom-option" data-value="Everyone">Everyone</div>
+                                </div>
+                                <input type="hidden" id="edit-profile-interest" value="" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group text-left">
+                        <label for="edit-profile-bio">What makes you a high-value partner? <span class="required">*</span></label>
+                        <textarea id="edit-profile-bio" rows="2" placeholder="Tell us about your passions, vibe..." required></textarea>
+                    </div>
+
+                    <!-- Profile Picture Upload / Switcher -->
+                    <div class="form-group text-left mb-4">
+                        <label>Profile Picture <span class="required">*</span></label>
+                        <div class="edit-pfp-container mt-2">
+                            <div class="edit-pfp-preview-box">
+                                <div class="edit-pfp-preview" id="edit-pfp-preview-circle">👤</div>
+                                <span class="edit-pfp-badge badge-preset" id="edit-pfp-badge-label">Archetype Preset</span>
+                            </div>
+                            <div class="edit-pfp-actions">
+                                <button type="button" class="btn btn-outline btn-sm" onclick="triggerPfpUpload()">
+                                    <i data-lucide="upload" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Upload Photo
+                                </button>
+                                <button type="button" class="btn btn-outline btn-sm text-pink" onclick="useArchetypePfp()">
+                                    <i data-lucide="sparkles" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Use Preset
+                                </button>
+                                <input type="file" id="edit-pfp-file-input" accept="image/*" style="display: none;" onchange="handlePfpFileChange(event)">
+                                <input type="hidden" id="edit-profile-custom-pfp" value="">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Avatar Presets -->
+                    <div class="form-group text-left">
+                        <label>Pick Your Visual Archetype <span class="required">*</span></label>
+                        <div class="avatar-presets-grid" id="edit-avatar-presets">
+                            <div class="avatar-preset-card" data-avatar="neon-cupid" onclick="selectEditPresetAvatar('neon-cupid')">
+                                <div class="preset-avatar-circle cupid-glow">💘</div>
+                                <span class="preset-avatar-name">Neon Cupid</span>
+                            </div>
+                            <div class="avatar-preset-card" data-avatar="mystic-dreamer" onclick="selectEditPresetAvatar('mystic-dreamer')">
+                                <div class="preset-avatar-circle dreamer-glow">✨</div>
+                                <span class="preset-avatar-name">Mystic Dreamer</span>
+                            </div>
+                            <div class="avatar-preset-card" data-avatar="cyber-flirt" onclick="selectEditPresetAvatar('cyber-flirt')">
+                                <div class="preset-avatar-circle cyber-glow">👾</div>
+                                <span class="preset-avatar-name">Cyber Flirt</span>
+                            </div>
+                            <div class="avatar-preset-card" data-avatar="golden-glow" onclick="selectEditPresetAvatar('golden-glow')">
+                                <div class="preset-avatar-circle golden-glow-class">👑</div>
+                                <span class="preset-avatar-name">Golden Glow</span>
+                            </div>
+                            <div class="avatar-preset-card" data-avatar="ruby-seduction" onclick="selectEditPresetAvatar('ruby-seduction')">
+                                <div class="preset-avatar-circle ruby-glow">🌹</div>
+                                <span class="preset-avatar-name">Ruby Vibe</span>
+                            </div>
+                            <div class="avatar-preset-card" data-avatar="silver-spark" onclick="selectEditPresetAvatar('silver-spark')">
+                                <div class="preset-avatar-circle silver-glow">💎</div>
+                                <span class="preset-avatar-name">Silver Spark</span>
+                            </div>
+                        </div>
+                        <input type="hidden" id="edit-profile-avatar" value="neon-cupid">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-full btn-lg btn-glow mt-4">
+                        Save Profile Changes <i data-lucide="check" class="btn-arrow"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Curated Matches Modal -->
+    <div class="apply-modal-overlay" id="curated-matches-modal" onclick="closeCuratedMatchesModalOnOverlay(event)">
+        <div class="apply-modal glass-card" style="max-width: 600px;">
+            <button class="modal-close-btn" onclick="closeCuratedMatchesModal()" aria-label="Close modal">
+                <i data-lucide="x"></i>
+            </button>
+            <div class="modal-body-container">
+                <div class="modal-header text-center mb-4">
+                    <div class="modal-icon-wrapper circle-glow-pink">
+                        <i data-lucide="heart" class="text-pink"></i>
+                    </div>
+                    <h2 class="modal-title">Your Curated Matches</h2>
+                    <p class="modal-subtitle">Conscious dating partners handpicked for your compatibility score.</p>
+                </div>
+                
+                <!-- Matches display section -->
+                <div class="matches-list-container" id="matches-list-container">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instadate Standalone Chat Inbox is managed inside chat.html -->
+
+    <!-- Subscription Details Modal -->
+    <div class="apply-modal-overlay" id="subscription-modal" onclick="closeSubscriptionModalOnOverlay(event)">
+        <div class="apply-modal glass-card" style="max-width: 750px;">
+            <button class="modal-close-btn" onclick="closeSubscriptionModal()" aria-label="Close modal">
+                <i data-lucide="x"></i>
+            </button>
+            <div class="modal-body-container">
+                <div class="modal-header text-center">
+                    <div class="modal-icon-wrapper circle-glow-cyan">
+                        <i data-lucide="gem" class="text-cyan"></i>
+                    </div>
+                    <h2 class="modal-title">Manage Club Membership</h2>
+                    <p class="modal-subtitle">Your active plan: <span id="sub-active-tier-name" class="text-gradient-pink font-semibold">Free Member</span></p>
+                </div>
+
+                <div class="sub-plans-grid mt-6">
+                    <!-- Basic Plan -->
+                    <div class="sub-plan-card glass-card" id="sub-card-Basic">
+                        <div class="sub-plan-header">
+                            <span class="sub-plan-title">Basic</span>
+                            <span class="sub-plan-price">₹199 / mo</span>
+                        </div>
+                        <p class="sub-plan-desc">Access handpicked verified daters with essential tools.</p>
+                        <ul class="sub-plan-features">
+                            <li><i data-lucide="check" class="text-pink"></i> 100% ID-Verified member pool</li>
+                            <li><i data-lucide="check" class="text-pink"></i> 3 Curated Matches / mo</li>
+                            <li><i data-lucide="check" class="text-pink"></i> Secure text & voice chat</li>
+                        </ul>
+                        <button class="btn btn-outline w-full mt-4" id="sub-btn-Basic" onclick="selectUpgradeTier('Basic')">Select Basic</button>
+                    </div>
+
+                    <!-- Premium Plan -->
+                    <div class="sub-plan-card glass-card premium-tier-card" id="sub-card-Premium">
+                        <div class="popular-ribbon" style="font-size: 0.65rem; padding: 3px 8px;"><i data-lucide="sparkles"></i> POPULAR</div>
+                        <div class="sub-plan-header">
+                            <span class="sub-plan-title text-gradient-pink">Premium</span>
+                            <span class="sub-plan-price">₹399 / mo</span>
+                        </div>
+                        <p class="sub-plan-desc">Our flagship matchmaker-driven experience for conscious dating.</p>
+                        <ul class="sub-plan-features">
+                            <li><i data-lucide="check" class="text-pink"></i> 8 Curated Matches / mo</li>
+                            <li><i data-lucide="check" class="text-pink"></i> Dedicated Human Matchmaker</li>
+                            <li><i data-lucide="check" class="text-pink"></i> Invites to offline mixers (Tier-2)</li>
+                        </ul>
+                        <button class="btn btn-primary w-full btn-glow mt-4" id="sub-btn-Premium" onclick="selectUpgradeTier('Premium')">Select Premium</button>
+                    </div>
+
+                    <!-- Elite Plan -->
+                    <div class="sub-plan-card glass-card" id="sub-card-Elite">
+                        <div class="sub-plan-header">
+                            <span class="sub-plan-title text-gradient-cyan">Elite</span>
+                            <span class="sub-plan-price">₹699 / mo</span>
+                        </div>
+                        <p class="sub-plan-desc">VIP bespoke matchmaking and luxury events.</p>
+                        <ul class="sub-plan-features">
+                            <li><i data-lucide="check" class="text-cyan"></i> Bespoke VIP matchmaking</li>
+                            <li><i data-lucide="check" class="text-cyan"></i> Unlimited curated match pools</li>
+                            <li><i data-lucide="check" class="text-cyan"></i> Invites to bespoke VIP mixers</li>
+                        </ul>
+                        <button class="btn btn-outline w-full mt-4" id="sub-btn-Elite" onclick="selectUpgradeTier('Elite')">Select Elite</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Neon Cursor Elements -->
+    <div id="custom-cursor"></div>
+
+    <!-- Leaflet Interactive Maps JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Script file -->
+    <script src="app.js"></script>
+</body>
+</html>

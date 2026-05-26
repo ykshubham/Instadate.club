@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Active Members | Instadate Social Club</title>
+    
+    <!-- SEO Optimization -->
+    <meta name="description" content="Meet verified active members of Instadate Social Club. Browse live profiles in Mumbai, Delhi, and Bangalore looking for cafe, concert, or travel circles.">
+    <meta name="keywords" content="Instadate active users, dating profiles, verified dating India, luxury dating app, Gen Z dating club">
+    
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Style Sheets (Link global stylesheet and active-users specific modular stylesheet) -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="active-users.css">
+</head>
+<body class="luxury-space-theme">
+
+    <!-- Interactive HTML5 Canvas Particles Background -->
+    <canvas id="particles-canvas"></canvas>
+
+    <!-- Ambient Glowing Neon Orbs -->
+    <div class="ambient-glow orb-1"></div>
+    <div class="ambient-glow orb-2"></div>
+
+    <!-- Custom Neon Cursor Trail Wrapper -->
+    <div id="custom-cursor"></div>
+
+    <!-- Sticky Navigation Header -->
+    <header class="header scrolled">
+        <div class="header-container">
+            <a href="index.html" class="logo">
+                <span class="logo-text-gradient">Instadate</span>
+            </a>
+            
+            <div class="status-pill">
+                <span class="status-dot animate-pulse"></span>
+                <span>Live Telemetry • Active Members Portal</span>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="index.html" class="nav-link">Home</a>
+                <a href="index.html#how-it-works" class="nav-link">How It Works</a>
+                <a href="index.html#vibes" class="nav-link">Vibes</a>
+                <a href="index.html#pricing" class="nav-link">Memberships</a>
+                <a href="index.html#safety" class="nav-link">Safety</a>
+                <a href="index.html#testimonials" class="nav-link">Stories</a>
+                <a href="#" class="nav-link active">Active Users</a>
+            </nav>
+
+            <div class="nav-actions">
+                <a href="index.html" class="btn btn-secondary nav-cta-btn" style="text-decoration: none;">Back to Home</a>
+            </div>
+            
+            <!-- Mobile Menu Toggle -->
+            <button class="mobile-toggle" aria-label="Toggle menu" onclick="toggleMobileMenu()">
+                <i data-lucide="menu" id="menu-icon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Mobile Nav Overlay -->
+    <div class="mobile-nav-overlay" id="mobile-nav">
+        <nav class="mobile-nav-menu">
+            <a href="index.html" class="mobile-nav-link" onclick="toggleMobileMenu()">Home</a>
+            <a href="index.html#how-it-works" class="mobile-nav-link" onclick="toggleMobileMenu()">How It Works</a>
+            <a href="index.html#vibes" class="mobile-nav-link" onclick="toggleMobileMenu()">Vibes</a>
+            <a href="index.html#pricing" class="mobile-nav-link" onclick="toggleMobileMenu()">Memberships</a>
+            <a href="index.html#safety" class="mobile-nav-link" onclick="toggleMobileMenu()">Safety</a>
+            <a href="index.html#testimonials" class="mobile-nav-link" onclick="toggleMobileMenu()">Stories</a>
+            <a href="#" class="mobile-nav-link active" onclick="toggleMobileMenu()">Active Users</a>
+            
+            <a href="index.html" class="btn btn-primary w-full mt-6" style="text-decoration: none; text-align: center;" onclick="toggleMobileMenu()">Back to Home</a>
+        </nav>
+    </div>
+
+    <!-- Main Content Portal -->
+    <main class="portal-main">
+        <section class="section portal-hero-section">
+            <div class="container text-center">
+                <span class="section-tag font-outfit">Instadate Live Feed</span>
+                <h1 class="portal-hero-title font-outfit">Verified Active Members</h1>
+                <p class="portal-hero-subtitle">
+                    There are <span class="text-gradient-cyan font-outfit" style="font-weight: 800; font-size: 1.2rem;">1,248 members</span> active inside the club right now. Browse profiles looking for Cafe, Concert, or Travel circles tonight.
+                </p>
+            </div>
+        </section>
+
+        <!-- Filters & Search Section -->
+        <section class="section filters-section">
+            <div class="container">
+                <div class="filters-container glass-card">
+                    <div class="filter-group">
+                        <label class="filter-label"><i data-lucide="map-pin"></i> Select City</label>
+                        <div class="filter-options-row" id="city-filters">
+                            <button class="filter-pill active" data-filter="all-cities">All Cities</button>
+                            <button class="filter-pill" data-filter="mumbai">Mumbai</button>
+                            <button class="filter-pill" data-filter="delhi">Delhi NCR</button>
+                            <button class="filter-pill" data-filter="bangalore">Bangalore</button>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label class="filter-label"><i data-lucide="sparkles"></i> Select Vibe Circle</label>
+                        <div class="filter-options-row" id="vibe-filters">
+                            <button class="filter-pill active" data-filter="all-vibes">All Vibes</button>
+                            <button class="filter-pill" data-filter="cafe">Cafe Partner</button>
+                            <button class="filter-pill" data-filter="concert">Concert Buddy</button>
+                            <button class="filter-pill" data-filter="travel">Travel Buddy</button>
+                            <button class="filter-pill" data-filter="startup">Startup Networking</button>
+                            <button class="filter-pill" data-filter="sports">Sports Partner</button>
+                        </div>
+                    </div>
+
+                    <div class="search-group">
+                        <label class="filter-label" for="search-input"><i data-lucide="search"></i> Live Search</label>
+                        <div class="search-input-wrapper">
+                            <input type="text" id="search-input" placeholder="Search by name, interests, bio details..." onkeyup="filterProfilesRealtime()">
+                            <i data-lucide="search" class="search-icon-inside"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Profiles Display Grid -->
+        <section class="section profiles-grid-section">
+            <div class="container">
+                <div class="profiles-grid" id="profiles-container">
+                    
+                    <!-- Profile Card 1 -->
+                    <div class="profile-card glass-card" data-city="mumbai" data-vibe="cafe" data-keywords="kavya sunsets tech house coffee bandra west mumbai cafe partner sharma">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-1"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Kavya Sharma, 22</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Bandra West, Mumbai</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-pink">
+                            <i data-lucide="coffee"></i> Cafe Partner Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">Balcony talker or AUX DJ? 💬</p>
+                            <p class="profile-answer">"100% the deep talker in the balcony, but I'll play some tech-house if given the aux. Exploring minimalist cafes!"</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Kavya Sharma', 'Mumbai', 'Cafe Partner')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 2 -->
+                    <div class="profile-card glass-card" data-city="delhi" data-vibe="concert" data-keywords="rohan espresso indietechnical electronic music festivals malhotra delhi ncr concert buddy">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-2"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Rohan Malhotra, 24</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> GK II, Delhi NCR</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-purple">
+                            <i data-lucide="music"></i> Concert Buddy Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">My ideal weekend concert night? 🥁</p>
+                            <p class="profile-answer">"Late-night electronic music festivals, Fred again.. drops, warm lights, and grabbing double-shot espressos at 1 AM."</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Rohan Malhotra', 'Delhi NCR', 'Concert Buddy')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 3 -->
+                    <div class="profile-card glass-card" data-city="bangalore" data-vibe="travel" data-keywords="zara chen thrifted hoodies film cameras books indie bookstores bangalore travel buddy">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-3"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Zara Chen, 23</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Indiranagar, Bangalore</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-cyan">
+                            <i data-lucide="plane"></i> Travel Buddy Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">My creative therapy? 🎨</p>
+                            <p class="profile-answer">"Exploring indie bookstores, thrift shopping for oversized hoodies, taking 90s vintage film camera portraits, and weekend treks."</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Zara Chen', 'Bangalore', 'Travel Buddy')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 4 -->
+                    <div class="profile-card glass-card" data-city="mumbai" data-vibe="startup" data-keywords="siddharth fintech startup founders street food late night drives roy mumbai networking">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-2"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Siddharth Roy, 25</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Colaba, Mumbai</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-purple">
+                            <i data-lucide="rocket"></i> Startup Networking Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">My ultimate obsession? 🚀</p>
+                            <p class="profile-answer">"Building a fintech startup, scaling code, arguing over street food superiority, and driving around Marine Drive at 2 AM."</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Siddharth Roy', 'Mumbai', 'Startup Networking')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 5 -->
+                    <div class="profile-card glass-card" data-city="delhi" data-vibe="cafe" data-keywords="priya patel minimalist aesthetic cafes deep conversations vintage books delhi ncr cafe partner">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-1"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Priya Patel, 21</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Saket, Delhi NCR</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-pink">
+                            <i data-lucide="coffee"></i> Cafe Partner Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">What makes a date romantic? 🕯️</p>
+                            <p class="profile-answer">"Quiet minimalist aesthetic cafes, warm amber lighting, holding vintage books, and having deep talks about values."</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Priya Patel', 'Delhi NCR', 'Cafe Partner')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 6 -->
+                    <div class="profile-card glass-card" data-city="bangalore" data-vibe="sports" data-keywords="kabir badminton doubles beer lounge Indiranagar sen bangalore sports partner">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-3"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Kabir Sen, 26</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Indiranagar, Bangalore</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-cyan">
+                            <i data-lucide="dribbble"></i> Sports Partner Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">My ideal match activity? 🏸</p>
+                            <p class="profile-answer">"Fast-paced badminton doubles matches, followed by a cold pint, microbrewery hopping, and warm tech-house tracks."</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Kabir Sen', 'Bangalore', 'Sports Partner')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 7 -->
+                    <div class="profile-card glass-card" data-city="mumbai" data-vibe="concert" data-keywords="ananya techno clubs Diljit Dosanjh Fred again AUX DJ deshmukh mumbai concert buddy">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-1"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Ananya Deshmukh, 23</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Colaba, Mumbai</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-pink">
+                            <i data-lucide="music"></i> Concert Buddy Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">Balcony talker or AUX DJ? 💬</p>
+                            <p class="profile-answer">"AUX DJ without a doubt! Techno clubs, Diljit Dosanjh concerts, and Fred again.. vibes are my life force. Let's dance!"</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Ananya Deshmukh', 'Mumbai', 'Concert Buddy')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 8 -->
+                    <div class="profile-card glass-card" data-city="bangalore" data-vibe="startup" data-keywords="arjun founders filter coffee venture capital coding tech networks mehta bangalore networking">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-2"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Arjun Mehta, 27</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Koramangala, Bangalore</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-purple">
+                            <i data-lucide="rocket"></i> Startup Networking Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">Ideal connection values? 🧠</p>
+                            <p class="profile-answer">"Passionate founders building interesting things, discussing filter coffee origins, technology architecture, and startup scaling."</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Arjun Mehta', 'Bangalore', 'Startup Networking')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 9 -->
+                    <div class="profile-card glass-card" data-city="delhi" data-vibe="travel" data-keywords="ishan trekking Himachal quiet beach cabins Goa adventure travel buddy kapoor delhi ncr">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-3"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Ishan Kapoor, 24</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Hauz Khas, Delhi NCR</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-cyan">
+                            <i data-lucide="plane"></i> Travel Buddy Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">My therapy? 🏕️</p>
+                            <p class="profile-answer">"Weekend trekking trips to Himachal, camping under stargazing sites, or rent a quiet beach cabin in Goa. Nature alignment!"</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Ishan Kapoor', 'Delhi NCR', 'Travel Buddy')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+
+                    <!-- Profile Card 10 -->
+                    <div class="profile-card glass-card" data-city="mumbai" data-vibe="cafe" data-keywords="riya heritage architecture South Bombay vintage cameras photography cafe partner sen mumbai">
+                        <div class="profile-card-header">
+                            <div class="profile-avatar active-av-1"></div>
+                            <div class="profile-meta">
+                                <h3 class="profile-name">Riya Sen, 22</h3>
+                                <p class="profile-city"><i data-lucide="map-pin"></i> Colaba, Mumbai</p>
+                            </div>
+                            <span class="online-status-badge"><span class="online-indicator"></span> Active</span>
+                        </div>
+                        <div class="profile-vibe-pill text-pink">
+                            <i data-lucide="coffee"></i> Cafe Partner Vibe
+                        </div>
+                        <div class="profile-body">
+                            <p class="profile-prompt font-outfit">My ultimate obsession? 🎞️</p>
+                            <p class="profile-answer">"Exploring heritage architecture in South Bombay, finding hidden vintage camera shops, street photography, and hot iced Americanos."</p>
+                            <div class="profile-badges">
+                                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-full btn-glow" onclick="initiateVibeCheck('Riya Sen', 'Mumbai', 'Cafe Partner')">
+                            Send Vibe Check <i data-lucide="message-square" class="btn-arrow"></i>
+                        </button>
+                    </div>
+                    
+                </div>
+                
+                <!-- Zero Search Results State -->
+                <div class="zero-results-state glass-card" id="zero-results" style="display: none;">
+                    <i data-lucide="shield-alert" class="zero-results-icon"></i>
+                    <h3>No Active Members Found</h3>
+                    <p>Try adjusting your search query or selecting a different city or vibe circle filter.</p>
+                    <button class="btn btn-secondary mt-4" onclick="resetAllFilters()">Reset All Filters</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Unified Application & Vibe Check Glass Modal -->
+    <div class="modal-overlay" id="vibe-modal">
+        <div class="modal-container glass-card">
+            <button class="modal-close" onclick="closeVibeModal()">
+                <i data-lucide="x"></i>
+            </button>
+            
+            <div id="modal-form-content">
+                <span class="modal-tag font-outfit">Active Member Connection</span>
+                <h2 class="modal-title font-outfit" id="modal-dynamic-title">Send Vibe Check</h2>
+                <p class="modal-subtitle" id="modal-dynamic-subtitle">Get fast-tracked to connect with Kavya by sending a curated Vibe Check intro directly to our matchmaking desk!</p>
+                
+                <form class="modal-form" id="vibe-check-form" onsubmit="handleVibeCheckSubmit(event)">
+                    <!-- Hidden field to track member name and city -->
+                    <input type="hidden" id="target-member-name">
+                    <input type="hidden" id="target-member-city">
+                    <input type="hidden" id="target-member-vibe">
+                    
+
+                    
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="form-label" for="user-name">Your Full Name</label>
+                            <input type="text" id="user-name" placeholder="E.g., Kabir Dev" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="user-age">Your Age (Strict check: 18-28)</label>
+                            <input type="number" id="user-age" min="18" max="28" placeholder="E.g., 23" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="form-label" for="user-whatsapp">Your WhatsApp Number</label>
+                            <input type="tel" id="user-whatsapp" placeholder="E.g., 9876543210" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="user-instagram">Your Instagram Handle</label>
+                            <input type="text" id="user-instagram" placeholder="E.g., @kabir.dev" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="user-intro" id="intro-dynamic-label">Curate your Vibe Check statement for Kavya</label>
+                        <textarea id="user-intro" rows="4" placeholder="E.g., Hey Kavya, I love sun-drenched balconies and tech house too. I'm based around Bandra and know the ultimate cafe spot. Let's connect!" required></textarea>
+                    </div>
+                    
+                    <div class="form-privacy">
+                        <i data-lucide="shield-check"></i>
+                        <span>Instadate adheres to 100% GDPR data safety. We never showcase your phone details to other members without manual alignment.</span>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-full btn-glow">
+                        Submit Vibe Check & Fast-Track <i data-lucide="send" class="btn-arrow"></i>
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Success Modal Display -->
+            <div id="modal-success-content" style="display: none;" class="text-center py-6">
+                <div class="success-icon-wrapper circle-glow-cyan">
+                    <i data-lucide="party-popper" class="text-cyan"></i>
+                </div>
+                <h2 class="modal-title font-outfit">Vibe Check Submitted! 🎉</h2>
+                <p class="modal-subtitle max-w-lg mx-auto" id="success-dynamic-message">
+                    Your Vibe Check intro has been sent to our verification concierge. We've fast-tracked your application!
+                </p>
+                <div class="success-action-box glass-card">
+                    <p class="success-action-warning"><i data-lucide="alert-circle"></i> Fast-track via WhatsApp to instantly coordinate profiles with our matching desk!</p>
+                    <a href="#" id="modal-whatsapp-btn" target="_blank" class="btn btn-primary btn-glow inline-flex w-full justify-center">
+                        <i data-lucide="message-square"></i> TEXT CONCIERGE NOW
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Elegant Footer -->
+    <footer class="footer">
+        <div class="container footer-grid">
+            <div class="footer-brand-col">
+                <a href="#" class="logo footer-logo">
+                    <span class="logo-text-gradient">Instadate</span>
+                </a>
+                <p class="footer-desc">India's leading matchmaking social club for verified conscious young adults.</p>
+            </div>
+
+            <div class="footer-links-col">
+                <h4 class="footer-title">Club</h4>
+                <ul class="footer-links">
+                    <li><a href="index.html#how-it-works">How It Works</a></li>
+                    <li><a href="index.html#pricing">Memberships</a></li>
+                    <li><a href="index.html#safety">Safety Shield</a></li>
+                    <li><a href="index.html#testimonials">Stories</a></li>
+                </ul>
+            </div>
+
+            <div class="footer-links-col">
+                <h4 class="footer-title">Legal</h4>
+                <ul class="footer-links">
+                    <li><a href="index.html#privacy">Privacy Code</a></li>
+                    <li><a href="index.html#terms">Honor Terms</a></li>
+                    <li><a href="index.html#cookies">Cookie Policy</a></li>
+                    <li><a href="index.html#safety">Safety Pledge</a></li>
+                </ul>
+            </div>
+
+            <div class="footer-links-col">
+                <h4 class="footer-title">Concierge</h4>
+                <p class="footer-contact-info"><i data-lucide="mail"></i> concierge@instadate.club</p>
+                <p class="footer-contact-info"><i data-lucide="map-pin"></i> Bandra West, Mumbai, MH</p>
+            </div>
+        </div>
+
+        <div class="footer-bottom text-center">
+            <p>&copy; 2026 Instadate. All rights reserved. Strictly 18–28 age restriction. Vetted by Aadhaar & biometric checks.</p>
+        </div>
+    </footer>
+
+
+
+    <!-- Lucide Icons and JS Script files -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="active-users.js"></script>
+</body>
+</html>
