@@ -129,6 +129,11 @@ export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
     recentlyAttended,
     verifiedMembers,
     nearYou,
-    trendingMembers
+    trendingMembers,
+    // Frontend compatibility mapping
+    topMatches: highlyCompatible,
+    similarVibes: mostReliable,
+    activeMembers: recentlyAttended,
+    newMembers: verifiedMembers
   };
 }

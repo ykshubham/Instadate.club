@@ -60,6 +60,7 @@ type AppState = {
   instantPlans?: any[];
   trustMetrics?: any;
   pendingReviews?: any;
+  chats?: any[];
 };
 
 type EventDto = {
@@ -111,6 +112,8 @@ type ProfileDto = {
   college: string;
   intent: string;
   weekendStatus: string;
+  currentWeekendStatus?: string;
+  weekendStatusUpdatedAt?: string;
   bio: string;
   vibe: string;
   plan: string;
@@ -285,6 +288,20 @@ function profileDto(row: Record<string, unknown> | null, photos: Array<Record<st
     college: (row?.college as string) || '',
     intent: (row?.intent as string) || '',
     weekendStatus: (row?.weekend_status as string) || '',
+    currentWeekendStatus: (() => {
+      const status = ((row?.weekend_status as string) || '').toLowerCase();
+      if (status.includes('movie') || status.includes('film')) return 'Movie';
+      if (status.includes('coffee') || status.includes('cafe') || status.includes('tea')) return 'Coffee';
+      if (status.includes('walk') || status.includes('trek') || status.includes('travel')) return 'Walk';
+      if (status.includes('pickleball') || status.includes('play') || status.includes('court')) return 'Pickleball';
+      // Fallback based on vibe
+      const vibe = ((row?.vibe as string) || '').toLowerCase();
+      if (vibe.includes('cafe')) return 'Coffee';
+      if (vibe.includes('travel') || vibe.includes('art')) return 'Walk';
+      if (vibe.includes('concert')) return 'Movie';
+      return 'Coffee';
+    })(),
+    weekendStatusUpdatedAt: (row?.updated_at as string) || new Date().toISOString(),
     bio: (row?.bio as string) || '',
     vibe: (row?.vibe as string) || '',
     plan: (row?.plan as string) || 'Instadate Plus',
@@ -814,6 +831,18 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     }))
   };
 
+  const liveChats = chatRows.map(row => ({
+    id: row.id,
+    slug: row.slug as string,
+    name: row.name as string,
+    meta: row.meta as string,
+    message: row.message as string,
+    preview: row.preview as string,
+    avatar: ((row.name as string) || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+    gradient: 'cyan',
+    messages: chatMessages[row.slug as string] || []
+  }));
+
   return {
     profile,
     vibeRequests,
@@ -821,6 +850,7 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     hostedEvents,
     verifiedChats,
     chatMessages,
+    chats: liveChats,
     recommendations: await getRecommendationsWithProfilesV2(db, userId),
     discovery: await getDiscoveryMembersV2(db, userId),
     recommendedEvents: await getRecommendedEventsV2(db, userId),
@@ -1763,6 +1793,59 @@ async function routeApi(request: Request, env: Env) {
   if (url.pathname === '/api/discovery' && request.method === 'GET') {
     const discovery = await getDiscoveryMembers(env.DB, userId);
     return json({ discovery });
+  }
+
+  // 4b. All Members list (database-backed)
+  if (url.pathname === '/api/members' && request.method === 'GET') {
+    const { results: profiles } = await env.DB.prepare(`
+      SELECT p.*, u.full_name, u.avatar_url
+      FROM profiles p
+      JOIN users u ON p.user_id = u.id
+      WHERE p.completed = 1
+      ORDER BY p.updated_at DESC
+    `).all<any>();
+
+    const resolvedMembers = [];
+    for (const p of profiles) {
+      const trust = await getOrInitializeTrustMetrics(env.DB, p.user_id, true);
+      const { results: photos } = await env.DB.prepare(
+        'SELECT url FROM profile_photos WHERE user_id = ? ORDER BY position ASC'
+      ).bind(p.user_id).all<{ url: string }>();
+      const photoUrls = photos.map(ph => ph.url);
+
+      resolvedMembers.push({
+        id: p.user_id,
+        name: p.full_name,
+        age: Number(p.age),
+        city: p.city,
+        vibe: p.vibe,
+        score: '94%', // Default compatibility vibe score
+        prompt: 'Opening Note',
+        answer: p.weekend_status || p.bio || '',
+        gradient: 'pink',
+        avatar: (p.full_name || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+        photos: photoUrls.length > 0 ? photoUrls : [p.avatar_url || ''],
+        weekendStatus: p.weekend_status || '',
+        currentWeekendStatus: (() => {
+          const status = (p.weekend_status || '').toLowerCase();
+          if (status.includes('movie') || status.includes('film')) return 'Movie';
+          if (status.includes('coffee') || status.includes('cafe') || status.includes('tea')) return 'Coffee';
+          if (status.includes('walk') || status.includes('trek') || status.includes('travel')) return 'Walk';
+          if (status.includes('pickleball') || status.includes('play') || status.includes('court')) return 'Pickleball';
+          // Fallback based on vibe
+          const vibe = (p.vibe || '').toLowerCase();
+          if (vibe.includes('cafe')) return 'Coffee';
+          if (vibe.includes('travel') || vibe.includes('art')) return 'Walk';
+          if (vibe.includes('concert')) return 'Movie';
+          return 'Coffee';
+        })(),
+        weekendStatusUpdatedAt: p.updated_at || new Date().toISOString(),
+        trustMetrics: trust,
+        trustScore: trust.trust_score,
+        isVerified: trust.is_verified
+      });
+    }
+    return json({ members: resolvedMembers });
   }
 
   // 5. Event Intelligence Recommendations

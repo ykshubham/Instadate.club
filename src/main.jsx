@@ -245,8 +245,13 @@ function hasActiveWeekendStatus(member, status) {
   return Date.now() - updatedAt <= 7 * 24 * 60 * 60 * 1000;
 }
 
-function getChatProfile(chat) {
-  const [ageText = '', city = '', scoreText = '92% Vibe Match'] = chat.meta.split('•').map(part => part.trim());
+function getChatProfile(chat, resolvedMembers = []) {
+  const matched = (resolvedMembers || []).find(m => m.id === chat.id || m.id === chat.slug);
+  if (matched) {
+    return matched;
+  }
+
+  const [ageText = '', city = '', scoreText = '92% Vibe Match'] = (chat.meta || '').split('•').map(part => part.trim());
   const score = scoreText.replace('Vibe Match', '').replace('Match', '').trim() || '92%';
   const photos = {
     'ishaan-verma': ['/assets/social_mixer.png', '/assets/bandra_acoustic_mixer.png', '/assets/colaba_speakeasy.png'],
@@ -423,6 +428,63 @@ function App() {
     ...appState,
     profile: { ...appState.profile, ...profile }
   }), [appState, profile]);
+
+  // 1. Live members with database priority & cached fallback
+  const [liveMembers, setLiveMembers] = React.useState([]);
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+    fetch('/api/members')
+      .then(res => res.json())
+      .then(data => {
+        if (data && Array.isArray(data.members)) {
+          setLiveMembers(data.members);
+        }
+      })
+      .catch(err => console.warn('Could not load live members:', err));
+  }, [isAuthenticated, appState.lastUpdated]);
+
+  const resolvedMembers = React.useMemo(() => {
+    if (liveMembers.length > 0) {
+      return liveMembers;
+    }
+    // Fallback: show demo cards marked as "Sample Member" or "Demo Profile"
+    return members.map(m => ({
+      ...m,
+      isDemo: true,
+      name: `${m.name} (Demo Profile)`,
+      city: `${m.city} (Sample Member)`
+    }));
+  }, [liveMembers]);
+
+  // 2. Live events with database priority & cached fallback
+  const resolvedEvents = React.useMemo(() => {
+    const hosted = Array.isArray(appState.hostedEvents) ? appState.hostedEvents : [];
+    if (hosted.length > 0) {
+      return hosted;
+    }
+    // Fallback: show demo events marked as "Demo Mixer" or "Sample Event"
+    return events.map(e => ({
+      ...e,
+      isDemo: true,
+      title: `${e.title} (Demo Mixer)`,
+      place: `${e.place} (Sample Event)`,
+      rating: 5.0,
+      qualityScore: 100,
+      attendanceRate: 100,
+      wouldAttendAgainPct: 100,
+      hostName: 'System Demo'
+    }));
+  }, [appState.hostedEvents]);
+
+  // 3. Live chats with database priority & cached fallback
+  const resolvedChats = React.useMemo(() => {
+    const live = Array.isArray(appState.chats) ? appState.chats : [];
+    if (live.length > 0) {
+      return live;
+    }
+    // Fallback: show demo conversations
+    return chats;
+  }, [appState.chats]);
   const publicRoutes = ['/onboarding', '/login'];
   const guardedRoute = canBrowseApp
     ? publicRoutes.includes(route) ? '/' : route
@@ -656,15 +718,15 @@ function App() {
         <RouteErrorBoundary key={guardedRoute}>
           {guardedRoute === '/admin/analytics' && <AdminAnalyticsPage navigate={navigate} />}
           {guardedRoute === '/admin/health' && <AdminHealthPage navigate={navigate} />}
-          {guardedRoute === '/members' && <MembersPage appState={currentAppState} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
-          {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} navigate={navigate} onProfileClick={setProfileMember} />}
-          {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
-          {guardedRoute === '/events' && <EventsPage appState={currentAppState} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} />}
+           {guardedRoute === '/members' && <MembersPage appState={currentAppState} resolvedMembers={resolvedMembers} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
+          {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} navigate={navigate} onProfileClick={setProfileMember} />}
+          {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
+          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
           {guardedRoute === '/profile' && <ProfileDashboard initialProfile={currentAppState.profile} appState={currentAppState} onSave={saveProfile} onUploadPhotos={uploadProfilePhotos} onLogout={handleLogout} navigate={navigate} onOpenDrawer={() => setMenuOpen(true)} authUser={authUser} onGoogleLogin={startGoogleLogin} onReviewClick={setReviewEvent} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} />}
           {guardedRoute === '/onboarding' && <OnboardingFlow onExplore={exploreAsGuest} onComplete={() => navigate('/login')} />}
-          {guardedRoute === '/' && <HomePage appState={currentAppState} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
+          {guardedRoute === '/' && <HomePage appState={currentAppState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
         </RouteErrorBoundary>
       </main>
       {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health') && <BottomNav route={guardedRoute} navigate={navigate} />}
@@ -1049,14 +1111,14 @@ function isRouteActive(route, path) {
   return route === path || (path !== '/' && route.startsWith(`${path}/`));
 }
 
-function HomePage({ appState, navigate, onVibeClick, onProfileClick }) {
+function HomePage({ appState, resolvedMembers = [], resolvedEvents = [], navigate, onVibeClick, onProfileClick }) {
   const rsvpCount = Object.keys(appState.rsvps).length;
   const vibeCount = Object.keys(appState.vibeRequests).length;
   const profileName = appState.profile.fullName?.split(' ')[0] || 'ID';
   const [activityFilter, setActivityFilter] = React.useState(null);
   const { theme, toggleTheme } = useTheme();
   const ThemeIcon = theme === 'dark' ? Sun : Moon;
-  const movieMembers = members.filter(member => hasActiveWeekendStatus(member, 'Movie'));
+  const movieMembers = (resolvedMembers || []).filter(member => hasActiveWeekendStatus(member, 'Movie'));
 
   return (
     <>
@@ -1119,14 +1181,14 @@ function HomePage({ appState, navigate, onVibeClick, onProfileClick }) {
         <div className="native-section-head">
           <div><span>Low pressure</span><h2>Meet naturally, not awkwardly</h2></div>
         </div>
-        <RadarPulse appState={appState} navigate={navigate} onVibeClick={onVibeClick} />
+        <RadarPulse appState={appState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={onVibeClick} />
 
         <div className="native-section-head">
           <div><span>Beyond contacts</span><h2>Your next favorite person is not already in your phone</h2></div>
           <button onClick={() => navigate('/members')}>See all</button>
         </div>
         <div className="native-rail">
-          {members.slice(0, 5).map(member => (
+          {(resolvedMembers || []).slice(0, 5).map(member => (
             <button key={member.name} className="native-member-tile" onClick={() => onVibeClick(member)}>
               <div className="live-avatar-ring">
                 <Avatar member={member} />
@@ -1143,7 +1205,7 @@ function HomePage({ appState, navigate, onVibeClick, onProfileClick }) {
           <button onClick={() => navigate('/events')}>Explore</button>
         </div>
         <div className="native-event-stack">
-          {events.slice(0, 2).map(event => (
+          {(resolvedEvents || []).slice(0, 2).map(event => (
             <button key={event.title} className="native-event-row" onClick={() => navigate('/events')}>
               <img src={event.image} alt="" />
               <div>
@@ -1225,12 +1287,13 @@ function HomePage({ appState, navigate, onVibeClick, onProfileClick }) {
       </section>
       <section className="split-section">
         <div><span className="eyebrow">Adult friendships</span><h2>Making friends should not end after college.</h2><p>Expand beyond your existing circle, find your tribe, and keep the connection going after the plan ends.</p></div>
-        <div className="mini-member-grid">{members.slice(0, 3).map(member => <MemberCard key={member.name} member={member} onVibeClick={onVibeClick} compact />)}</div>
+        <div className="mini-member-grid">{(resolvedMembers || []).slice(0, 3).map(member => <MemberCard key={member.name} member={member} onVibeClick={onVibeClick} compact />)}</div>
       </section>
 
       {activityFilter && (
         <ActivityPartnerModal 
           activity={activityFilter} 
+          resolvedMembers={resolvedMembers}
           onClose={() => setActivityFilter(null)} 
           onVibeClick={onVibeClick}
           onProfileClick={member => {
@@ -1243,7 +1306,7 @@ function HomePage({ appState, navigate, onVibeClick, onProfileClick }) {
   );
 }
 
-function ActivityPartnerModal({ activity, onClose, onVibeClick, onProfileClick }) {
+function ActivityPartnerModal({ activity, resolvedMembers = [], onClose, onVibeClick, onProfileClick }) {
   const activityMatches = {
     cafe: [
       { id: 'kavya-sharma', name: 'Kavya Sharma', age: 22, city: 'Bandra West, Mumbai', vibe: 'Cafe Partner Vibe', avatar: 'KS', gradient: 'pink', bio: 'Specialize in balcony tea brewing and deep acoustic sessions.' },
@@ -1257,7 +1320,7 @@ function ActivityPartnerModal({ activity, onClose, onVibeClick, onProfileClick }
   };
 
   const currentMatches = activity.statusFilter
-    ? members.filter(member => hasActiveWeekendStatus(member, activity.statusFilter))
+    ? resolvedMembers.filter(member => hasActiveWeekendStatus(member, activity.statusFilter))
     : activityMatches[activity.key] || [];
 
   return (
@@ -1319,7 +1382,7 @@ function ActivityPartnerModal({ activity, onClose, onVibeClick, onProfileClick }
   );
 }
 
-function MembersPage({ appState, onVibeClick, onProfileClick }) {
+function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileClick }) {
   const [query, setQuery] = React.useState('');
   const [threeLoaded, setThreeLoaded] = React.useState(false);
   const [gsapLoaded, setGsapLoaded] = React.useState(false);
@@ -1382,7 +1445,7 @@ function MembersPage({ appState, onVibeClick, onProfileClick }) {
   }, [lenisLoaded]);
 
   // GSAP Entrance Animations for cards when query filters them
-  const filtered = members.filter(member => `${member.name} ${member.city} ${member.vibe}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = (resolvedMembers || []).filter(member => `${member.name} ${member.city} ${member.vibe}`.toLowerCase().includes(query.toLowerCase()));
 
   React.useEffect(() => {
     if (!gsapLoaded || !window.gsap) return;
@@ -2165,13 +2228,13 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
   );
 }
 
-function ChatInboxPage({ appState, navigate }) {
+function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], navigate }) {
   return (
     <section className="page-shell inbox-page">
       <PageTitle eyebrow="Inbox" title="Chat Inbox" text="Pick a connection to open a dedicated chat page. No cramped split layout." />
       <div className="inbox-list">
-        {chats.map(chat => {
-          const profile = getChatProfile(chat);
+        {(resolvedChats || []).map(chat => {
+          const profile = getChatProfile(chat, resolvedMembers);
           const messageCount = (appState.chatMessages[chat.slug] || chat.messages || []).length;
           return (
           <button key={chat.slug} className="inbox-card" onClick={() => navigate(`/chat/${chat.slug}`)}>
@@ -2189,10 +2252,10 @@ function ChatInboxPage({ appState, navigate }) {
   );
 }
 
-function ChatConversationPage({ appState, route, navigate, onVerify, onSend, onProfileClick, onMeetupFeedbackClick }) {
+function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = [], route, navigate, onVerify, onSend, onProfileClick, onMeetupFeedbackClick }) {
   const slug = route.split('/').pop();
-  const active = chats.find(chat => chat.slug === slug) || chats[0];
-  const profile = getChatProfile(active);
+  const active = (resolvedChats || []).find(chat => chat.slug === slug) || resolvedChats[0] || chats[0];
+  const profile = getChatProfile(active, resolvedMembers);
   const isVerified = Boolean(appState.verifiedChats[active.slug]);
   const thread = appState.chatMessages[active.slug] || active.messages;
   const [draft, setDraft] = React.useState('');
@@ -2436,7 +2499,7 @@ function HostEventPage({ navigate, onCreateEvent }) {
   );
 }
 
-function EventsPage({ appState, onToggleRsvp, onReviewClick }) {
+function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick }) {
   const [filter, setFilter] = React.useState('all'); // 'all', 'plans', 'mixers', 'invite'
   const [query, setQuery] = React.useState('');
   const [threeLoaded, setThreeLoaded] = React.useState(false);
@@ -2498,9 +2561,7 @@ function EventsPage({ appState, onToggleRsvp, onReviewClick }) {
       lenis.destroy();
     };
   }, [lenisLoaded]);
-
-  const hostedEvents = Array.isArray(appState.hostedEvents) ? appState.hostedEvents : [];
-  const allEvents = [...hostedEvents, ...events];
+  const allEvents = resolvedEvents || [];
 
   // Filter events
   const filteredEvents = allEvents.filter(event => {
@@ -3725,7 +3786,7 @@ function Avatar({ member }) {
   );
 }
 
-function RadarPulse({ appState, navigate, onVibeClick }) {
+function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navigate, onVibeClick }) {
   const [activeTabState, setActiveTabState] = React.useState("events"); // "events", "couples", "members"
   const [leafletLoaded, setLeafletLoaded] = React.useState(false);
   const [onlineCount, setOnlineCount] = React.useState(18);
@@ -3776,23 +3837,62 @@ function RadarPulse({ appState, navigate, onVibeClick }) {
     };
   }, []);
 
-  const eventsData = [
-    { lat: 19.0596, lng: 72.8295, title: 'Acoustic & Coffee Mixer', place: 'Secret Garden, Bandra West', time: '6:00 PM onwards', details: '8 couples met here last week!' },
-    { lat: 19.0825, lng: 72.8270, title: 'Secret Rooftop Soiree', place: 'Sea-view Deck, Juhu', time: '8:30 PM onwards', details: 'Elite guestlist, Juhu sunset view.' }
-  ];
+  const eventsData = React.useMemo(() => {
+    if (resolvedEvents && resolvedEvents.length > 0) {
+      return resolvedEvents.map((e, index) => {
+        const angle = ((index + 0.5) * 2 * Math.PI) / resolvedEvents.length;
+        const radius = 0.008 + (index * 0.003) % 0.012;
+        const lat = 19.065 + radius * Math.sin(angle);
+        const lng = 72.832 + radius * Math.cos(angle);
+        return {
+          id: e.id,
+          lat,
+          lng,
+          title: e.title.replace(' (Demo Mixer)', ''),
+          place: e.place.replace(' (Sample Event)', ''),
+          time: e.time || '7:00 PM onwards',
+          details: `${e.attendeeCount || 0} members checked in! Quality Score: ${e.qualityScore ?? 100}`
+        };
+      });
+    }
+    return [
+      { lat: 19.0596, lng: 72.8295, title: 'Acoustic & Coffee Mixer', place: 'Secret Garden, Bandra West', time: '6:00 PM onwards', details: '8 couples met here last week!' },
+      { lat: 19.0825, lng: 72.8270, title: 'Secret Rooftop Soiree', place: 'Sea-view Deck, Juhu', time: '8:30 PM onwards', details: 'Elite guestlist, Juhu sunset view.' }
+    ];
+  }, [resolvedEvents]);
 
   const couplesData = [
     { lat: 19.0540, lng: 72.8315, names: 'Zara & Rohan', place: 'Subko Coffee, Bandra', score: '96%', timeAgo: 'Met 20m ago' },
     { lat: 19.0735, lng: 72.8220, names: 'Kavya & Kabir', place: 'Blue Tokai, Khar', score: '98%', timeAgo: 'Met 1h ago' }
   ];
 
-  const onlineMembersData = [
-    { id: 'zara-chen', lat: 19.0620, lng: 72.8230, name: 'Zara', age: 23, vibe: 'Travel Buddy', avatar: 'ZC', gradient: 'cyan' },
-    { id: 'priya-patel', lat: 19.0520, lng: 72.8400, name: 'Priya', age: 21, vibe: 'Cafe Partner', avatar: 'PP', gradient: 'pink' },
-    { id: 'natasha-rao', lat: 19.0700, lng: 72.8350, name: 'Natasha', age: 23, vibe: 'Art Gallery', avatar: 'NR', gradient: 'cyan' },
-    { id: 'arjun-mehta', lat: 19.0780, lng: 72.8310, name: 'Arjun', age: 25, vibe: 'Founder Energy', avatar: 'AM', gradient: 'purple' },
-    { id: 'kavya-sharma', lat: 19.0570, lng: 72.8300, name: 'Kavya', age: 22, vibe: 'Cafe Partner', avatar: 'KS', gradient: 'pink' }
-  ];
+  const onlineMembersData = React.useMemo(() => {
+    if (resolvedMembers && resolvedMembers.length > 0) {
+      return resolvedMembers.map((m, index) => {
+        const angle = (index * 2 * Math.PI) / resolvedMembers.length;
+        const radius = 0.005 + (index * 0.002) % 0.015;
+        const lat = 19.065 + radius * Math.sin(angle);
+        const lng = 72.832 + radius * Math.cos(angle);
+        return {
+          id: m.id,
+          lat,
+          lng,
+          name: m.name.replace(' (Demo Profile)', ''),
+          age: m.age || 23,
+          vibe: m.vibe || 'Speakeasy Vibe',
+          avatar: m.avatar || 'U',
+          gradient: m.gradient || 'pink'
+        };
+      });
+    }
+    return [
+      { id: 'zara-chen', lat: 19.0620, lng: 72.8230, name: 'Zara', age: 23, vibe: 'Travel Buddy', avatar: 'ZC', gradient: 'cyan' },
+      { id: 'priya-patel', lat: 19.0520, lng: 72.8400, name: 'Priya', age: 21, vibe: 'Cafe Partner', avatar: 'PP', gradient: 'pink' },
+      { id: 'natasha-rao', lat: 19.0700, lng: 72.8350, name: 'Natasha', age: 23, vibe: 'Art Gallery', avatar: 'NR', gradient: 'cyan' },
+      { id: 'arjun-mehta', lat: 19.0780, lng: 72.8310, name: 'Arjun', age: 25, vibe: 'Founder Energy', avatar: 'AM', gradient: 'purple' },
+      { id: 'kavya-sharma', lat: 19.0570, lng: 72.8300, name: 'Kavya', age: 22, vibe: 'Cafe Partner', avatar: 'KS', gradient: 'pink' }
+    ];
+  }, [resolvedMembers]);
 
   // Initialize and Update Map
   React.useEffect(() => {
@@ -4281,7 +4381,7 @@ function RadarPulse({ appState, navigate, onVibeClick }) {
                   className="btn-main" 
                   style={{ minHeight: '30px', borderRadius: '8px', fontSize: '0.72rem', padding: '0 10px', flexShrink: 0 }}
                   onClick={() => {
-                    const fullMember = members.find(gm => gm.id === m.id) || m;
+                    const fullMember = resolvedMembers.find(gm => gm.id === m.id) || m;
                     onVibeClick(fullMember);
                   }}
                 >
