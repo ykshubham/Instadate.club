@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "instadateclub",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-26",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "instadateclub",
+      "database_id": "653ff8ff-ddfd-4b61-9608-a46485e6645e",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PROFILE_IMAGES",
+      "bucket_name": "instadate-profile-images"
+    }
+  ],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+vite-dev.*.log
+wrangler-dev.*.log
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+
+
+

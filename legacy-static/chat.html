@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inbox & High-Vibe Chat | Instadate Social Club</title>
+    
+    <!-- SEO Optimization -->
+    <meta name="description" content="Access your exclusive Instadate chat inbox. Verify voice connection, exchange Instagram handles, and coordinate high-vibe Bandra coffee mixers.">
+    <meta name="keywords" content="Instadate chat, premium inbox, high-vibe dating, Gen Z dating matches">
+    <link rel="icon" type="image/png" href="assets/glowing_hearts.png">
+    <link rel="apple-touch-icon" href="assets/glowing_hearts.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#07070b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Instadate">
+    
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Style Sheets -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="chat.css">
+</head>
+<body class="luxury-space-theme">
+
+    <!-- Interactive HTML5 Canvas Particles Background -->
+    <canvas id="particles-canvas"></canvas>
+
+    <!-- Ambient Glowing Neon Orbs -->
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+
+    <!-- Custom Neon Cursor Trail Wrapper -->
+    <div id="custom-cursor"></div>
+
+    <!-- Sticky Navigation Header -->
+    <header class="header scrolled">
+        <div class="header-container">
+            <a href="index.html" class="logo">
+                <span class="logo-text-gradient">Instadate</span>
+            </a>
+            
+            <div class="status-pill">
+                <span class="status-dot animate-pulse"></span>
+                <span>Active Chat Session</span>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="index.html" class="nav-link">Home</a>
+                <a href="index.html#how-it-works" class="nav-link">How It Works</a>
+                <a href="index.html#pricing" class="nav-link">Memberships</a>
+                <a href="active-users.html" class="nav-link">Active Users</a>
+                <a href="#" class="nav-link active">Inbox 💬</a>
+            </nav>
+
+            <div class="nav-actions">
+                <!-- User Profile Trigger (Bound via LocalStorage Auth Check) -->
+                <div class="nav-profile" id="nav-profile" style="display: none;">
+                    <button class="nav-avatar-btn" id="nav-avatar-btn" onclick="toggleProfileDropdown()">
+                        <div class="nav-avatar" id="nav-avatar-img-container">
+                            <i data-lucide="user" class="nav-avatar-icon" id="nav-avatar-icon"></i>
+                        </div>
+                        <span class="nav-profile-name" id="nav-profile-name">Member</span>
+                        <i data-lucide="chevron-down" class="nav-profile-chevron"></i>
+                    </button>
+                    <div class="nav-profile-dropdown" id="nav-profile-dropdown">
+                        <div class="dropdown-user-info">
+                            <div class="dropdown-avatar" id="dropdown-avatar-img-container">
+                                <i data-lucide="user" id="dropdown-avatar-icon"></i>
+                            </div>
+                            <div>
+                                <p class="dropdown-name" id="dropdown-display-name">Member</p>
+                                <p class="dropdown-email" id="dropdown-display-email">Signed In</p>
+                                <span id="dropdown-tier-badge" class="tier-badge tier-badge-free">Free Member</span>
+                            </div>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <a href="index.html" class="dropdown-item" style="text-decoration: none;">
+                            <i data-lucide="home"></i> Back to Home
+                        </a>
+                        <a href="index.html?action=edit-profile" class="dropdown-item" style="text-decoration: none;">
+                            <i data-lucide="user-cog"></i> Edit Profile
+                        </a>
+                        <a href="index.html?action=upgrade-plan" class="dropdown-item" style="text-decoration: none;">
+                            <i data-lucide="gem"></i> Membership Tier
+                        </a>
+                        <a href="active-users.html" class="dropdown-item" style="text-decoration: none;">
+                            <i data-lucide="users"></i> Browse Active Feed
+                        </a>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item dropdown-item-signout" onclick="handleSignOut()">
+                            <i data-lucide="log-out"></i> Sign Out
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Back to Home CTA when guest -->
+                <a href="index.html" class="btn btn-secondary nav-cta-btn" id="guest-nav-cta">Back to Home</a>
+            </div>
+            
+            <!-- Mobile Menu Toggle -->
+            <button class="mobile-toggle" aria-label="Toggle menu" onclick="toggleMobileMenu()">
+                <i data-lucide="menu" id="menu-icon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Mobile Nav Overlay -->
+    <div class="mobile-nav-overlay" id="mobile-nav">
+        <nav class="mobile-nav-menu">
+            <a href="index.html" class="mobile-nav-link" onclick="toggleMobileMenu()">Home</a>
+            <a href="index.html#pricing" class="mobile-nav-link" onclick="toggleMobileMenu()">Memberships</a>
+            <a href="active-users.html" class="mobile-nav-link" onclick="toggleMobileMenu()">Active Users</a>
+            <a href="#" class="mobile-nav-link active" onclick="toggleMobileMenu()">Inbox</a>
+            
+            <!-- Mobile Profile Actions inside Drawer -->
+            <div class="mobile-nav-profile" id="mobile-nav-profile" style="display: none; width: 100%; text-align: left;">
+                <div class="mobile-profile-divider"></div>
+                <div class="mobile-profile-info" style="display: flex; align-items: center; gap: 12px; margin-bottom: 1rem;">
+                    <div class="mobile-profile-avatar" id="mobile-avatar-img-container" style="width: 44px; height: 44px; border-radius: 50%; border: 1.5px solid var(--primary-pink); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+                        👤
+                    </div>
+                    <div>
+                        <p class="mobile-profile-name" id="mobile-profile-name" style="margin: 0; font-weight: 700; color: white;">Member</p>
+                        <span id="mobile-tier-badge" class="tier-badge" style="font-size: 0.65rem;">Premium</span>
+                    </div>
+                </div>
+                <div class="mobile-profile-actions" style="display: flex; flex-direction: column; gap: 8px;">
+                    <a href="index.html?action=edit-profile" class="mobile-action-btn" style="text-decoration: none;" onclick="toggleMobileMenu()">
+                        <i data-lucide="user-cog"></i> Edit Profile
+                    </a>
+                    <a href="index.html?action=upgrade-plan" class="mobile-action-btn" style="text-decoration: none;" onclick="toggleMobileMenu()">
+                        <i data-lucide="gem"></i> Upgrade Tier
+                    </a>
+                </div>
+                <button class="btn btn-outline w-full mt-4" onclick="toggleMobileMenu(); handleSignOut();">
+                    <i data-lucide="log-out"></i> Sign Out
+                </button>
+            </div>
+            
+            <a href="index.html?action=apply" class="btn btn-primary w-full mt-4" style="text-decoration: none; text-align: center;" id="mobile-guest-cta" onclick="toggleMobileMenu()">Apply to Unlock</a>
+        </nav>
+    </div>
+
+    <!-- Standalone Dashboard Main Section -->
+    <main class="dashboard-main container">
+        
+        <!-- Auth Required Guard State (shown if user not signed in) -->
+        <div class="dashboard-guard-card glass-card text-center p-5 reveal-slide-up revealed" id="auth-guard-panel" style="display: none; max-width: 500px; margin: 8rem auto 4rem auto; animation: slideInFade 0.6s ease;">
+            <div class="guard-icon-wrapper circle-glow-pink mb-3 mx-auto" style="width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255, 46, 147, 0.1);">
+                <i data-lucide="lock" class="text-pink" style="width: 24px; height: 24px;"></i>
+            </div>
+            <h2 class="font-outfit text-white" style="font-weight: 800; font-size: 1.8rem; line-height: 1.2;">Inbox Locked</h2>
+            <p class="text-secondary mt-2 mb-4" style="line-height: 1.5; font-size: 0.95rem;">Please sign up or log in to complete your compatibility profile pass, get approved, and unlock premium high-vibe messaging channels!</p>
+            <a href="index.html?action=apply" class="btn btn-primary btn-lg btn-glow w-full" style="text-decoration: none; display: inline-block; text-align: center;">
+                Log In & Apply Now <i data-lucide="arrow-right" class="btn-arrow"></i>
+            </a>
+        </div>
+
+        <!-- Authorized Luxury Inbox Dashboard Layout -->
+        <div class="inbox-dashboard-wrapper glass-card" id="chat-inbox-dashboard" style="display: none;">
+            
+            <!-- Left Pane: Sidebar Matches List -->
+            <aside class="inbox-sidebar">
+                <div class="sidebar-search-header">
+                    <h2 class="font-outfit text-white font-bold" style="font-size: 1.15rem; letter-spacing: 0.02em;">Connections</h2>
+                    <div class="connections-count-badge" id="sidebar-count-label">0 Active</div>
+                </div>
+                
+                <div class="sidebar-search-box">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" id="connections-search-input" placeholder="Search connections..." onkeyup="filterSidebarMatches()">
+                </div>
+                
+                <div class="inbox-matches-list" id="sidebar-matches-list-container">
+                    <!-- Populated dynamically via chat.js -->
+                </div>
+            </aside>
+
+            <!-- Right Pane: Active Chat Panel Viewport -->
+            <section class="chat-viewport-panel" id="chat-viewport-container">
+                
+                <!-- Zero State / Empty Inbox State -->
+                <div class="chat-empty-viewport" id="chat-empty-welcome-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 3rem; text-align: center; animation: fadeIn 0.5s ease;">
+                    <div class="welcome-icon-wrapper circle-glow-cyan mb-4 animate-pulse" style="width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(0, 245, 255, 0.08); border: 1.5px dashed var(--primary-cyan);">
+                        <i data-lucide="sparkles" class="text-cyan" style="width: 28px; height: 28px;"></i>
+                    </div>
+                    <h3 class="font-outfit text-white text-lg" style="font-weight: 700;">Start Connecting</h3>
+                    <p class="text-secondary text-sm mt-1 max-w-sm" style="line-height: 1.5;">Select a mutually accepted conversation from the left sidebar to unlock authentic chemistry indicators, verified voice intros, and instant date coordinates!</p>
+                    <a href="active-users.html" class="btn btn-outline btn-sm mt-4 font-semibold text-xs" style="text-decoration: none;">
+                        <i data-lucide="search-code" class="mr-1 inline-block" style="width: 12px; height: 12px; vertical-align: middle;"></i> Explore Active Feed
+                    </a>
+                </div>
+
+                <!-- Fully Active Chat Frame Panel -->
+                <div class="chat-active-frame" id="chat-active-panel-frame" style="display: none; flex-direction: column; height: 100%;">
+                    
+                    <!-- Chat Viewport Header -->
+                    <div class="chat-viewport-header">
+                        <div class="chat-header-user-card" onclick="openPartnerProfileModal()">
+                            <!-- Mobile back button to sidebar connections toggle -->
+                            <button class="mobile-sidebar-toggle-btn" onclick="toggleMobileSidebar(true); event.stopPropagation();" aria-label="Back to connections list">
+                                <i data-lucide="chevron-left"></i>
+                            </button>
+                            
+                            <div class="chat-header-avatar" id="chat-header-avatar">✨</div>
+                            <div class="chat-header-meta-details text-left">
+                                <h3 class="chat-header-name" id="chat-header-name">Ananya Sen</h3>
+                                <span class="chat-header-meta" id="chat-header-meta">22 • Mumbai • 98% Match</span>
+                            </div>
+                        </div>
+                        
+                        <div class="chat-header-timer-box text-right">
+                            <span class="chat-header-timer font-outfit" id="chat-header-timer-value">⏳ 6d 23h</span>
+                            <span class="chat-header-timer-sub">until expiry</span>
+                        </div>
+                    </div>
+
+                    <!-- Profile Compatibility Banner Anchor -->
+                    <div class="chat-compatibility-banner" id="chat-compatibility-banner-text">
+                        <i data-lucide="sparkles" class="text-pink animate-pulse" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
+                        <span>Shared Interests: Both love serious relationships & spontaneous long drives</span>
+                    </div>
+
+                    <!-- Scrollable Chat Messages Container -->
+                    <div class="chat-messages-container" id="chat-messages-container">
+                        <!-- Loaded dynamically via chat.js -->
+                    </div>
+
+                    <!-- Voice Intro Locker Block -->
+                    <div class="voice-intro-locker-box" id="voice-intro-locker">
+                        <div class="voice-locker-icon-wrapper circle-glow-pink mb-2 mx-auto">
+                            <i data-lucide="mic" class="text-pink" style="width: 18px; height: 18px;"></i>
+                        </div>
+                        <h4 class="text-white font-outfit text-sm" style="font-weight: 600;">Voice Connection Locked</h4>
+                        <p class="text-xs text-muted mt-1 px-4" style="line-height: 1.4;">Verify authenticity before texting. Listen to their 30s voice intro or record yours to unlock the chat!</p>
+                        
+                        <!-- Oscillating Wave Visualizer -->
+                        <div class="voice-visualizer-wave mt-3" id="voice-wave-container">
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                            <span class="voice-wave-bar"></span>
+                        </div>
+                        
+                        <!-- Interaction Triggers -->
+                        <div class="voice-action-buttons mt-3">
+                            <button class="btn btn-outline btn-sm font-semibold text-xs" onclick="simulatePlayVoiceIntro()" id="btn-play-voice">
+                                <i data-lucide="play" class="mr-1 inline-block" style="width:12px; height:12px; vertical-align: middle;"></i> Play Tara's Intro
+                            </button>
+                            <button class="btn btn-outline btn-sm font-semibold text-xs text-cyan" onclick="simulateRecordVoice()" id="btn-record-voice" style="border-color: rgba(0, 245, 255, 0.25);">
+                                <i data-lucide="radio" class="mr-1 inline-block" style="width:12px; height:12px; vertical-align: middle;"></i> Record My Intro
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Date Confirmation Overlay popup -->
+                    <div class="date-ready-popup glass-card p-3" id="date-ready-popup" style="display: none;">
+                        <h4 class="text-white font-outfit text-sm text-gradient-pink" style="font-weight: 700;">Ready to meet in real life?</h4>
+                        <p class="text-xs text-secondary mt-1" style="line-height: 1.4;">Both of you share an exceptionally high chemical rating! Coordinate an offline coffee date?</p>
+                        <div class="d-flex justify-center gap-3 mt-2">
+                            <button class="btn btn-primary btn-sm" onclick="confirmDateReady('yes')" style="padding: 6px 16px; font-size: 0.75rem;">Yes, let's meet! ☕</button>
+                            <button class="btn btn-outline btn-sm" onclick="confirmDateReady('no')" style="padding: 6px 16px; font-size: 0.75rem;">Need more time ⏳</button>
+                        </div>
+                    </div>
+
+                    <!-- AI Openers Assist Pills Grid -->
+                    <div class="chat-ai-prompts-box" id="chat-ai-prompts-container" style="display: none;">
+                        <span class="ai-prompts-label">
+                            <i data-lucide="sparkles" class="text-pink" style="width:12px; height:12px; display:inline-block; vertical-align:middle; margin-right:2px;"></i> AI Opener Prompts:
+                        </span>
+                        <div class="ai-prompts-list">
+                            <button class="ai-prompt-pill" onclick="prefillAiPrompt('What is your perfect Sunday? 💘')">Sunday Perfect? 💘</button>
+                            <button class="ai-prompt-pill" onclick="prefillAiPrompt('Most spontaneous thing you’ve done? ⚡')">Spontaneous Act? ⚡</button>
+                            <button class="ai-prompt-pill" onclick="prefillAiPrompt('Coffee date or spontaneous long drive? 🚗')">Coffee or Drive? 🚗</button>
+                        </div>
+                    </div>
+
+                    <!-- Shortcuts Date Intent Bar -->
+                    <div class="chat-intent-buttons-box" id="chat-intent-buttons" style="display: none;">
+                        <button class="chat-intent-pill intent-plan" onclick="triggerIntentAction('plan')">Plan Date 📅</button>
+                        <button class="chat-intent-pill intent-insta" onclick="triggerIntentAction('insta')">Exchange Insta 📸</button>
+                        <button class="chat-intent-pill intent-later" onclick="triggerIntentAction('later')">Later ⏳</button>
+                        <button class="chat-intent-pill intent-not" onclick="triggerIntentAction('not')">Pass 💔</button>
+                    </div>
+
+                    <!-- Conversation Text Input Box -->
+                    <div class="chat-input-area" id="chat-input-area-box" style="display: none;">
+                        <form id="chat-send-form" onsubmit="handleChatSubmit(event)">
+                            <div class="chat-input-wrapper">
+                                <input type="text" id="chat-message-input" placeholder="Type a premium conversation opener..." autocomplete="off">
+                                <span class="chat-input-error-msg" id="chat-input-error" style="display: none;">Boring openers like 'hey/hi/wassup' are blocked! Try AI prompts above.</span>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-chat-send" id="chat-send-btn">
+                                <i data-lucide="send" style="width: 16px; height: 16px;"></i>
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Inactive Match Warning Label -->
+                    <div class="chat-footer-expiry-label">
+                        Match expires in 5 days of absolute inactivity. Keep the chemistry alive! ⚡
+                    </div>
+
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Chat Partner Profile Modal -->
+    <div class="partner-modal-overlay" id="partner-profile-modal" onclick="closePartnerProfileModalOnOverlay(event)">
+        <div class="partner-modal-container glass-card">
+            <button class="partner-modal-close" onclick="closePartnerProfileModal()" aria-label="Close modal">
+                <i data-lucide="x"></i>
+            </button>
+            <div class="partner-avatar-wrapper">
+                <div class="partner-avatar-circle" id="partner-modal-avatar">✨</div>
+                <span class="partner-comp-badge" id="partner-modal-score">98% Match</span>
+            </div>
+            
+            <h2 class="partner-name-title font-outfit mt-4" id="partner-modal-name">Ananya Sen</h2>
+            <p class="partner-location-label" id="partner-modal-location">
+                <i data-lucide="map-pin" class="text-pink inline-block mr-1" style="width: 14px; height: 14px; vertical-align: middle;"></i> Bandra West, Mumbai
+            </p>
+            
+            <div class="partner-vibe-badge" id="partner-modal-vibe">
+                <i data-lucide="sparkles" class="mr-1 inline-block" style="width: 12px; height: 12px; vertical-align: middle;"></i> Cafe Partner Vibe
+            </div>
+
+            <div class="partner-info-box glass-card">
+                <h4 class="partner-info-title">About Me</h4>
+                <p class="partner-info-desc" id="partner-modal-bio">Bandra indie musician, coffee collector, and techno lover 🎸☕</p>
+            </div>
+
+            <div class="partner-info-box glass-card mt-3">
+                <h4 class="partner-info-title" style="color: var(--primary-pink);">Weekend Status</h4>
+                <p class="partner-info-desc" id="partner-modal-comp">Shared Interests: Both love serious relationships & spontaneous long drives 🚗</p>
+            </div>
+
+            <div class="partner-badges-row">
+                <span class="badge-item"><i data-lucide="shield-check"></i> Aadhaar Verified</span>
+                <span class="badge-item"><i data-lucide="user-check"></i> Face Matched</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Toast Feedbacks -->
+    <div id="vibe-toast" class="vibe-toast-popup"></div>
+
+    <!-- Lucide Library CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Script Controls -->
+    <script src="pwa-app.js"></script>
+    <script src="chat.js"></script>
+
+</body>
+</html>

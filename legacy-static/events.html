@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret Social Club Events | Instadate Social Club</title>
+    
+    <!-- SEO Optimization -->
+    <meta name="description" content="Browse exclusive upcoming secret mixers, high-vibe acoustics, and rooftop socials hosted by the Instadate Social Club. RSVP securely and connect.">
+    <meta name="keywords" content="Instadate events, curated mixers, secret socials, high-vibe dating mixers, premium members club">
+    <link rel="icon" type="image/png" href="assets/glowing_hearts.png">
+    <link rel="apple-touch-icon" href="assets/glowing_hearts.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#07070b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Instadate">
+    
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Style Sheets -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="events.css">
+</head>
+<body class="luxury-space-theme">
+
+    <!-- Interactive HTML5 Canvas Particles Background -->
+    <canvas id="particles-canvas"></canvas>
+
+    <!-- Ambient Glowing Neon Orbs -->
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+
+    <!-- Custom Neon Cursor Trail Wrapper -->
+    <div id="custom-cursor"></div>
+
+    <!-- Sticky Navigation Header -->
+    <header class="header">
+        <div class="header-container">
+            <a href="index.html" class="logo">
+                <span class="logo-text-gradient">Instadate</span>
+            </a>
+            
+            <div class="status-pill">
+                <span class="status-dot animate-pulse"></span>
+                <span>Applications Open • Age 18–28</span>
+            </div>
+
+            <nav class="nav-menu">
+                <!-- Mega Menu Trigger 1: Discover -->
+                <div class="nav-item-has-mega">
+                    <button class="nav-link nav-mega-trigger">
+                        Explore Club <i data-lucide="chevron-down" class="nav-chevron"></i>
+                    </button>
+                    <div class="mega-menu-dropdown glass-card">
+                        <div class="mega-menu-grid">
+                            <div class="mega-menu-col">
+                                <h4 class="mega-col-title"><i data-lucide="sparkles" class="text-pink"></i> Discover Vibe</h4>
+                                <a href="index.html#how-it-works" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="compass"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">How It Works</span>
+                                        <span class="mega-item-desc">Learn about the 3-step curation formula.</span>
+                                    </div>
+                                </a>
+                                <a href="index.html#vibes" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="activity"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Vibe Check Quiz</span>
+                                        <span class="mega-item-desc">Participate in our matchmaking questionnaire.</span>
+                                    </div>
+                                </a>
+                            </div>
+                            <div class="mega-menu-col">
+                                <h4 class="mega-col-title"><i data-lucide="heart" class="text-cyan"></i> Curated Portal</h4>
+                                <a href="active-users.html" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="users"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Active Mixers <span class="badge-live-neon">1.2k+</span></span>
+                                        <span class="mega-item-desc">Browse local, high-compatibility active daters.</span>
+                                    </div>
+                                </a>
+                                <a href="index.html?action=matches" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="heart-handshake"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Handpicked Matches</span>
+                                        <span class="mega-item-desc">Unlock direct matchmaking connections.</span>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Mega Menu Trigger 2: Memberships -->
+                <div class="nav-item-has-mega">
+                    <button class="nav-link nav-mega-trigger">
+                        Memberships <i data-lucide="chevron-down" class="nav-chevron"></i>
+                    </button>
+                    <div class="mega-menu-dropdown glass-card">
+                        <div class="mega-menu-grid">
+                            <div class="mega-menu-col">
+                                <h4 class="mega-col-title"><i data-lucide="gem" class="text-pink"></i> Premium Circles</h4>
+                                <a href="index.html?action=upgrade-plan" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="sparkles"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Subscription Tiers</span>
+                                        <span class="mega-item-desc">Upgrade to Basic, Premium, or Elite circles.</span>
+                                    </div>
+                                </a>
+                                <a href="index.html?action=upgrade-plan" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="credit-card"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Upgrade Portal</span>
+                                        <span class="mega-item-desc">Seamless secure checkout system.</span>
+                                    </div>
+                                </a>
+                            </div>
+                            <div class="mega-menu-col">
+                                <h4 class="mega-col-title"><i data-lucide="smartphone" class="text-cyan"></i> Curation Desk</h4>
+                                <a href="#" class="mega-item" id="nav-mega-concierge-btn">
+                                    <div class="mega-item-icon"><i data-lucide="message-circle"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Concierge Desk</span>
+                                        <span class="mega-item-desc">Direct 1-on-1 Fast-Track WhatsApp channel.</span>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Mega Menu Trigger 3: Security -->
+                <div class="nav-item-has-mega">
+                    <button class="nav-link nav-mega-trigger">
+                        Trust & Safety <i data-lucide="chevron-down" class="nav-chevron"></i>
+                    </button>
+                    <div class="mega-menu-dropdown glass-card">
+                        <div class="mega-menu-grid">
+                            <div class="mega-menu-col">
+                                <h4 class="mega-col-title"><i data-lucide="shield-check" class="text-pink"></i> Curation Quality</h4>
+                                <a href="index.html#safety" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="lock"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Anti-Ghosting Rules</span>
+                                        <span class="mega-item-desc">Strict club guidelines for high-quality interactions.</span>
+                                    </div>
+                                </a>
+                            </div>
+                            <div class="mega-menu-col">
+                                <h4 class="mega-col-title"><i data-lucide="eye" class="text-cyan"></i> Privacy Controls</h4>
+                                <a href="index.html#safety" class="mega-item">
+                                    <div class="mega-item-icon"><i data-lucide="shield"></i></div>
+                                    <div class="mega-item-text">
+                                        <span class="mega-item-title">Data Privacy Rules</span>
+                                        <span class="mega-item-desc">End-to-end anonymity & verification keys.</span>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <a href="active-users.html" class="nav-link nav-live-btn">
+                    <span class="nav-live-dot"></span>
+                    Active Users
+                    <span class="nav-live-count">1.2k+</span>
+                </a>
+
+                <a href="index.html#faq" class="nav-link">FAQ</a>
+            </nav>
+
+            <!-- Nav Profile (shown after sign-in) -->
+            <div class="nav-profile" id="nav-profile" style="display: none;">
+                <button class="nav-avatar-btn" id="nav-avatar-btn" onclick="toggleProfileDropdown()">
+                    <div class="nav-avatar" id="nav-avatar-img-container">
+                        <i data-lucide="user" class="nav-avatar-icon" id="nav-avatar-icon"></i>
+                    </div>
+                    <span class="nav-profile-name" id="nav-profile-name">Member</span>
+                    <i data-lucide="chevron-down" class="nav-profile-chevron"></i>
+                </button>
+                <div class="nav-profile-dropdown" id="nav-profile-dropdown">
+                    <div class="dropdown-user-info">
+                        <div class="dropdown-avatar" id="dropdown-avatar-img-container">
+                            <i data-lucide="user" id="dropdown-avatar-icon"></i>
+                        </div>
+                        <div>
+                            <p class="dropdown-name" id="dropdown-display-name">Member</p>
+                            <p class="dropdown-email" id="dropdown-display-email">Signed In</p>
+                            <span id="dropdown-tier-badge" class="tier-badge tier-badge-free">Free Member</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <a href="index.html?action=edit-profile" class="dropdown-item" style="text-decoration:none;">
+                        <i data-lucide="user-cog"></i>
+                        Edit Profile
+                    </a>
+                    <a href="index.html?action=matches" class="dropdown-item" style="text-decoration:none;">
+                        <i data-lucide="heart-handshake"></i>
+                        Curated Matches
+                    </a>
+                    <a href="chat.html" class="dropdown-item" style="text-decoration: none;">
+                        <i data-lucide="message-square"></i>
+                        Chat Inbox 💬
+                    </a>
+                    <a href="index.html?action=upgrade-plan" class="dropdown-item" style="text-decoration:none;">
+                        <i data-lucide="gem"></i>
+                        Membership Tier
+                    </a>
+                    <button class="dropdown-item" onclick="alert('Quick configurations saved successfully!')">
+                        <i data-lucide="sliders"></i>
+                        Settings
+                    </button>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item dropdown-item-signout" onclick="handleSignOut()">
+                        <i data-lucide="log-out"></i>
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Menu Toggle -->
+            <button class="mobile-toggle" aria-label="Toggle menu" onclick="toggleMobileMenu()">
+                <i data-lucide="menu" id="menu-icon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Mobile Nav Overlay -->
+    <div class="mobile-nav-overlay" id="mobile-nav">
+        <nav class="mobile-nav-menu">
+            <a href="index.html" class="mobile-nav-link" onclick="toggleMobileMenu()">Home</a>
+            <a href="index.html#how-it-works" class="mobile-nav-link" onclick="toggleMobileMenu()">How It Works</a>
+            <a href="index.html#pricing" class="mobile-nav-link" onclick="toggleMobileMenu()">Memberships</a>
+            <a href="active-users.html" class="mobile-nav-link mobile-nav-live-btn" onclick="toggleMobileMenu()">
+                <span class="nav-live-dot"></span>
+                Active Users
+                <span class="nav-live-count">1.2k+</span>
+            </a>
+            <a href="chat.html" class="mobile-nav-link" id="mobile-btn-chat" onclick="toggleMobileMenu()">Chat Inbox 💬</a>
+            <a href="index.html#faq" class="mobile-nav-link" onclick="toggleMobileMenu()">FAQ</a>
+        </nav>
+    </div>
+
+    <!-- MAIN PORTAL CONTENT -->
+    <main class="events-main-container">
+        
+        <!-- Header Banner Section -->
+        <section class="events-hero-section text-center">
+            <span class="events-tagline-pill">Secret Mixer Calendar</span>
+            <h1 class="events-hero-title font-outfit text-gradient-pink mt-3">Exclusive Club Events</h1>
+            <p class="events-hero-subtitle max-w-xl mx-auto mt-2">Connect in person at curated social mixers, secret acoustics, rooftop cocktails, and private weekend escapes reserved strictly for verified club members.</p>
+        </section>
+
+        <!-- Category Filters -->
+        <section class="events-filter-section mt-5">
+            <div class="events-filters-wrapper">
+                <button class="event-filter-pill active" data-filter="all">All Events</button>
+                <button class="event-filter-pill" data-filter="mixers">Club Mixers</button>
+                <button class="event-filter-pill" data-filter="acoustics">Bandra Acoustics</button>
+                <button class="event-filter-pill" data-filter="vip">VIP Exclusive</button>
+            </div>
+        </section>
+
+        <!-- Bento Grid of Secret Events -->
+        <section class="events-grid-section mt-5">
+            <div class="events-bento-grid">
+                
+                <!-- Event Card 1: Acoustics -->
+                <div class="event-card glass-card" data-category="acoustics">
+                    <div class="event-card-media font-outfit">🎸</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-pink">Bandra Acoustics</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Acoustic & Coffee Mixer</h3>
+                        <p class="event-card-desc">An intimate evening of live independent acoustic sets, artisan slow-brews, and high-vibe daters at a secret garden cafe in Bandra.</p>
+                        
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 06, Sat</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 6:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Secret Garden, Bandra West</div>
+                        </div>
+
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-101', 'Acoustic & Coffee Mixer')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 2: Mixers -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🌇</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Club Mixer</span>
+                            <span class="event-card-status status-vip">Members Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Secret Rooftop Sunset Soiree</h3>
+                        <p class="event-card-desc">Watch panoramic beach sunsets, enjoy handcrafted sunset cocktails, and mingle in a highly curated dating pool at a luxury rooftop overlooking Juhu.</p>
+                        
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 12, Fri</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 5:30 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Sea-view Deck, Juhu</div>
+                        </div>
+
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-102', 'Secret Rooftop Sunset Soiree')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 3: VIP Exclusive -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">🍸</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-invite">Invite Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Speakeasy Private Cocktail Session</h3>
+                        <p class="event-card-desc">A premium offline mixer at a highly private speakeasy. Includes personalized introduction cycles conducted by our elite club matchmakers.</p>
+                        
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 20, Sat</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 8:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Private Cellar, Colaba</div>
+                        </div>
+
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-103', 'Speakeasy Private Cocktail Session')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 4: VIP Escape -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">⛵</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-filling">2 Spots Left</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Alibaug Yacht Weekend Escape</h3>
+                        <p class="event-card-desc">Board a private luxury catamaran from Gateway of India for a weekend beach retreat. High-profile networking, sunset sailing, and curated match pairings.</p>
+                        
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 27 - 28</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> Weekend Getaway</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Gateway of India Marina</div>
+                        </div>
+
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-104', 'Alibaug Yacht Weekend Escape')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 5: Delhi Concert & Wine Night -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🍷</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Club Mixer</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Concert & Wine Night</h3>
+                        <p class="event-card-desc">Indie beats and fine vintage wine pairings. Meet conscious daters in a hidden, beautifully lit courtyard near Chanakyapuri.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 07, Sun</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 7:30 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Secret Courtyard, Chanakyapuri, Delhi NCR</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-105', 'Concert & Wine Night')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 6: Bangalore High-Fi Listening Session -->
+                <div class="event-card glass-card" data-category="acoustics">
+                    <div class="event-card-media font-outfit">🎵</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-pink">Indiranagar Acoustics</span>
+                            <span class="event-card-status status-filling">3 Spots Left</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">High-Fi Vinyl Listening</h3>
+                        <p class="event-card-desc">Warm analog vinyl acoustics, premium filter coffee cold brews, and tech builders mingling in an acoustic glass lounge.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 13, Sat</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 5:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Analog Glassroom, Indiranagar, Bangalore</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-106', 'High-Fi Vinyl Listening')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 7: Goa Off-Grid Sunset Campfire -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🔥</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Beach Mixer</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Off-Grid Beachside Campfire</h3>
+                        <p class="event-card-desc">An intimate beachfront acoustic sunset jam around a warm crackling campfire under glowing solar lanterns.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 14, Sun</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 5:30 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Secret Beachfront, South Goa</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-107', 'Off-Grid Beachside Campfire')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 8: Gurgaon Skyline Golf & Cocktail -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">⛳</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-vip">Elite Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Skyline Golf & Cocktails</h3>
+                        <p class="event-card-desc">Top-tier startup founder networking, mini-golf swings, and custom mixology sessions at a luxury skyline terrace club.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 18, Thu</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 7:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> DLF Club Roof, Gurgaon, Delhi NCR</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-108', 'Skyline Golf & Cocktails')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 9: Pune Koregaon Park Private Jazz -->
+                <div class="event-card glass-card" data-category="acoustics">
+                    <div class="event-card-media font-outfit">🎹</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-pink">Koregaon Acoustics</span>
+                            <span class="event-card-status status-filling">2 Spots Left</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Secret Villa Jazz Piano</h3>
+                        <p class="event-card-desc">Intimate live progressive jazz sets, handcrafted artisanal cheese pairings, and organic cider in a historic botanical villa.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 19, Fri</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 8:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Botanical Estate, Koregaon Park, Pune</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-109', 'Secret Villa Jazz Piano')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 10: Hyderabad Founders Microbrewery Deck -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🍻</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Tech Circle</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Founders Craft Brewery Mixer</h3>
+                        <p class="event-card-desc">Connecting active startup builders, product designers, and venture leads over premium flight tastings and deep techno aux sets.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 21, Sun</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 6:30 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Secret Terrace Deck, Gachibowli, Hyderabad</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-110', 'Founders Craft Brewery Mixer')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 11: Chennai ECR Beachside Acoustic -->
+                <div class="event-card glass-card" data-category="acoustics">
+                    <div class="event-card-media font-outfit">🎸</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-pink">ECR Acoustics</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">ECR Beach Acoustic Dinner</h3>
+                        <p class="event-card-desc">Intimate candlelit live classical guitar covers, craft mocktails, and fresh local organic seafood dining on the East Coast Road.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 24, Wed</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 7:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Shoreline Cabana, ECR, Chennai</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-111', 'ECR Beach Acoustic Dinner')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 12: Kolkata Art Deco Poetry & Whiskey -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🥃</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Club Mixer</span>
+                            <span class="event-card-status status-vip">Members Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Art Deco Poetry & Single Malts</h3>
+                        <p class="event-card-desc">A highly aesthetic evening of live spoken word poetry, aged single malts, and slow social walks inside a 1920s private manor.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 26, Fri</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 8:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Colonial Manor, Alipore, Kolkata</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-112', 'Art Deco Poetry & Single Malts')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 13: Jaipur Palace Amber Fort Soiree -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">👑</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-invite">Invite Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Royal Fort Sunset Soiree</h3>
+                        <p class="event-card-desc">An elite royal sunset session, live classical fusion, and curated matchmaking circles hosted inside Jaimahal Gardens.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> June 30, Tue</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 5:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Amber Fort Heritage Deck, Jaipur</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-113', 'Royal Fort Sunset Soiree')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 14: Mumbai Speakeasy Yacht Regatta -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">⚓</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-filling">1 Spot Left</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Gateway Speakeasy Yacht Regatta</h3>
+                        <p class="event-card-desc">Luxury private yacht sailing along Gateway harbor, followed by custom mixology sessions at a private vault speakeasy.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 04, Sat</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 4:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Yacht Club Vault, Colaba, Mumbai</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-114', 'Gateway Speakeasy Yacht Regatta')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 15: Bangalore Greenhouse Gin & Tech -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🍸</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Tech Circle</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Greenhouse Gin & Tech Mixer</h3>
+                        <p class="event-card-desc">Conscious speed-dating for tech leaders, startup founders, and design leads inside a luxury greenhouse rooftop in Koramangala.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 05, Sun</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 6:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Botanist Glasshouse, Koramangala, Bangalore</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-115', 'Greenhouse Gin & Tech Mixer')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 16: Delhi Lutyens Private Art Chamber -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">🎨</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-vip">Members Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Lutyens Champagne Art Gallery</h3>
+                        <p class="event-card-desc">Private viewing of modern abstract art, direct concierge introductions, and vintage champagne pairings at an elite gallery room.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 10, Fri</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 8:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Art Chamber Room, Lutyens Delhi, Delhi NCR</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-116', 'Lutyens Champagne Art Gallery')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 17: Goa Candolim Yacht Retreat -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">⛵</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-filling">3 Spots Left</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Candolim Yacht & Beach Escapade</h3>
+                        <p class="event-card-desc">Curated match catamaran cruising, water skiing, sunset sailing, and chef-guided organic seafood dining inside Candolim harbor.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 11, Sat</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> Weekend Getaway</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Secret Beach Harbor, Candolim, Goa</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-117', 'Candolim Yacht & Beach Escapade')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 18: Pune Hinjewadi Vineyard Harp Acoustic -->
+                <div class="event-card glass-card" data-category="acoustics">
+                    <div class="event-card-media font-outfit">🎻</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-pink">Hinjewadi Acoustics</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Vineyard Classical Harp & Wine</h3>
+                        <p class="event-card-desc">Bespoke local vineyard cheese tastings, live acoustic harp performances, and scenic hillside walks with premium dating circles.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 15, Wed</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 5:30 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Hinjewadi Valley Vineyard, Pune</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-118', 'Vineyard Classical Harp & Wine')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 19: Hyderabad Charminar Heritage Coffee -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">☕</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Club Mixer</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Heritage Walks & Coffee Chats</h3>
+                        <p class="event-card-desc">Early morning architectural photography, custom specialty coffee flight tastings, and speed conversational matchmaking loops.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 17, Fri</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 7:00 AM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Old Quarter Courtyard, Hyderabad</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-119', 'Heritage Walks & Coffee Chats')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 20: Mumbai Bandra Secret Garden Vibe -->
+                <div class="event-card glass-card" data-category="acoustics">
+                    <div class="event-card-media font-outfit">🌿</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-pink">Bandra Acoustics</span>
+                            <span class="event-card-status status-vip">Members Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Secret Garden Acoustic Covers</h3>
+                        <p class="event-card-desc">Deep acoustic guitar techno covers, vegan craft mocktail pairings, and raw compatibility matchmaking under glowing fairy lights.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 18, Sat</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 6:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Secret Botanical Deck, Bandra West, Mumbai</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-120', 'Secret Garden Acoustic Covers')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 21: Gurgaon CyberCity Speed-Dating Pub -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🍻</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Corporate Circle</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">CyberCity Corporate speed-dating</h3>
+                        <p class="event-card-desc">Premium speed-dating mixer designed for high-profile corporate leaders, tech managers, and startup operators with live acoustic pop.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 22, Wed</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 7:30 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> CyberCity Vault Pub, Gurgaon, Delhi NCR</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-121', 'CyberCity Corporate speed-dating')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 22: Chandigarh Lake Lawn Stargazing -->
+                <div class="event-card glass-card" data-category="acoustics">
+                    <div class="event-card-media font-outfit">🌌</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-pink">Lake Acoustics</span>
+                            <span class="event-card-status status-filling">4 Spots Left</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Lake Lawn Stargazing & Acoustics</h3>
+                        <p class="event-card-desc">Cozy picnic blankets, organic artisan cold brews, stargazing telescope scopes, and acoustic voice covers under a beautiful clear night sky.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 24, Fri</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 8:00 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Secret Lake Lawn, Sukhna Lake, Chandigarh</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-122', 'Lake Lawn Stargazing & Acoustics')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 23: Kochi Kumarakom Houseboat Escape -->
+                <div class="event-card glass-card VIP-glow" data-category="vip">
+                    <div class="event-card-media font-outfit">🛥️</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-cyan">VIP Exclusive</span>
+                            <span class="event-card-status status-invite">Invite Only</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit text-gradient-cyan">Kumarakom Houseboat Match Getaway</h3>
+                        <p class="event-card-desc">Catamaran luxury backwater yacht cruising, personalized matchmaking loops, stargazing decks, and custom private chef organic dining.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 28, Tue</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> Weekend Getaway</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Private Jetty, Kumarakom, Kochi</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full btn-cyan-glow rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-123', 'Kumarakom Houseboat Match Getaway')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Card 24: Jaipur Heritage Sitar Fusion Coffee -->
+                <div class="event-card glass-card" data-category="mixers">
+                    <div class="event-card-media font-outfit">🪕</div>
+                    <div class="event-card-body">
+                        <div class="event-badge-row">
+                            <span class="event-card-tag tag-purple">Palace Mixer</span>
+                            <span class="event-card-status status-filling">Filling Fast</span>
+                        </div>
+                        <h3 class="event-card-title font-outfit">Heritage Palace Sitar-Guitar Fusion</h3>
+                        <p class="event-card-desc">An evening of sitar-guitar fusion, artisanal aeropress coffee flows, and deep values-first match socializing inside the Jaimahal Palace gardens.</p>
+                        <div class="event-details-meta">
+                            <div class="meta-item"><i data-lucide="calendar"></i> July 31, Fri</div>
+                            <div class="meta-item"><i data-lucide="clock"></i> 5:30 PM onwards</div>
+                            <div class="meta-item"><i data-lucide="map-pin"></i> Jaimahal Palace Lawn, Jaipur</div>
+                        </div>
+                        <div class="event-rsvp-action mt-4">
+                            <button class="btn btn-primary btn-sm w-full rsvp-trigger-btn" onclick="handleEventRSVP(this, 'evt-124', 'Heritage Palace Sitar-Guitar Fusion')">
+                                RSVP Securely <i data-lucide="ticket" class="btn-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+        
+    </main>
+
+    <!-- Interactive Footer Section -->
+    <footer class="events-footer text-center mt-6">
+        <p class="text-muted font-outfit" style="font-size: 0.8rem;">Instadate Social Club &copy; 2026. All rights reserved. • Handcrafted in Bandra West</p>
+    </footer>
+
+    <!-- Premium Toast Alert Panel -->
+    <div class="events-toast" id="events-toast-msg" style="display: none;">
+        <div class="toast-card glass-card">
+            <i data-lucide="check-circle" class="text-green"></i>
+            <span class="toast-text font-outfit" id="events-toast-text">RSVP Confirmed successfully!</span>
+        </div>
+    </div>
+
+    <!-- Dynamic Lucide Icons & JS logic -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="pwa-app.js"></script>
+    <script src="events.js"></script>
+</body>
+</html>

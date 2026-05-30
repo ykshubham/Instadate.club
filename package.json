@@ -1,0 +1,32 @@
+{
+  "name": "instadate-web-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck:worker": "tsc -p tsconfig.json",
+    "build": "npm run typecheck:worker && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "d1:migrate:local": "wrangler d1 migrations apply instadateclub --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply instadateclub --remote",
+    "cloudflare:dev": "npm run d1:migrate:local && npm run build && wrangler dev --local --port 8787",
+    "cloudflare:deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "framer-motion": "^12.40.0",
+    "gsap": "^3.15.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260529.1",
+    "wrangler": "^4.95.0"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "Instadate Social Club",
+  "short_name": "Instadate",
+  "description": "A verified dating club web app for curated matches, live members, chat, and private events.",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07070b",
+  "theme_color": "#07070b",
+  "categories": ["social", "lifestyle"],
+  "icons": [
+    {
+      "src": "assets/glowing_hearts.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/social_mixer.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Active Members",
+      "short_name": "Members",
+      "description": "Browse verified active members.",
+      "url": "active-users.html",
+      "icons": [{ "src": "assets/glowing_hearts.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Chat Inbox",
+      "short_name": "Inbox",
+      "description": "Open your match inbox.",
+      "url": "chat.html",
+      "icons": [{ "src": "assets/glowing_hearts.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Club Events",
+      "short_name": "Events",
+      "description": "Browse exclusive Instadate events.",
+      "url": "events.html",
+      "icons": [{ "src": "assets/glowing_hearts.png", "sizes": "192x192" }]
+    }
+  ]
+}
