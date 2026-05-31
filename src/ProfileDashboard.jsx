@@ -572,36 +572,31 @@ export default function ProfileDashboard({
               {/* Meet Someone This Week Prominent Flow Trigger */}
               <button
                 onClick={() => setMeetSomeoneOpen(true)}
-                style={{
-                  width: '100%',
-                  padding: '1.1rem 1.25rem',
-                  borderRadius: '22px',
-                  background: 'linear-gradient(135deg, #fbbf24, #d946ef, #22d3ee)',
-                  color: '#fff',
-                  fontSize: '0.82rem',
-                  fontWeight: '900',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.12em',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  boxShadow: '0 12px 36px rgba(217,70,239,0.3)',
-                  cursor: 'pointer',
-                  transition: 'all 0.25s ease',
-                  marginBottom: '1.25rem',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-                className="meet-someone-week-cta mt-6"
+                className="meet-someone-week-cta mt-6 group relative w-full overflow-hidden rounded-3xl border border-white/20 bg-gradient-to-r from-amber-400 via-fuchsia-500 to-cyan-400 p-[2px] shadow-[0_20px_60px_rgba(217,70,239,0.4)] transition-all duration-300 hover:shadow-[0_25px_70px_rgba(217,70,239,0.5)] active:scale-[0.98]"
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Zap style={{ width: '18px', height: '18px', color: '#fef08a' }} className="animate-bounce" />
-                  Meet Someone This Week ⚡
-                </span>
-                <span style={{ marginLeft: 'auto', fontSize: '0.7rem', background: 'rgba(0,0,0,0.35)', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  Start Flow →
-                </span>
+                <div className="relative flex items-center justify-between gap-3 rounded-[22px] bg-gradient-to-br from-[#1a0a2e] via-[#16051f] to-[#0a1628] px-5 py-4 backdrop-blur-xl">
+                  {/* Animated gradient overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-amber-400/10 via-fuchsia-500/10 to-cyan-400/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
+                  <div className="relative flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-amber-500 shadow-lg">
+                      <Zap className="h-5 w-5 text-white animate-pulse" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-['Outfit'] text-sm font-black uppercase tracking-wider text-white">
+                        Meet Someone This Week
+                      </div>
+                      <div className="text-[10px] font-semibold text-white/60">
+                        Real plans, real people, this week
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 backdrop-blur-sm">
+                    <span className="text-xs font-black uppercase tracking-wide text-white">Start</span>
+                    <ChevronRight className="h-4 w-4 text-white transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
               </button>
 
               {meetSomeoneOpen && (
@@ -741,8 +736,8 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
               {isPremium && <Badge icon={Gem} text="Elite VIP" tone="gold" />}
             </div>
             
-            <h2 className="flex items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white">
-              {(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}
+            <h2 className="flex items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white flex-wrap">
+              <span>{(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}</span>
               {renderVerificationBadge(profile.verification_level, "w-6 h-6")}
             </h2>
             
@@ -2633,28 +2628,39 @@ function MatchmakingHub({ appState, onApiCall }) {
   }
 
   return (
-    <div className="mt-8 rounded-[32px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
-      <div className="mb-4">
-        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-fuchsia-400">Instadate Intelligence</span>
-        <h3 className="font-['Outfit'] text-2xl font-black text-white mt-1">Curated Speakeasy Matches</h3>
-        <p className="text-xs text-white/50 mt-1 font-semibold">Real compatibility scoring. No generic swipes, just high-value discoveries.</p>
+    <div className="mt-8 rounded-[32px] border border-white/10 bg-gradient-to-br from-white/[0.045] to-white/[0.025] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl relative overflow-hidden">
+      {/* Subtle gradient overlay */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(255,46,147,0.08),transparent_50%),radial-gradient(circle_at_80%_70%,rgba(0,215,245,0.06),transparent_50%)] pointer-events-none" />
+
+      <div className="relative mb-5">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-fuchsia-600 shadow-lg">
+            <Sparkles className="h-4 w-4 text-white" />
+          </div>
+          <span className="text-[11px] font-black uppercase tracking-[0.24em] text-fuchsia-400">Instadate Intelligence</span>
+        </div>
+        <h3 className="font-['Outfit'] text-2xl font-black text-white">Curated Speakeasy Matches</h3>
+        <p className="text-xs text-white/60 mt-2 font-semibold max-w-2xl">Real compatibility scoring. No generic swipes, just high-value discoveries.</p>
       </div>
 
       {/* Categories horizontal list */}
-      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-3">
+      <div className="relative no-scrollbar flex gap-2 overflow-x-auto pb-3">
         {categories.map(cat => {
           const isSelected = activeTab === cat.id;
           return (
             <button
               key={cat.id}
               onClick={() => setActiveTab(cat.id)}
-              className={`rounded-full px-4 py-1.5 text-xs font-black uppercase tracking-wide border transition-all duration-300 active:scale-95 shrink-0 ${
-                isSelected 
-                  ? 'border-[#ff2e93] bg-[#ff2e93]/20 text-white shadow-[0_0_12px_rgba(255,46,147,0.25)]' 
-                  : 'border-white/5 bg-white/[0.015] text-white/50 hover:bg-white/[0.04]'
+              className={`relative rounded-full px-5 py-2.5 text-xs font-black uppercase tracking-wide border transition-all duration-300 active:scale-95 shrink-0 ${
+                isSelected
+                  ? 'border-fuchsia-500/50 bg-gradient-to-r from-fuchsia-500/20 to-pink-500/20 text-white shadow-[0_0_20px_rgba(255,46,147,0.3)]'
+                  : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06] hover:border-white/20 hover:text-white/70'
               }`}
             >
-              {cat.label} ({cat.list.length})
+              <span className="relative z-10">{cat.label} {cat.icon} ({cat.list.length})</span>
+              {isSelected && (
+                <div className="absolute inset-0 rounded-full bg-gradient-to-r from-fuchsia-500/10 to-pink-500/10 animate-pulse" />
+              )}
             </button>
           );
         })}

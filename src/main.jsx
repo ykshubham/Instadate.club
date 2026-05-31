@@ -2529,7 +2529,7 @@ function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], nav
             <button key={chat.slug} className="inbox-card" onClick={() => navigate(`/chat/${chat.slug}`)}>
               <Avatar member={profile} />
               <div className="inbox-copy">
-                <div className="inbox-row"><strong>{chat.name}</strong><span>6d 23h</span></div>
+                <div className="inbox-row"><strong>{profile.name}</strong><span>6d 23h</span></div>
                 <small className="message-count-tag">{messageCount} messages</small>
               </div>
               <ChevronRight />

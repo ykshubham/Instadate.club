@@ -818,7 +818,21 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     }
   ]));
 
-  const { results: chatRows } = await db.prepare('SELECT * FROM chats ORDER BY created_at ASC').all<Record<string, unknown>>();
+  const { results: chatRows } = await db.prepare(`
+    SELECT c.*,
+           CASE
+             WHEN c.participant_a_user_id = ? THEN COALESCE(ub.full_name, REPLACE(REPLACE(c.slug, '-', ' '), 'seeded chat ', ''))
+             ELSE COALESCE(ua.full_name, REPLACE(REPLACE(c.slug, '-', ' '), 'seeded chat ', ''))
+           END as name,
+           CASE
+             WHEN c.participant_a_user_id = ? THEN ub.id
+             ELSE ua.id
+           END as other_user_id
+    FROM chats c
+    LEFT JOIN users ua ON c.participant_a_user_id = ua.id
+    LEFT JOIN users ub ON c.participant_b_user_id = ub.id
+    ORDER BY c.created_at ASC
+  `).bind(userId, userId).all<Record<string, unknown>>();
   const chatMessages: Record<string, Array<[string, string]>> = {};
   const verifiedChats: Record<string, boolean> = {};
 
@@ -870,17 +884,18 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     }))
   };
 
-  const liveChats = chatRows.map(row => ({
-    id: row.id,
-    slug: row.slug as string,
-    name: row.name as string,
-    meta: row.meta as string,
-    message: row.message as string,
-    preview: row.preview as string,
-    avatar: ((row.name as string) || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
-    gradient: 'cyan',
-    messages: chatMessages[row.slug as string] || []
-  }));
+  const liveChats = chatRows.map(row => {
+    const messages = chatMessages[row.slug as string] || [];
+    const lastMessage = messages.length > 0 ? messages[messages.length - 1][1] : '';
+    return {
+      id: row.id,
+      slug: row.slug as string,
+      name: row.name as string || 'Unknown',
+      avatar: ((row.name as string) || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+      gradient: 'cyan',
+      messages
+    };
+  });
 
   const { results: outingRows } = await db.prepare(`
     SELECT mo.id, mo.status, mo.updated_at,
