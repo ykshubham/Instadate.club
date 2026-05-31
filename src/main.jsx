@@ -358,12 +358,13 @@ function LoginPage({ onGoogleLogin, authError }) {
 
 function App() {
   const [route, setRoute] = React.useState(getRoute);
-  const [guestMode, setGuestMode] = React.useState(() => sessionStorage.getItem('instadate_guest_mode') === 'true');
+  const [guestMode, setGuestMode] = React.useState(() => sessionStorage.getItem('instadate_guest_mode') !== 'false');
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [selectedMember, setSelectedMember] = React.useState(null);
   const [profileMember, setProfileMember] = React.useState(null);
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const { user: authUser, isAuthenticated, isLoading, authError, signIn, signOut } = useAuth();
+  const canBrowseApp = isAuthenticated || guestMode;
 
   React.useEffect(() => {
     const handleUnauthorized = () => {
@@ -373,13 +374,12 @@ function App() {
     return () => window.removeEventListener('api-unauthorized', handleUnauthorized);
   }, [signOut]);
 
-  const [appState, , cloudStateStatus, , mutateState] = useApiState(createInitialAppState, isAuthenticated);
+  const [appState, , cloudStateStatus, , mutateState] = useApiState(createInitialAppState, canBrowseApp);
   const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos } = useProfile();
   const [toast, setToast] = React.useState('');
   const [reviewEvent, setReviewEvent] = React.useState(null);
   const [feedbackMeetup, setFeedbackMeetup] = React.useState(null);
   const [meetSomeoneOpen, setMeetSomeoneOpen] = React.useState(false);
-  const canBrowseApp = isAuthenticated || guestMode;
   const currentAppState = React.useMemo(() => ({
     ...appState,
     profile: { ...appState.profile, ...profile }
@@ -397,7 +397,7 @@ function App() {
         }
       })
       .catch(err => console.warn('Could not load live members:', err));
-  }, [isAuthenticated, appState.lastUpdated]);
+  }, [canBrowseApp, appState.lastUpdated]);
 
   const resolvedMembers = React.useMemo(() => {
     return liveMembers;
