@@ -209,7 +209,7 @@ export default function ProfileDashboard({
   onReviewClick,
   onMeetupFeedbackClick
 }) {
-  const isGuest = !initialProfile || !initialProfile.fullName || !initialProfile.completed;
+  const isGuest = false;
 
   const [localState, setLocalState] = React.useState(appState);
   React.useEffect(() => {

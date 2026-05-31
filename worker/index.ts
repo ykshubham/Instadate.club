@@ -227,6 +227,11 @@ async function authenticatedUserIdFrom(request: Request, env: Env) {
     return 'seeded_user_1';
   }
 
+  // Fallback to seeded_user_1 for GET requests to support unauthenticated guest exploration
+  if (request.method === 'GET') {
+    return 'seeded_user_1';
+  }
+
   return null;
 }
 
