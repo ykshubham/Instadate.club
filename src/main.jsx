@@ -4168,8 +4168,8 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
           id: e.id,
           lat,
           lng,
-          title: e.title.replace(' (Demo Mixer)', ''),
-          place: e.place.replace(' (Sample Event)', ''),
+          title: (e.title || '').replace(' (Demo Mixer)', ''),
+          place: (e.place || '').replace(' (Sample Event)', ''),
           time: e.time || '7:00 PM onwards',
           details: `${e.attendeeCount || 0} members checked in! Quality Score: ${e.qualityScore ?? 100}`
         };
@@ -4194,7 +4194,7 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
           id: m.id,
           lat,
           lng,
-          name: m.name.replace(' (Demo Profile)', ''),
+          name: (m.name || '').replace(' (Demo Profile)', ''),
           age: m.age || 23,
           vibe: m.vibe || 'Speakeasy Vibe',
           avatar: m.avatar || 'U',
@@ -4267,7 +4267,11 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
             </div>
           `);
       });
-      map.setView([eventsData[0].lat, eventsData[0].lng], 14);
+      if (eventsData.length > 0) {
+        map.setView([eventsData[0].lat, eventsData[0].lng], 14);
+      } else {
+        map.setView([19.065, 72.832], 14);
+      }
     } else if (activeTabState === "couples") {
       couplesData.forEach(c => {
         L.marker([c.lat, c.lng], { icon: createPulseIcon('fuchsia') })
@@ -4281,7 +4285,11 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
             </div>
           `);
       });
-      map.setView([couplesData[0].lat, couplesData[0].lng], 14);
+      if (couplesData.length > 0) {
+        map.setView([couplesData[0].lat, couplesData[0].lng], 14);
+      } else {
+        map.setView([19.065, 72.832], 14);
+      }
     } else if (activeTabState === "members") {
       onlineMembersData.forEach(m => {
         L.marker([m.lat, m.lng], { icon: createPulseIcon('green') })
@@ -4295,10 +4303,14 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
             </div>
           `);
       });
-      map.setView([onlineMembersData[0].lat, onlineMembersData[0].lng], 14);
+      if (onlineMembersData.length > 0) {
+        map.setView([onlineMembersData[0].lat, onlineMembersData[0].lng], 14);
+      } else {
+        map.setView([19.065, 72.832], 14);
+      }
     }
 
-  }, [leafletLoaded, activeTabState]);
+  }, [leafletLoaded, activeTabState, eventsData, onlineMembersData]);
 
   const location = appState.profile.city || "Mumbai";
 
