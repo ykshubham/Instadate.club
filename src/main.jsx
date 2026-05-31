@@ -4,7 +4,7 @@ import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import gsap from 'gsap';
 import {
   ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Gem, Heart, Home, MapPin, Menu,
-  MessageCircle, Mic, Moon, Search, Send, ShieldCheck, Sparkles, Star, Sun, Ticket, User, Users, X, Zap
+  MessageCircle, MessageSquare, Mic, Moon, Search, Send, ShieldCheck, Sparkles, Star, Sun, Ticket, User, Users, X, Zap
 } from 'lucide-react';
 import './styles.css';
 import ProfileDashboard from './ProfileDashboard.jsx';
@@ -17,69 +17,7 @@ import AdminAnalyticsPage from './AdminAnalyticsPage.jsx';
 import AdminHealthPage from './AdminHealthPage.jsx';
 
 
-const members = [
-  ['Kavya Sharma', 22, 'Bandra West, Mumbai', 'Cafe Partner Vibe', '98%', 'Balcony talker or aux DJ?', '100% the deep talker in the balcony, but I will play tech-house if given the aux.', 'pink', 'KS'],
-  ['Zara Chen', 23, 'Indiranagar, Bangalore', 'Travel Buddy Vibe', '96%', 'My creative therapy?', 'Indie bookstores, oversized hoodies, vintage film portraits, and weekend treks.', 'cyan', 'ZC'],
-  ['Priya Patel', 21, 'Saket, Delhi NCR', 'Cafe Partner Vibe', '94%', 'What makes a date romantic?', 'Quiet cafes, amber lighting, old books, and deep talks about values.', 'pink', 'PP'],
-  ['Rohan Kapoor', 24, 'Koramangala, Bangalore', 'Concert Vibe', '92%', 'Weekend plan?', 'Live acoustic set first, then late coffee and a long walk home.', 'purple', 'RK'],
-  ['Natasha Rao', 23, 'Juhu, Mumbai', 'Art Gallery Vibe', '91%', 'Perfect Sunday?', 'Gallery walk, iced matcha, and a playlist that slowly turns into confession hour.', 'cyan', 'NR'],
-  ['Arjun Mehta', 25, 'Koregaon Park, Pune', 'Startup Founder Vibe', '90%', 'Green flag?', 'Ambition with kindness. Someone who can build, laugh, and be honest.', 'purple', 'AM']
-].map(([name, age, city, vibe, score, prompt, answer, gradient, avatar]) => {
-  const id = slugify(name);
-  const weekend = getWeekendSignal(id, vibe);
-  return { id, name, age, city, vibe, score, prompt, answer, gradient, avatar, photos: getMemberPhotos(id), ...weekend };
-});
 
-const events = [
-  ['Acoustic & Coffee Mixer', 'Bandra Acoustic', 'June 06, Sat', '6:00 PM onwards', 'Secret Garden, Bandra West', '/assets/bandra_acoustic_mixer.png', 'Filling Fast'],
-  ['Secret Rooftop Sunset Soiree', 'Club Mixer', 'June 12, Fri', '5:30 PM onwards', 'Sea-view Deck, Juhu', '/assets/rooftop_sunset_soiree.png', 'Members Only'],
-  ['Colaba Speakeasy Night', 'VIP Exclusive', 'June 20, Sat', '8:00 PM onwards', 'Private Cellar, Colaba', '/assets/colaba_speakeasy.png', 'Invite Only']
-].map(([title, type, date, time, place, image, status]) => ({ id: slugify(title), title, type, date, time, place, image, status }));
-
-const chats = [
-  {
-    slug: 'ishaan-verma',
-    name: 'Ishaan Verma',
-    meta: '22 • Mumbai • 92% Vibe Match',
-    message: 'Looking for this weekend: "2323"',
-    preview: 'Voice intro pending before chat unlock.',
-    avatar: 'IV',
-    gradient: 'cyan',
-    messages: [
-      ['match', 'Hey, I recorded a quick intro. Listen first?'],
-      ['system', 'Voice verification is required before free texting.'],
-      ['you', 'Perfect. I will verify mine too.']
-    ]
-  },
-  {
-    slug: 'kabir-kapoor',
-    name: 'Kabir Kapoor',
-    meta: '24 • Delhi NCR • 98% Match',
-    message: 'Jazz keyboardist, cafe reader, slow dating.',
-    preview: 'Kabir shared a weekend coffee plan.',
-    avatar: 'KK',
-    gradient: 'purple',
-    messages: [
-      ['match', 'I know a quiet jazz cafe near GK.'],
-      ['you', 'That sounds very on-brand.'],
-      ['match', 'Friday after 7?']
-    ]
-  },
-  {
-    slug: 'aarav-mehta',
-    name: 'Aarav Mehta',
-    meta: '23 • Bangalore • 94% Match',
-    message: 'Architectural photographer. Hidden rooftop scout.',
-    preview: 'Aarav wants to exchange photo walk ideas.',
-    avatar: 'AM',
-    gradient: 'pink',
-    messages: [
-      ['match', 'Cubbon early morning has the best light.'],
-      ['you', 'I am listening. Send the route.'],
-      ['match', 'Only if coffee is part of the route.']
-    ]
-  }
-];
 
 const defaultProfile = {
   photo: '',
@@ -282,7 +220,7 @@ function createInitialAppState() {
     rsvps: {},
     hostedEvents: [],
     verifiedChats: {},
-    chatMessages: Object.fromEntries(chats.map(chat => [chat.slug, chat.messages])),
+    chatMessages: {},
     lastUpdated: new Date().toISOString()
   };
 }
@@ -319,6 +257,9 @@ function useApiState(fallbackFactory, enabled) {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent('api-unauthorized'));
+      }
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.error || `API request failed: ${response.status}`);
     }
@@ -418,11 +359,21 @@ function App() {
   const [profileMember, setProfileMember] = React.useState(null);
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const { user: authUser, isAuthenticated, isLoading, authError, signIn, signOut } = useAuth();
+
+  React.useEffect(() => {
+    const handleUnauthorized = () => {
+      signOut();
+    };
+    window.addEventListener('api-unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('api-unauthorized', handleUnauthorized);
+  }, [signOut]);
+
   const [appState, , cloudStateStatus, , mutateState] = useApiState(createInitialAppState, isAuthenticated);
   const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos } = useProfile();
   const [toast, setToast] = React.useState('');
   const [reviewEvent, setReviewEvent] = React.useState(null);
   const [feedbackMeetup, setFeedbackMeetup] = React.useState(null);
+  const [meetSomeoneOpen, setMeetSomeoneOpen] = React.useState(false);
   const canBrowseApp = isAuthenticated || guestMode;
   const currentAppState = React.useMemo(() => ({
     ...appState,
@@ -432,7 +383,7 @@ function App() {
   // 1. Live members with database priority & cached fallback
   const [liveMembers, setLiveMembers] = React.useState([]);
   React.useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!canBrowseApp) return;
     fetch('/api/members')
       .then(res => res.json())
       .then(data => {
@@ -444,50 +395,21 @@ function App() {
   }, [isAuthenticated, appState.lastUpdated]);
 
   const resolvedMembers = React.useMemo(() => {
-    if (liveMembers.length > 0) {
-      return liveMembers;
-    }
-    // Fallback: show demo cards marked as "Sample Member" or "Demo Profile"
-    return members.map(m => ({
-      ...m,
-      isDemo: true,
-      name: `${m.name} (Demo Profile)`,
-      city: `${m.city} (Sample Member)`
-    }));
+    return liveMembers;
   }, [liveMembers]);
 
   // 2. Live events with database priority & cached fallback
   const resolvedEvents = React.useMemo(() => {
-    const hosted = Array.isArray(appState.hostedEvents) ? appState.hostedEvents : [];
-    if (hosted.length > 0) {
-      return hosted;
-    }
-    // Fallback: show demo events marked as "Demo Mixer" or "Sample Event"
-    return events.map(e => ({
-      ...e,
-      isDemo: true,
-      title: `${e.title} (Demo Mixer)`,
-      place: `${e.place} (Sample Event)`,
-      rating: 5.0,
-      qualityScore: 100,
-      attendanceRate: 100,
-      wouldAttendAgainPct: 100,
-      hostName: 'System Demo'
-    }));
+    return Array.isArray(appState.hostedEvents) ? appState.hostedEvents : [];
   }, [appState.hostedEvents]);
 
   // 3. Live chats with database priority & cached fallback
   const resolvedChats = React.useMemo(() => {
-    const live = Array.isArray(appState.chats) ? appState.chats : [];
-    if (live.length > 0) {
-      return live;
-    }
-    // Fallback: show demo conversations
-    return chats;
+    return Array.isArray(appState.chats) ? appState.chats : [];
   }, [appState.chats]);
   const publicRoutes = ['/onboarding', '/login'];
   const guardedRoute = canBrowseApp
-    ? publicRoutes.includes(route) ? '/' : route
+    ? route === '/login' ? '/' : route
     : publicRoutes.includes(route) ? route : '/onboarding';
   const isConversationRoute = guardedRoute.startsWith('/chat/');
 
@@ -697,6 +619,19 @@ function App() {
     }
   };
 
+  const handleJoinPlan = async (planId, hasJoined) => {
+    try {
+      if (hasJoined) {
+        await mutateState(`/api/instant-plans/${planId}/join`, { method: 'DELETE' });
+      } else {
+        await mutateState(`/api/instant-plans/${planId}/join`, { method: 'POST' });
+      }
+      notify(hasJoined ? 'Left instant plan.' : 'Joined instant plan!');
+    } catch {
+      notify('Could not update plan status.');
+    }
+  };
+
   if (isLoading) {
     return <SplashScreen />;
   }
@@ -726,7 +661,7 @@ function App() {
           {guardedRoute === '/profile' && <ProfileDashboard initialProfile={currentAppState.profile} appState={currentAppState} onSave={saveProfile} onUploadPhotos={uploadProfilePhotos} onLogout={handleLogout} navigate={navigate} onOpenDrawer={() => setMenuOpen(true)} authUser={authUser} onGoogleLogin={startGoogleLogin} onReviewClick={setReviewEvent} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} />}
           {guardedRoute === '/onboarding' && <OnboardingFlow onExplore={exploreAsGuest} onComplete={() => navigate('/login')} />}
-          {guardedRoute === '/' && <HomePage appState={currentAppState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
+          {guardedRoute === '/' && <HomePage appState={currentAppState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} onMeetSomeoneClick={() => setMeetSomeoneOpen(true)} />}
         </RouteErrorBoundary>
       </main>
       {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health') && <BottomNav route={guardedRoute} navigate={navigate} />}
@@ -745,6 +680,18 @@ function App() {
           meetup={feedbackMeetup} 
           onClose={() => setFeedbackMeetup(null)} 
           notify={notify}
+        />
+      )}
+      {meetSomeoneOpen && (
+        <MeetSomeoneThisWeekModal
+          appState={currentAppState}
+          resolvedMembers={resolvedMembers}
+          onClose={() => setMeetSomeoneOpen(false)}
+          onVibeClick={setSelectedMember}
+          onProfileClick={setProfileMember}
+          onToggleRsvp={toggleRsvp}
+          onJoinPlan={handleJoinPlan}
+          navigate={navigate}
         />
       )}
       {cloudStateStatus === 'offline' && <div className="app-toast">Cloud storage unavailable. Start Cloudflare dev or deploy the Worker.</div>}
@@ -806,6 +753,7 @@ function Header({ route, navigate, menuOpen, setMenuOpen, authUser, onGoogleLogi
 }
 
 function SideDrawer({ route, navigate, onClose, appState }) {
+  const { user: authUser } = useAuth();
   const [gsapLoaded, setGsapLoaded] = React.useState(Boolean(window.gsap));
 
   // Load GSAP CDN if not loaded
@@ -846,7 +794,7 @@ function SideDrawer({ route, navigate, onClose, appState }) {
   ];
 
   const profile = appState.profile;
-  const isVipProfile = profile.completed;
+  const isVipProfile = profile.completed || Boolean(authUser);
 
   return (
     <motion.div 
@@ -1031,8 +979,11 @@ function SideDrawer({ route, navigate, onClose, appState }) {
                 animation: 'shine 4s infinite'
               }} />
               <img 
-                src={profile.photo} 
-                alt={profile.fullName} 
+                src={authUser?.avatarUrl || profile.photo || ''} 
+                alt={authUser?.fullName || profile.fullName || 'User'} 
+                onError={(e) => {
+                  e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>';
+                }}
                 style={{
                   width: '42px',
                   height: '42px',
@@ -1043,10 +994,10 @@ function SideDrawer({ route, navigate, onClose, appState }) {
               />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <strong style={{ display: 'block', font: '800 0.88rem Outfit, sans-serif', color: '#fff', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                  {profile.fullName}
+                  {authUser?.fullName || profile.fullName || 'User'}
                 </strong>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.74rem', color: '#bf86ff', fontWeight: 'bold', marginTop: '1px' }}>
-                  <Award style={{ width: '12px', height: '12px' }} /> Elite Verified Clubber
+                <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                  {authUser?.email || 'user@mail.com'}
                 </span>
               </div>
               <button 
@@ -1111,10 +1062,11 @@ function isRouteActive(route, path) {
   return route === path || (path !== '/' && route.startsWith(`${path}/`));
 }
 
-function HomePage({ appState, resolvedMembers = [], resolvedEvents = [], navigate, onVibeClick, onProfileClick }) {
+function HomePage({ appState, resolvedMembers = [], resolvedEvents = [], navigate, onVibeClick, onProfileClick, onMeetSomeoneClick }) {
   const rsvpCount = Object.keys(appState.rsvps).length;
   const vibeCount = Object.keys(appState.vibeRequests).length;
-  const profileName = appState.profile.fullName?.split(' ')[0] || 'ID';
+  const cleanFullName = (appState.profile.fullName || '').split(',')[0].trim();
+  const profileName = cleanFullName.split(' ')[0] || 'ID';
   const [activityFilter, setActivityFilter] = React.useState(null);
   const { theme, toggleTheme } = useTheme();
   const ThemeIcon = theme === 'dark' ? Sun : Moon;
@@ -1146,6 +1098,41 @@ function HomePage({ appState, resolvedMembers = [], resolvedEvents = [], navigat
           <h1>Never do things alone unless you want to.</h1>
           <p>Choose the activity first, then meet verified people who already want to join.</p>
         </div>
+
+        {/* Meet Someone This Week Prominent Flow Trigger */}
+        <button
+          onClick={onMeetSomeoneClick}
+          style={{
+            width: '100%',
+            padding: '1.1rem 1.25rem',
+            borderRadius: '22px',
+            background: 'linear-gradient(135deg, #fbbf24, #d946ef, #22d3ee)',
+            color: '#fff',
+            fontSize: '0.82rem',
+            fontWeight: '900',
+            textTransform: 'uppercase',
+            letterSpacing: '0.12em',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'between',
+            border: '1px solid rgba(255,255,255,0.2)',
+            boxShadow: '0 12px 36px rgba(217,70,239,0.3)',
+            cursor: 'pointer',
+            transition: 'all 0.25s ease',
+            marginBottom: '1.25rem',
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+          className="meet-someone-week-cta"
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Zap style={{ width: '18px', height: '18px', color: '#fef08a' }} className="animate-bounce" />
+            Meet Someone This Week ⚡
+          </span>
+          <span style={{ marginLeft: 'auto', fontSize: '0.7rem', background: 'rgba(0,0,0,0.35)', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            Start Flow →
+          </span>
+        </button>
 
         <div className="native-lane-grid" aria-label="Instadate discovery lanes">
           <button className="native-lane-card match" onClick={() => navigate('/members')}>
@@ -1194,7 +1181,7 @@ function HomePage({ appState, resolvedMembers = [], resolvedEvents = [], navigat
                 <Avatar member={member} />
                 <span className="live-online-dot" />
               </div>
-              <strong>{member.name.split(' ')[0]}, {member.age}</strong>
+              <strong>{(member.name || '').split(',')[0].trim().split(' ')[0]}, {member.age || (member.name || '').split(',')[1]?.trim()}</strong>
               <span>{appState.vibeRequests[member.id] ? 'Sent' : `${member.score}`}</span>
             </button>
           ))}
@@ -1307,21 +1294,19 @@ function HomePage({ appState, resolvedMembers = [], resolvedEvents = [], navigat
 }
 
 function ActivityPartnerModal({ activity, resolvedMembers = [], onClose, onVibeClick, onProfileClick }) {
-  const activityMatches = {
-    cafe: [
-      { id: 'kavya-sharma', name: 'Kavya Sharma', age: 22, city: 'Bandra West, Mumbai', vibe: 'Cafe Partner Vibe', avatar: 'KS', gradient: 'pink', bio: 'Specialize in balcony tea brewing and deep acoustic sessions.' },
-      { id: 'priya-patel', name: 'Priya Patel', age: 21, city: 'Saket, Delhi NCR', vibe: 'Cafe Partner Vibe', avatar: 'PP', gradient: 'pink', bio: 'Looking for a quiet book reader companion at local cafe.' }
-    ],
-    pickleball: [
-      { id: 'arjun-mehta', name: 'Arjun Mehta', age: 25, city: 'Koregaon Park, Pune', vibe: 'Founder Energy', avatar: 'AM', gradient: 'purple', bio: 'Early morning court matches, highly active gameplays.' },
-      { id: 'zara-chen', name: 'Zara Chen', age: 23, city: 'Indiranagar, Bangalore', vibe: 'Travel Buddy Vibe', avatar: 'ZC', gradient: 'cyan', bio: 'Treks, runs, and active sports enthusiast.' }
-    ],
-    movie: []
-  };
-
-  const currentMatches = activity.statusFilter
-    ? resolvedMembers.filter(member => hasActiveWeekendStatus(member, activity.statusFilter))
-    : activityMatches[activity.key] || [];
+  const currentMatches = React.useMemo(() => {
+    const term = (activity.title || '').toLowerCase();
+    return (resolvedMembers || []).filter(member => {
+      const status = (member.currentWeekendStatus || '').toLowerCase();
+      const weekendText = (member.weekendStatus || '').toLowerCase();
+      const bioText = (member.bio || '').toLowerCase();
+      const vibeText = (member.vibe || '').toLowerCase();
+      return status === term || 
+             weekendText.includes(term) || 
+             bioText.includes(term) || 
+             vibeText.includes(term);
+    });
+  }, [resolvedMembers, activity]);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -1375,6 +1360,264 @@ function ActivityPartnerModal({ activity, resolvedMembers = [], onClose, onVibeC
         </div>
 
         <button className="btn-quiet full" style={{ marginTop: '1rem' }} onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onVibeClick, onProfileClick, onToggleRsvp, onJoinPlan, navigate }) {
+  const [selectedActivity, setSelectedActivity] = React.useState(null);
+  const [activeTab, setActiveTab] = React.useState('members');
+
+  const activities = [
+    { id: 'Coffee', label: 'Coffee ☕', key: 'coffee' },
+    { id: 'Movie', label: 'Movie 🎬', key: 'movie' },
+    { id: 'Dinner', label: 'Dinner 🍽', key: 'dinner' },
+    { id: 'Road Trip', label: 'Road Trip 🚗', key: 'road trip' },
+    { id: 'Pickleball', label: 'Pickleball 🎾', key: 'pickleball' },
+    { id: 'Networking', label: 'Networking 💼', key: 'networking' },
+    { id: 'Night Out', label: 'Night Out 🥂', key: 'night out' }
+  ];
+
+  const term = selectedActivity ? selectedActivity.toLowerCase() : '';
+
+  const matchingMembers = React.useMemo(() => {
+    if (!selectedActivity) return [];
+    return (resolvedMembers || []).filter(m => {
+      const status = (m.currentWeekendStatus || '').toLowerCase();
+      const weekendText = (m.weekendStatus || '').toLowerCase();
+      const bioText = (m.bio || '').toLowerCase();
+      const vibeText = (m.vibe || '').toLowerCase();
+      return status === term || 
+             weekendText.includes(term) || 
+             bioText.includes(term) || 
+             vibeText.includes(term);
+    });
+  }, [resolvedMembers, selectedActivity, term]);
+
+  const matchingEvents = React.useMemo(() => {
+    if (!selectedActivity) return [];
+    return (appState.hostedEvents || []).filter(e => {
+      const title = (e.title || '').toLowerCase();
+      const desc = (e.description || '').toLowerCase();
+      const type = (e.type || '').toLowerCase();
+      const category = (e.category || '').toLowerCase();
+      return title.includes(term) || desc.includes(term) || type.includes(term) || category.includes(term);
+    });
+  }, [appState.hostedEvents, selectedActivity, term]);
+
+  const matchingPlans = React.useMemo(() => {
+    if (!selectedActivity) return [];
+    return (appState.instantPlans || []).filter(p => {
+      const title = (p.title || '').toLowerCase();
+      const act = (p.activity || '').toLowerCase();
+      return title.includes(term) || act.includes(term);
+    });
+  }, [appState.instantPlans, selectedActivity, term]);
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" style={{ zIndex: 1000 }}>
+      <div className="upgrade-modal" style={{ width: 'min(640px, 95vw)', padding: '1.5rem', background: 'rgba(15,10,25,0.95)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(30px)', borderRadius: '32px' }}>
+        <button className="close-btn" onClick={onClose} aria-label="Close modal"><X /></button>
+        
+        {!selectedActivity ? (
+          <div>
+            <span className="eyebrow" style={{ color: 'var(--pink)', textTransform: 'uppercase', fontSize: '0.72rem', letterSpacing: '0.2em', fontWeight: '900' }}>Real-World Action</span>
+            <h2 style={{ margin: '0.2rem 0 1rem', font: '900 1.6rem Outfit, sans-serif', color: '#fff' }}>Meet Someone This Week ⚡</h2>
+            <p style={{ margin: '0 0 1.5rem', color: 'rgba(255,255,255,0.6)', fontSize: '0.86rem', fontWeight: '500' }}>
+              Stop browsing profiles. Choose what you want to do, and we will connect you immediately with active members, mixers, and instant plans nearby.
+            </p>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(135px, 1fr))', gap: '0.75rem' }}>
+              {activities.map(act => (
+                <button
+                  key={act.id}
+                  onClick={() => setSelectedActivity(act.id)}
+                  style={{
+                    padding: '1.1rem 0.75rem',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: '18px',
+                    color: '#fff',
+                    font: '800 0.9rem Outfit, sans-serif',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.25s ease',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                  }}
+                  className="activity-select-btn"
+                  onMouseEnter={e => { e.currentTarget.style.border = '1px solid var(--pink)'; e.currentTarget.style.background = 'rgba(255, 46, 147, 0.05)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                >
+                  {act.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.25rem' }}>
+              <button 
+                onClick={() => { setSelectedActivity(null); setActiveTab('members'); }}
+                style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#fff', borderRadius: '50%', width: '32px', height: '32px', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
+              >
+                ←
+              </button>
+              <div>
+                <span className="eyebrow" style={{ color: 'var(--pink)', textTransform: 'uppercase', fontSize: '0.68rem', letterSpacing: '0.15em', fontWeight: '900' }}>Active Lounges</span>
+                <h2 style={{ margin: '0', font: '900 1.45rem Outfit, sans-serif', color: '#fff' }}>Doing: {selectedActivity}</h2>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '1.25rem' }}>
+              {[
+                { id: 'members', label: `Activity Partners (${matchingMembers.length})` },
+                { id: 'events', label: `Social Mixers (${matchingEvents.length})` },
+                { id: 'plans', label: `Instant Plans (${matchingPlans.length})` }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    flex: 1,
+                    padding: '8px 4px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: activeTab === tab.id ? 'var(--pink)' : 'transparent',
+                    color: activeTab === tab.id ? '#fff' : 'rgba(255,255,255,0.5)',
+                    fontSize: '0.78rem',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    transition: 'all 0.25s'
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ maxHeight: '360px', overflowY: 'auto', paddingRight: '4px', display: 'grid', gap: '0.85rem' }}>
+              {activeTab === 'members' && (
+                matchingMembers.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2.5rem 1rem', background: 'rgba(255,255,255,0.01)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '20px', color: 'var(--muted)' }}>
+                    <Users style={{ width: '32px', height: '32px', color: 'var(--soft)', marginBottom: '0.5rem', display: 'inline-block' }} />
+                    <h4 style={{ margin: '0 0 0.25rem', color: '#fff', font: '800 1.05rem Outfit, sans-serif' }}>No Members Yet</h4>
+                    <p style={{ margin: 0, fontSize: '0.78rem' }}>Nobody has updated their status for this activity. Be the first!</p>
+                  </div>
+                ) : (
+                  matchingMembers.map(member => (
+                    <div key={member.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '18px', gap: '10px' }}>
+                      <div className={`avatar ${member.gradient}`} style={{ width: '44px', height: '44px' }}>
+                        {member.photos?.[0] ? <img src={member.photos[0]} alt="" /> : member.avatar}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ display: 'flex', alignItems: 'center', gap: '4px', font: '800 0.95rem Outfit, sans-serif', color: '#fff' }}>
+                          {(member.name || '').split(',')[0].trim().split(' ')[0]}, {member.age || (member.name || '').split(',')[1]?.trim()}
+                          {member.verification_level === 'highly_verified' && <ShieldCheck style={{ width: '13px', height: '13px', color: '#fbbf24' }} />}
+                          {member.verification_level === 'identity' && <ShieldCheck style={{ width: '13px', height: '13px', color: '#22d3ee' }} />}
+                          {member.verification_level === 'basic' && <ShieldCheck style={{ width: '13px', height: '13px', color: '#3b82f6' }} />}
+                        </strong>
+                        <span style={{ display: 'block', fontSize: '0.76rem', color: 'rgba(255,255,255,0.4)', marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                          Reliability: {member.trustScore || 94}% • {member.city}
+                        </span>
+                      </div>
+                      <button 
+                        className="btn-main" 
+                        style={{ minHeight: '34px', borderRadius: '10px', fontSize: '0.78rem', padding: '0 12px' }}
+                        onClick={() => { onClose(); onVibeClick(member); }}
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  ))
+                )
+              )}
+
+              {activeTab === 'events' && (
+                matchingEvents.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2.5rem 1rem', background: 'rgba(255,255,255,0.01)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '20px', color: 'var(--muted)' }}>
+                    <Calendar style={{ width: '32px', height: '32px', color: 'var(--soft)', marginBottom: '0.5rem', display: 'inline-block' }} />
+                    <h4 style={{ margin: '0 0 0.25rem', color: '#fff', font: '800 1.05rem Outfit, sans-serif' }}>No Events Available</h4>
+                    <p style={{ margin: 0, fontSize: '0.78rem' }}>No social mixers scheduled for this activity category currently.</p>
+                  </div>
+                ) : (
+                  matchingEvents.map(event => {
+                    const isJoined = Boolean(appState.rsvps[event.id]);
+                    return (
+                      <div key={event.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '18px', gap: '10px' }}>
+                        <img src={event.image} alt="" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }} />
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ display: 'block', font: '800 0.95rem Outfit, sans-serif', color: '#fff', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{event.title}</strong>
+                          <span style={{ display: 'block', fontSize: '0.76rem', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+                            {event.date} • {event.place}
+                          </span>
+                        </div>
+                        <button 
+                          className="btn-main" 
+                          style={{
+                            minHeight: '34px', 
+                            borderRadius: '10px', 
+                            fontSize: '0.78rem', 
+                            padding: '0 12px',
+                            background: isJoined ? 'rgba(255, 46, 147, 0.15)' : '#fff',
+                            color: isJoined ? 'var(--pink)' : '#000',
+                            border: isJoined ? '1px solid rgba(255, 46, 147, 0.3)' : 'none'
+                          }}
+                          onClick={() => onToggleRsvp(event)}
+                        >
+                          {isJoined ? "RSVP'd ✓" : 'RSVP 🎟'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )
+              )}
+
+              {activeTab === 'plans' && (
+                matchingPlans.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2.5rem 1rem', background: 'rgba(255,255,255,0.01)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '20px', color: 'var(--muted)' }}>
+                    <Zap style={{ width: '32px', height: '32px', color: 'var(--soft)', marginBottom: '0.5rem', display: 'inline-block' }} />
+                    <h4 style={{ margin: '0 0 0.25rem', color: '#fff', font: '800 1.05rem Outfit, sans-serif' }}>No Meetups Planned</h4>
+                    <p style={{ margin: 0, fontSize: '0.78rem' }}>No fast-join instant plans exist for this activity right now.</p>
+                  </div>
+                ) : (
+                  matchingPlans.map(plan => {
+                    const hasJoined = plan.members.some(m => m.id === appState.profile.id);
+                    return (
+                      <div key={plan.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '18px', gap: '10px' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ display: 'block', font: '800 0.95rem Outfit, sans-serif', color: '#fff', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{plan.title}</strong>
+                          <span style={{ display: 'block', fontSize: '0.76rem', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+                            Activity: {plan.activity} • {plan.time} • Host: {plan.creatorName} ({plan.creatorTrustScore}% Trust)
+                          </span>
+                        </div>
+                        <button 
+                          className="btn-main" 
+                          style={{
+                            minHeight: '34px', 
+                            borderRadius: '10px', 
+                            fontSize: '0.78rem', 
+                            padding: '0 12px',
+                            background: hasJoined ? 'rgba(0, 215, 245, 0.15)' : '#fff',
+                            color: hasJoined ? 'var(--cyan)' : '#000',
+                            border: hasJoined ? '1px solid rgba(0, 215, 245, 0.3)' : 'none'
+                          }}
+                          onClick={() => onJoinPlan(plan.id, hasJoined)}
+                        >
+                          {hasJoined ? 'Joined ✓' : 'Join ⚡'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        <button className="btn-quiet full" style={{ marginTop: '1.25rem', minHeight: '38px', borderRadius: '12px' }} onClick={onClose}>
           Close
         </button>
       </div>
@@ -1885,9 +2128,11 @@ function MemberCard({ member, onVibeClick, onProfileClick, compact = false, requ
               width: '100%'
             }}>
               <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>
-                {member.name.split(' ')[0]}, {member.age}
+                {(member.name || '').split(',')[0].trim().split(' ')[0]}, {member.age || (member.name || '').split(',')[1]?.trim()}
               </span>
-              <ShieldCheck style={{ width: '16px', height: '16px', color: '#25d366', flexShrink: 0 }} title="Verified Profile" />
+              {member.verification_level === 'highly_verified' && <ShieldCheck style={{ width: '16px', height: '16px', color: '#fbbf24', flexShrink: 0 }} title="Highly Verified VIP Passport" />}
+              {member.verification_level === 'identity' && <ShieldCheck style={{ width: '16px', height: '16px', color: '#22d3ee', flexShrink: 0 }} title="Identity Verified Selfie Check Complete" />}
+              {member.verification_level === 'basic' && <ShieldCheck style={{ width: '16px', height: '16px', color: '#3b82f6', flexShrink: 0 }} title="Basic Verified Phone Connected" />}
             </h3>
             <p style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.78rem', color: 'var(--muted)', margin: '0.15rem 0 0', minWidth: 0 }}>
               <MapPin style={{ width: '12px', height: '12px', flexShrink: 0, color: 'var(--pink)' }} />
@@ -1901,11 +2146,11 @@ function MemberCard({ member, onVibeClick, onProfileClick, compact = false, requ
                 fontWeight: '900',
                 padding: '2px 6px',
                 borderRadius: '6px',
-                background: (member.trustMetrics?.attendanceScore || 94) >= 95 ? 'rgba(37, 211, 102, 0.08)' : 'rgba(255, 46, 147, 0.06)',
-                color: (member.trustMetrics?.attendanceScore || 94) >= 95 ? '#25d366' : 'var(--pink)',
-                border: `1px solid ${(member.trustMetrics?.attendanceScore || 94) >= 95 ? 'rgba(37, 211, 102, 0.2)' : 'rgba(255, 46, 147, 0.15)'}`
+                background: (member.trustMetrics?.attendanceScore || member.trustMetrics?.attendance_score || member.trustScore || 94) >= 95 ? 'rgba(37, 211, 102, 0.08)' : 'rgba(255, 46, 147, 0.06)',
+                color: (member.trustMetrics?.attendanceScore || member.trustMetrics?.attendance_score || member.trustScore || 94) >= 95 ? '#25d366' : 'var(--pink)',
+                border: `1px solid ${(member.trustMetrics?.attendanceScore || member.trustMetrics?.attendance_score || member.trustScore || 94) >= 95 ? 'rgba(37, 211, 102, 0.2)' : 'rgba(255, 46, 147, 0.15)'}`
               }}>
-                Reliability: {Math.round(member.trustMetrics?.attendanceScore || 94)}
+                Reliability: {Math.round(member.trustMetrics?.attendanceScore || member.trustMetrics?.attendance_score || member.trustScore || 94)}%
               </span>
             </div>
           </div>
@@ -2026,7 +2271,7 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
   const details = [
     ['Match score', `${member.score || '94%'} vibe match`, Heart],
     ['Location', member.city, MapPin],
-    ['Verified', 'Aadhaar + selfie checked', ShieldCheck],
+    ['Verified', member.verification_level === 'highly_verified' ? 'Passport Verified' : member.verification_level === 'identity' ? 'Aadhaar Verified' : member.verification_level === 'basic' ? 'Phone Verified' : 'Selfie checked', ShieldCheck],
     ['Intent', 'Slow dating, curated plans', Sparkles]
   ];
 
@@ -2110,7 +2355,10 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
             <div className="member-photo-gradient" />
             <div className="member-photo-info">
               <div className="badge-row">
-                <span><ShieldCheck /> Verified</span>
+                <span>
+                  <ShieldCheck style={{ color: member.verification_level === 'highly_verified' ? '#fbbf24' : member.verification_level === 'identity' ? '#22d3ee' : member.verification_level === 'basic' ? '#3b82f6' : '#25d366' }} />
+                  {member.verification_level === 'highly_verified' ? 'Highly Verified' : member.verification_level === 'identity' ? 'Identity Verified' : member.verification_level === 'basic' ? 'Basic Verified' : 'Verified'}
+                </span>
                 <span><Sparkles /> Active now</span>
               </div>
               <h2>{member.name}, {member.age}</h2>
@@ -2121,11 +2369,14 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
           <div className={`member-profile-hero ${member.gradient || 'pink'}`}>
             <div className="member-profile-avatar-wrap">
               <Avatar member={member} />
-              <span><ShieldCheck /></span>
+              <span style={{ background: member.verification_level === 'highly_verified' ? '#fbbf24' : member.verification_level === 'identity' ? '#22d3ee' : member.verification_level === 'basic' ? '#3b82f6' : '#25d366' }}><ShieldCheck /></span>
             </div>
             <div>
               <div className="badge-row">
-                <span><ShieldCheck /> Verified</span>
+                <span>
+                  <ShieldCheck style={{ color: member.verification_level === 'highly_verified' ? '#fbbf24' : member.verification_level === 'identity' ? '#22d3ee' : member.verification_level === 'basic' ? '#3b82f6' : '#25d366' }} />
+                  {member.verification_level === 'highly_verified' ? 'Highly Verified' : member.verification_level === 'identity' ? 'Identity Verified' : member.verification_level === 'basic' ? 'Basic Verified' : 'Verified'}
+                </span>
                 <span><Sparkles /> Active now</span>
               </div>
               <h2>{member.name}, {member.age}</h2>
@@ -2180,6 +2431,21 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
                 <strong style={{ fontSize: '0.88rem', color: '#25d366' }}>{Math.max(0, trustMetrics.attendedCount - trustMetrics.noShowCount)}</strong>
               </div>
             </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', background: 'rgba(0, 0, 0, 0.15)', padding: '10px', borderRadius: '14px', marginTop: '8px' }}>
+              <div style={{ textAlign: 'center' }}>
+                <span style={{ fontSize: '0.66rem', color: 'var(--muted)', display: 'block' }}>Attendance Rate</span>
+                <strong style={{ fontSize: '0.88rem', color: '#25d366' }}>{Math.round(trustMetrics.attendanceScore || trustMetrics.attendance_score || 94)}%</strong>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <span style={{ fontSize: '0.66rem', color: 'var(--muted)', display: 'block' }}>No Show Rate</span>
+                <strong style={{ fontSize: '0.88rem', color: (100 - (trustMetrics.attendanceScore || trustMetrics.attendance_score || 94)) > 10 ? '#ff2e93' : '#25d366' }}>{Math.round(100 - (trustMetrics.attendanceScore || trustMetrics.attendance_score || 94))}%</strong>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <span style={{ fontSize: '0.66rem', color: 'var(--muted)', display: 'block' }}>Would Meet Again</span>
+                <strong style={{ fontSize: '0.88rem', color: '#25d366' }}>{Math.round(trustMetrics.would_meet_again_pct || trustMetrics.wouldMeetAgainPct || 100)}%</strong>
+              </div>
+            </div>
           </div>
 
           <div className="member-weekend-status">
@@ -2229,32 +2495,73 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
 }
 
 function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], navigate }) {
+  const hasNoChats = resolvedChats.length === 0;
+
   return (
     <section className="page-shell inbox-page">
       <PageTitle eyebrow="Inbox" title="Chat Inbox" text="Pick a connection to open a dedicated chat page. No cramped split layout." />
-      <div className="inbox-list">
-        {(resolvedChats || []).map(chat => {
-          const profile = getChatProfile(chat, resolvedMembers);
-          const messageCount = (appState.chatMessages[chat.slug] || chat.messages || []).length;
-          return (
-          <button key={chat.slug} className="inbox-card" onClick={() => navigate(`/chat/${chat.slug}`)}>
-            <Avatar member={profile} />
-            <div className="inbox-copy">
-              <div className="inbox-row"><strong>{chat.name}</strong><span>6d 23h</span></div>
-              <small className="message-count-tag">{messageCount} messages</small>
-            </div>
-            <ChevronRight />
-          </button>
-          );
-        })}
-      </div>
+      {hasNoChats ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '4rem 2rem',
+          background: 'rgba(255,255,255,0.01)',
+          border: '1px dashed rgba(255,255,255,0.08)',
+          borderRadius: '24px',
+          color: 'var(--muted)',
+          marginTop: '2rem'
+        }}>
+          <MessageSquare style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
+          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No Conversations Yet</h3>
+          <p style={{ margin: 0, fontSize: '0.86rem' }}>You don't have any active chats yet. Connect with members in discovery to unlock voice verification and start real-time messaging!</p>
+          <button className="btn-main" style={{ marginTop: '1.25rem' }} onClick={() => navigate('/members')}>Find Connections</button>
+        </div>
+      ) : (
+        <div className="inbox-list">
+          {(resolvedChats || []).map(chat => {
+            const profile = getChatProfile(chat, resolvedMembers);
+            const messageCount = (appState.chatMessages[chat.slug] || chat.messages || []).length;
+            return (
+            <button key={chat.slug} className="inbox-card" onClick={() => navigate(`/chat/${chat.slug}`)}>
+              <Avatar member={profile} />
+              <div className="inbox-copy">
+                <div className="inbox-row"><strong>{chat.name}</strong><span>6d 23h</span></div>
+                <small className="message-count-tag">{messageCount} messages</small>
+              </div>
+              <ChevronRight />
+            </button>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
 function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = [], route, navigate, onVerify, onSend, onProfileClick, onMeetupFeedbackClick }) {
   const slug = route.split('/').pop();
-  const active = (resolvedChats || []).find(chat => chat.slug === slug) || resolvedChats[0] || chats[0];
+  const active = (resolvedChats || []).find(chat => chat.slug === slug) || resolvedChats[0];
+
+  if (!active) {
+    return (
+      <section className="page-shell inbox-page" style={{ padding: '2rem 1rem' }}>
+        <div style={{
+          textAlign: 'center',
+          padding: '4rem 2rem',
+          background: 'rgba(255,255,255,0.01)',
+          border: '1px dashed rgba(255,255,255,0.08)',
+          borderRadius: '24px',
+          color: 'var(--muted)',
+          marginTop: '2rem'
+        }}>
+          <MessageSquare style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
+          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No Conversations Yet</h3>
+          <p style={{ margin: 0, fontSize: '0.86rem' }}>You don't have any active chats yet. Go to discovery to request introductions and start real conversations!</p>
+          <button className="btn-main" style={{ marginTop: '1.25rem' }} onClick={() => navigate('/members')}>Explore Members</button>
+        </div>
+      </section>
+    );
+  }
+
   const profile = getChatProfile(active, resolvedMembers);
   const isVerified = Boolean(appState.verifiedChats[active.slug]);
   const thread = appState.chatMessages[active.slug] || active.messages;
@@ -2274,7 +2581,15 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
           <button className="back-btn" onClick={() => navigate('/chat')} aria-label="Back to inbox"><ArrowLeft /></button>
           <button className="chat-profile-identity" onClick={() => onProfileClick?.(profile)} aria-label={`Open ${active.name} profile`}>
             <Avatar member={profile} />
-            <span><h2>{active.name}</h2><p>{active.meta}</p></span>
+            <span>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '5px', font: '800 1.15rem Outfit, sans-serif', color: '#fff' }}>
+                {active.name}
+                {active.verification_level === 'highly_verified' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#fbbf24', flexShrink: 0 }} title="Highly Verified VIP Passport" />}
+                {active.verification_level === 'identity' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#22d3ee', flexShrink: 0 }} title="Identity Verified Selfie Check Complete" />}
+                {active.verification_level === 'basic' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#3b82f6', flexShrink: 0 }} title="Basic Verified Phone Connected" />}
+              </h2>
+              <p>{active.meta} • Trust: {active.trustScore || 94}%</p>
+            </span>
           </button>
           <span className="expiry">6d 23h</span>
         </div>
@@ -2562,6 +2877,7 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
     };
   }, [lenisLoaded]);
   const allEvents = resolvedEvents || [];
+  const hostedEvents = allEvents.filter(event => event.source === 'hosted');
 
   // Filter events
   const filteredEvents = allEvents.filter(event => {
@@ -3371,7 +3687,7 @@ function ProfilePage({ initialProfile, appState, onSave, onToggleRsvp, navigate 
 
     // Filter events to find ones NOT RSVP'd yet for the Hotlist Saves
     const bookedIds = new Set(rsvpList.map(r => r.eventId));
-    const hotlistEvents = events.filter(e => !bookedIds.has(e.id));
+    const hotlistEvents = (appState?.hostedEvents || []).filter(e => !bookedIds.has(e.id));
 
     return (
       <section className="profile-flow page-shell">
@@ -3383,9 +3699,13 @@ function ProfilePage({ initialProfile, appState, onSave, onToggleRsvp, navigate 
               <div className="district-photo-ring">
                 <img src={profile.photo} alt={profile.fullName} />
               </div>
-              <div className="district-badge-check" title="Verified Member">
-                <ShieldCheck style={{ width: '16px', height: '16px', color: '#fff' }} />
-              </div>
+              {profile.verification_level && profile.verification_level !== 'none' && (
+                <div className="district-badge-check" title={`${profile.verification_level.replace('_', ' ')} Verified`} style={{
+                  background: profile.verification_level === 'highly_verified' ? '#fbbf24' : profile.verification_level === 'identity' ? '#22d3ee' : '#3b82f6'
+                }}>
+                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#fff' }} />
+                </div>
+              )}
             </div>
             
             <div className="district-user-info">
@@ -3449,7 +3769,7 @@ function ProfilePage({ initialProfile, appState, onSave, onToggleRsvp, navigate 
             <div style={{ display: 'grid', gap: '1rem' }}>
               {rsvpList.length > 0 ? (
                 rsvpList.map((rsvp, idx) => {
-                  const eventDetail = events.find(e => e.id === rsvp.eventId) || { image: '/assets/mumbai_rooftop_mixer.png' };
+                  const eventDetail = (appState?.hostedEvents || []).find(e => e.id === rsvp.eventId) || { image: '/assets/mumbai_rooftop_mixer.png' };
                   return (
                     <div className="district-ticket-pass" key={rsvp.eventId}>
                       <div className="ticket-left">
@@ -3855,10 +4175,7 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
         };
       });
     }
-    return [
-      { lat: 19.0596, lng: 72.8295, title: 'Acoustic & Coffee Mixer', place: 'Secret Garden, Bandra West', time: '6:00 PM onwards', details: '8 couples met here last week!' },
-      { lat: 19.0825, lng: 72.8270, title: 'Secret Rooftop Soiree', place: 'Sea-view Deck, Juhu', time: '8:30 PM onwards', details: 'Elite guestlist, Juhu sunset view.' }
-    ];
+    return [];
   }, [resolvedEvents]);
 
   const couplesData = [
@@ -3885,13 +4202,7 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
         };
       });
     }
-    return [
-      { id: 'zara-chen', lat: 19.0620, lng: 72.8230, name: 'Zara', age: 23, vibe: 'Travel Buddy', avatar: 'ZC', gradient: 'cyan' },
-      { id: 'priya-patel', lat: 19.0520, lng: 72.8400, name: 'Priya', age: 21, vibe: 'Cafe Partner', avatar: 'PP', gradient: 'pink' },
-      { id: 'natasha-rao', lat: 19.0700, lng: 72.8350, name: 'Natasha', age: 23, vibe: 'Art Gallery', avatar: 'NR', gradient: 'cyan' },
-      { id: 'arjun-mehta', lat: 19.0780, lng: 72.8310, name: 'Arjun', age: 25, vibe: 'Founder Energy', avatar: 'AM', gradient: 'purple' },
-      { id: 'kavya-sharma', lat: 19.0570, lng: 72.8300, name: 'Kavya', age: 22, vibe: 'Cafe Partner', avatar: 'KS', gradient: 'pink' }
-    ];
+    return [];
   }, [resolvedMembers]);
 
   // Initialize and Update Map
@@ -4283,31 +4594,45 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
         
         {activeTabState === "events" && (
           <div className="tab-item-list" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-            {eventsData.map(e => (
-              <div key={e.title} style={{
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid rgba(255, 255, 255, 0.05)',
-                borderRadius: '16px',
-                padding: '0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '0.75rem'
-              }}>
-                <div style={{ minWidth: 0 }}>
-                  <strong style={{ display: 'block', fontSize: '0.84rem', color: '#fff', font: '800 0.84rem Outfit, sans-serif' }}>{e.title}</strong>
-                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--muted)', marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{e.place}</span>
-                  <small style={{ display: 'block', fontSize: '0.68rem', color: '#bf86ff', fontWeight: 'bold', marginTop: '1px' }}>🔥 {e.details}</small>
+            {eventsData.length > 0 ? (
+              eventsData.map(e => (
+                <div key={e.title} style={{
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '16px',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem'
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ display: 'block', fontSize: '0.84rem', color: '#fff', font: '800 0.84rem Outfit, sans-serif' }}>{e.title}</strong>
+                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--muted)', marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{e.place}</span>
+                    <small style={{ display: 'block', fontSize: '0.68rem', color: '#bf86ff', fontWeight: 'bold', marginTop: '1px' }}>🔥 {e.details}</small>
+                  </div>
+                  <button 
+                    className="btn-main" 
+                    style={{ minHeight: '30px', borderRadius: '8px', fontSize: '0.72rem', padding: '0 10px', flexShrink: 0 }}
+                    onClick={() => navigate('/events')}
+                  >
+                    Book Slot
+                  </button>
                 </div>
-                <button 
-                  className="btn-main" 
-                  style={{ minHeight: '30px', borderRadius: '8px', fontSize: '0.72rem', padding: '0 10px', flexShrink: 0 }}
-                  onClick={() => navigate('/events')}
-                >
-                  Book Slot
-                </button>
+              ))
+            ) : (
+              <div style={{
+                textAlign: 'center',
+                padding: '1.25rem',
+                background: 'rgba(255,255,255,0.01)',
+                border: '1px dashed rgba(255,255,255,0.08)',
+                borderRadius: '16px',
+                color: 'var(--muted)',
+                fontSize: '0.78rem'
+              }}>
+                No mixers scheduled in your area yet.
               </div>
-            ))}
+            )}
           </div>
         )}
 
@@ -4353,42 +4678,56 @@ function RadarPulse({ appState, resolvedMembers = [], resolvedEvents = [], navig
 
         {activeTabState === "members" && (
           <div className="tab-item-list" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-            {onlineMembersData.map(m => (
-              <div key={m.id} style={{
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid rgba(255, 255, 255, 0.05)',
-                borderRadius: '16px',
-                padding: '0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '0.75rem'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
-                  <div className={`avatar ${m.gradient}`} style={{ width: '32px', height: '32px', fontSize: '0.75rem', flexShrink: 0 }}>
-                    {m.avatar}
+            {onlineMembersData.length > 0 ? (
+              onlineMembersData.map(m => (
+                <div key={m.id} style={{
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '16px',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                    <div className={`avatar ${m.gradient}`} style={{ width: '32px', height: '32px', fontSize: '0.75rem', flexShrink: 0 }}>
+                      {m.avatar}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <strong style={{ display: 'block', fontSize: '0.84rem', color: '#fff', font: '800 0.84rem Outfit, sans-serif' }}>
+                        {m.name}, {m.age}
+                      </strong>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: `var(--${m.gradient})`, fontWeight: 'bold', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {m.vibe}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ minWidth: 0 }}>
-                    <strong style={{ display: 'block', fontSize: '0.84rem', color: '#fff', font: '800 0.84rem Outfit, sans-serif' }}>
-                      {m.name}, {m.age}
-                    </strong>
-                    <span style={{ display: 'block', fontSize: '0.7rem', color: `var(--${m.gradient})`, fontWeight: 'bold', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                      {m.vibe}
-                    </span>
-                  </div>
+                  <button 
+                    className="btn-main" 
+                    style={{ minHeight: '30px', borderRadius: '8px', fontSize: '0.72rem', padding: '0 10px', flexShrink: 0 }}
+                    onClick={() => {
+                      const fullMember = resolvedMembers.find(gm => gm.id === m.id) || m;
+                      onVibeClick(fullMember);
+                    }}
+                  >
+                    Vibe Check
+                  </button>
                 </div>
-                <button 
-                  className="btn-main" 
-                  style={{ minHeight: '30px', borderRadius: '8px', fontSize: '0.72rem', padding: '0 10px', flexShrink: 0 }}
-                  onClick={() => {
-                    const fullMember = resolvedMembers.find(gm => gm.id === m.id) || m;
-                    onVibeClick(fullMember);
-                  }}
-                >
-                  Vibe Check
-                </button>
+              ))
+            ) : (
+              <div style={{
+                textAlign: 'center',
+                padding: '1.25rem',
+                background: 'rgba(255,255,255,0.01)',
+                border: '1px dashed rgba(255,255,255,0.08)',
+                borderRadius: '16px',
+                color: 'var(--muted)',
+                fontSize: '0.78rem'
+              }}>
+                No active activity partners nearby this week.
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>

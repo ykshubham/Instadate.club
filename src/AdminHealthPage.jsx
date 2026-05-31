@@ -3,8 +3,80 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, AlertTriangle, Users, Heart, Calendar, MessageCircle, ShieldCheck,
   TrendingUp, Award, Clock, RefreshCw, BarChart2, Star, CheckCircle, XCircle, Zap,
-  TrendingDown, Check, UserCheck, Flame, Compass, Activity, ArrowRight, ShieldAlert
+  TrendingDown, Check, UserCheck, Flame, Compass, Activity, ArrowRight, ShieldAlert,
+  User
 } from 'lucide-react';
+
+function MemberAvatar({ avatarUrl, fullName, size = 28 }) {
+  const [error, setError] = React.useState(false);
+
+  if (avatarUrl && !error) {
+    return (
+      <img
+        src={avatarUrl}
+        onError={() => setError(true)}
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: '50%',
+          objectFit: 'cover',
+          border: '1px solid rgba(255, 255, 255, 0.2)'
+        }}
+        alt={fullName || ''}
+      />
+    );
+  }
+
+  const initials = fullName
+    ? fullName
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : '';
+
+  if (initials) {
+    return (
+      <div
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: '50%',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          background: 'rgba(255, 255, 255, 0.1)',
+          color: '#ffffff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: `${size * 0.4}px`,
+          fontWeight: 'bold',
+          textTransform: 'uppercase'
+        }}
+      >
+        {initials}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: '50%',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        background: 'rgba(255, 255, 255, 0.1)',
+        color: '#ffffff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      <User style={{ width: `${size * 0.6}px`, height: `${size * 0.6}px`, opacity: 0.8 }} />
+    </div>
+  );
+}
 
 export default function AdminHealthPage({ navigate }) {
   const [data, setData] = React.useState(null);
@@ -126,7 +198,17 @@ export default function AdminHealthPage({ navigate }) {
   };
 
   return (
-    <section className="page-shell admin-analytics-shell" style={{ color: '#fff', paddingBottom: '6rem', maxWidth: '1280px', margin: '0 auto' }}>
+    <section className="page-shell admin-analytics-shell" style={{
+      color: '#fff',
+      paddingBottom: '6rem',
+      maxWidth: '1280px',
+      margin: '0 auto',
+      height: '100%',
+      overflowY: 'auto',
+      width: '100%',
+      boxSizing: 'border-box',
+      display: 'block'
+    }}>
       {/* Header bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2.5rem', gap: '1.5rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -489,7 +571,7 @@ export default function AdminHealthPage({ navigate }) {
               ) : trust.topReliable.map((member, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: i < 4 ? '1px solid rgba(255, 255, 255, 0.03)' : 'none' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <img src={member.avatar_url || '/assets/avatar_fallback.png'} style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255, 255, 255, 0.2)' }} alt="" />
+                    <MemberAvatar avatarUrl={member.avatar_url} fullName={member.full_name} size={28} />
                     <span style={{ fontSize: '0.84rem', fontWeight: 'bold' }}>{member.full_name}</span>
                   </div>
                   <span style={{ fontSize: '0.82rem', fontWeight: '900', color: '#25d366' }}>{member.trust_score} Score</span>
@@ -508,7 +590,7 @@ export default function AdminHealthPage({ navigate }) {
               ) : trust.lowestReliable.map((member, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: i < 4 ? '1px solid rgba(255, 255, 255, 0.03)' : 'none' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <img src={member.avatar_url || '/assets/avatar_fallback.png'} style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255, 255, 255, 0.2)' }} alt="" />
+                    <MemberAvatar avatarUrl={member.avatar_url} fullName={member.full_name} size={28} />
                     <span style={{ fontSize: '0.84rem', fontWeight: 'bold' }}>{member.full_name}</span>
                   </div>
                   <span style={{ fontSize: '0.82rem', fontWeight: '900', color: '#ff2e93' }}>{member.trust_score} Score</span>

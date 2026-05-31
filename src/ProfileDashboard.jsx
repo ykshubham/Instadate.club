@@ -9,6 +9,55 @@ import {
   TrendingUp, UserCheck, Users, Wallet, WandSparkles, X, Zap
 } from 'lucide-react';
 
+function renderVerificationBadge(level, size = "w-4 h-4") {
+  if (level === 'highly_verified') {
+    return <ShieldCheck className={`${size} text-amber-400 fill-amber-400/10 shrink-0 inline-block`} title="Highly Verified VIP Passport" />;
+  }
+  if (level === 'identity') {
+    return <ShieldCheck className={`${size} text-cyan-400 shrink-0 inline-block`} title="Identity Verified Selfie check complete" />;
+  }
+  if (level === 'basic') {
+    return <ShieldCheck className={`${size} text-blue-400 shrink-0 inline-block`} title="Basic Verified Phone connected" />;
+  }
+  return null;
+}
+
+export function getProfileCompletion(profile, localState = {}) {
+  const hasEnoughPhotos = Boolean((profile?.photos || []).length >= 3);
+  const isInstagramVerified = Boolean(profile?.instagram_verified);
+  const hasWeekendStatus = Boolean(profile?.weekendStatus);
+  const hasBio = Boolean(profile?.bio);
+  const hasInterests = Boolean((profile?.interests || []).length);
+  const hasVoiceIntro = Boolean(localState?.verifiedChats && Object.keys(localState.verifiedChats).length);
+
+  const items = [
+    { name: 'Add better photos', completed: hasEnoughPhotos },
+    { name: 'Verify Instagram', completed: isInstagramVerified },
+    { name: 'Add weekend status', completed: hasWeekendStatus },
+    { name: 'Add bio', completed: hasBio },
+    { name: 'Add interests', completed: hasInterests },
+    { name: 'Add voice intro', completed: hasVoiceIntro }
+  ];
+
+  const completedItems = items.filter(item => item.completed).map(item => item.name);
+  const remainingItems = items.filter(item => !item.completed).map(item => item.name);
+  const percent = Math.round((completedItems.length / items.length) * 100);
+
+  return {
+    percent,
+    completedItems,
+    remainingItems,
+    flags: {
+      hasEnoughPhotos,
+      isInstagramVerified,
+      hasWeekendStatus,
+      hasBio,
+      hasInterests,
+      hasVoiceIntro
+    }
+  };
+}
+
 const defaultProfile = {
   photo: '',
   photos: [],
@@ -196,6 +245,7 @@ export default function ProfileDashboard({
   const [weekendEditOpen, setWeekendEditOpen] = React.useState(false);
   const [datesTab, setDatesTab] = React.useState('Upcoming');
   const [saving, setSaving] = React.useState(false);
+  const [meetSomeoneOpen, setMeetSomeoneOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (isGuest) {
@@ -205,16 +255,18 @@ export default function ProfileDashboard({
     }
   }, [initialProfile, isGuest]);
 
+  const completionData = React.useMemo(() => getProfileCompletion(profile, localState), [profile, localState]);
+  
   const tasks = React.useMemo(() => ([
-    ['Add better photos', Boolean((profile.photos || []).length || profile.photo), Camera],
-    ['Verify Instagram', Boolean(profile.instagram), Instagram],
-    ['Add weekend status', Boolean(profile.weekendStatus), Calendar],
-    ['Add bio', Boolean(profile.bio), Pencil],
-    ['Add interests', Boolean((profile.interests || []).length), Sparkles],
-    ['Add voice intro', Boolean(localState?.verifiedChats && Object.keys(localState.verifiedChats).length), Radio]
-  ]), [profile, localState]);
+    ['Add better photos', completionData.flags.hasEnoughPhotos, Camera],
+    ['Verify Instagram', completionData.flags.isInstagramVerified, Instagram],
+    ['Add weekend status', completionData.flags.hasWeekendStatus, Calendar],
+    ['Add bio', completionData.flags.hasBio, Pencil],
+    ['Add interests', completionData.flags.hasInterests, Sparkles],
+    ['Add voice intro', completionData.flags.hasVoiceIntro, Radio]
+  ]), [completionData]);
 
-  const completion = Math.round((tasks.filter(task => task[1]).length / tasks.length) * 100);
+  const completion = completionData.percent;
   const isPremium = /elite|black|inner circle/i.test(profile.plan || '');
 
   function updateProfile(next) {
@@ -437,6 +489,137 @@ export default function ProfileDashboard({
           </div>
         )}
 
+        {/* Resolved Members from Discovery Feeds */}
+        {(() => {
+          const resolvedMembers = [];
+          const ids = new Set();
+          
+          if (Array.isArray(localState?.recommendations)) {
+            for (const rec of localState.recommendations) {
+              if (rec.profile && !ids.has(rec.id)) {
+                ids.add(rec.id);
+                resolvedMembers.push({
+                  id: rec.id,
+                  name: rec.profile.fullName,
+                  age: rec.profile.age,
+                  city: rec.profile.city,
+                  vibe: rec.profile.vibe,
+                  score: `${rec.score}%`,
+                  avatar: rec.profile.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+                  gradient: 'pink',
+                  photos: rec.profile.photos || [rec.profile.photo],
+                  currentWeekendStatus: rec.profile.currentWeekendStatus,
+                  weekendStatus: rec.profile.weekendStatus,
+                  trustScore: rec.profile.trustMetrics?.trustScore || 94,
+                  trustMetrics: rec.profile.trustMetrics,
+                  verification_level: rec.profile.verification_level || 'none'
+                });
+              }
+            }
+          }
+          
+          if (localState?.discovery) {
+            const feeds = ['topMatches', 'nearYou', 'similarVibes', 'activeMembers', 'newMembers', 'trendingMembers'];
+            for (const feed of feeds) {
+              const feedList = localState.discovery[feed] || [];
+              for (const item of feedList) {
+                if (item.profile && !ids.has(item.id)) {
+                  ids.add(item.id);
+                  resolvedMembers.push({
+                    id: item.id,
+                    name: item.profile.fullName,
+                    age: item.profile.age,
+                    city: item.profile.city,
+                    vibe: item.profile.vibe,
+                    score: `${item.score}%`,
+                    avatar: item.profile.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+                    gradient: 'pink',
+                    photos: item.profile.photos || [item.profile.photo],
+                    currentWeekendStatus: item.profile.currentWeekendStatus,
+                    weekendStatus: item.profile.weekendStatus,
+                    trustScore: item.trustScore || 94,
+                    trustMetrics: item.profile.trustMetrics,
+                    verification_level: item.profile.verification_level || 'none'
+                  });
+                }
+              }
+            }
+          }
+
+          const handleJoinPlan = async (planId, hasJoined) => {
+            try {
+              if (hasJoined) {
+                await apiCall(`/api/instant-plans/${planId}/join`, 'DELETE');
+              } else {
+                await apiCall(`/api/instant-plans/${planId}/join`, 'POST');
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          };
+
+          const handleToggleRsvp = async (event) => {
+            const isJoined = localState?.rsvps?.[event.id];
+            if (isJoined) {
+              await apiCall(`/api/events/${event.id}/attendees/me`, 'DELETE');
+            } else {
+              await apiCall(`/api/events/${event.id}/attendees/me`, 'POST');
+            }
+          };
+
+          return (
+            <>
+              {/* Meet Someone This Week Prominent Flow Trigger */}
+              <button
+                onClick={() => setMeetSomeoneOpen(true)}
+                style={{
+                  width: '100%',
+                  padding: '1.1rem 1.25rem',
+                  borderRadius: '22px',
+                  background: 'linear-gradient(135deg, #fbbf24, #d946ef, #22d3ee)',
+                  color: '#fff',
+                  fontSize: '0.82rem',
+                  fontWeight: '900',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.12em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  boxShadow: '0 12px 36px rgba(217,70,239,0.3)',
+                  cursor: 'pointer',
+                  transition: 'all 0.25s ease',
+                  marginBottom: '1.25rem',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}
+                className="meet-someone-week-cta mt-6"
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Zap style={{ width: '18px', height: '18px', color: '#fef08a' }} className="animate-bounce" />
+                  Meet Someone This Week ⚡
+                </span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.7rem', background: 'rgba(0,0,0,0.35)', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  Start Flow →
+                </span>
+              </button>
+
+              {meetSomeoneOpen && (
+                <MeetSomeoneThisWeekModal
+                  appState={localState}
+                  resolvedMembers={resolvedMembers}
+                  onClose={() => setMeetSomeoneOpen(false)}
+                  onVibeClick={member => { setMeetSomeoneOpen(false); onOpenDrawer?.(member); }}
+                  onProfileClick={member => { setMeetSomeoneOpen(false); onOpenDrawer?.(member); }}
+                  onToggleRsvp={handleToggleRsvp}
+                  onJoinPlan={handleJoinPlan}
+                  navigate={navigate}
+                />
+              )}
+            </>
+          );
+        })()}
+
         {/* Dynamic Matchmaking intelligence Hub */}
         <MatchmakingHub appState={localState} onApiCall={apiCall} />
 
@@ -446,7 +629,7 @@ export default function ProfileDashboard({
         {/* Curated Events Recommendation intelligence */}
         <RecommendedEventsSection appState={localState} onApiCall={apiCall} />
 
-        <ActiveOutingsSection activeTab={datesTab} setActiveTab={setDatesTab} hostedEvents={localState?.hostedEvents || []} navigate={navigate} />
+        <ActiveOutingsSection activeTab={datesTab} setActiveTab={setDatesTab} hostedEvents={localState?.hostedEvents || []} outcomes={localState?.outcomes || []} navigate={navigate} />
 
         <SimplifiedSettings onLogout={onLogout} profile={profile} upgrade={upgrade} authUser={authUser} onGoogleLogin={onGoogleLogin} />
       </motion.div>
@@ -510,12 +693,20 @@ function StickyProfileNav({ completion, navigate, onOpenDrawer }) {
 }
 
 function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, onPhoto, upgrade, appState }) {
-  const trust = appState?.trustMetrics || { attendanceScore: 100, verificationScore: 0, responseRate: 100, trustScore: 75 };
+  const trust = appState?.trustMetrics || {};
+  const trustScore = trust.trust_score ?? trust.trustScore ?? 75;
+  const attendanceScore = trust.attendance_score ?? trust.attendanceScore ?? 100;
+  const responseRate = trust.response_rate ?? trust.responseRate ?? 100;
+  const noShowCount = trust.no_show_count ?? trust.noShowCount ?? 0;
+  const wouldMeetAgainPct = trust.would_meet_again_pct ?? trust.wouldMeetAgainPct ?? 100;
+
   const reputation = [
-    ['Trust Score', `${trust.trustScore}%`],
-    ['Response Rate', `${trust.responseRate}%`],
-    ['Reliability', `${trust.attendanceScore}%`],
-    ['Verification', trust.isVerified ? 'VERIFIED' : 'PENDING']
+    ['Trust Score', `${trustScore}%`],
+    ['Response Rate', `${responseRate}%`],
+    ['Reliability', `${attendanceScore}%`],
+    ['Would Meet Again', `${wouldMeetAgainPct}%`],
+    ['No Shows', `${noShowCount}`],
+    ['Verification', profile.verification_level === 'highly_verified' ? 'HIGHLY VERIFIED' : profile.verification_level === 'identity' ? 'IDENTITY VERIFIED' : profile.verification_level === 'basic' ? 'BASIC VERIFIED' : 'PENDING']
   ];
   const photos = Array.isArray(profile.photos) && profile.photos.length
     ? profile.photos
@@ -543,12 +734,17 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
           {/* Core Info */}
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex flex-wrap justify-center sm:justify-start items-center gap-1.5">
-              <Badge icon={BadgeCheck} text="Verified Member" tone="cyan" />
-              <Badge icon={Instagram} text="Instagram Link" tone="pink" />
+              {profile.verification_level === 'highly_verified' && <Badge icon={ShieldCheck} text="Highly Verified" tone="gold" />}
+              {profile.verification_level === 'identity' && <Badge icon={ShieldCheck} text="Identity Verified" tone="cyan" />}
+              {profile.verification_level === 'basic' && <Badge icon={ShieldCheck} text="Basic Verified" tone="blue" />}
+              {Boolean(profile.instagram_verified) && <Badge icon={Instagram} text="Instagram Connected" tone="pink" />}
               {isPremium && <Badge icon={Gem} text="Elite VIP" tone="gold" />}
             </div>
             
-            <h2 className="font-['Outfit'] text-3xl font-black leading-none text-white">{profile.fullName || 'Complete profile'}, {profile.age || '22'}</h2>
+            <h2 className="flex items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white">
+              {(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}
+              {renderVerificationBadge(profile.verification_level, "w-6 h-6")}
+            </h2>
             
             <div className="mt-2.5 flex flex-wrap justify-center sm:justify-start items-center gap-x-3 gap-y-1.5 text-xs text-white/60">
               <span className="inline-flex items-center gap-1.5"><Briefcase className="h-3.5 w-3.5 text-fuchsia-200" />{profile.profession || 'Creative Professional'} at {profile.college || 'verified college'}</span>
@@ -646,8 +842,30 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
   );
 }
 
-function ActiveOutingsSection({ activeTab, setActiveTab, hostedEvents = [], navigate }) {
-  const dates = dateTabs[activeTab] || [];
+function ActiveOutingsSection({ activeTab, setActiveTab, hostedEvents = [], outcomes = [], navigate }) {
+  const dates = React.useMemo(() => {
+    const filtered = outcomes.filter(o => {
+      if (activeTab === 'Upcoming') {
+        return o.status === 'meetup_planned' || o.status === 'chat_started' || o.status === 'accepted';
+      } else if (activeTab === 'Completed') {
+        return o.status === 'meetup_completed';
+      } else if (activeTab === 'Date History') {
+        return o.status === 'meetup_completed';
+      }
+      return false; // Cancelled
+    });
+
+    return filtered.map(o => {
+      const name = o.targetName || 'Anonymous Member';
+      const venue = o.targetWeekendStatus || 'Speakeasy Lounge';
+      const time = o.updatedAt ? (new Date(o.updatedAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit' }) + ' onwards') : 'Tonight onwards';
+      const status = o.targetIsVerified ? 'Safety verified' : 'Vibe checked';
+      const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+      const tone = o.status === 'meetup_planned' ? 'pink' : o.status === 'meetup_completed' ? 'cyan' : 'purple';
+      return [name, venue, time, status, initials, tone];
+    });
+  }, [outcomes, activeTab]);
+
   const latestHostedEvent = hostedEvents[0];
   
   return (
@@ -1222,14 +1440,13 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
           </div>
         ) : (
           <>
-            {/* Step Progress Nodes (Timeline) */}
             <div className="relative z-10 px-6 pt-5 bg-[#0a060e]/30 flex flex-col space-y-3">
               <div className="relative flex justify-between items-center max-w-sm mx-auto w-full">
                 {/* Timeline connecting line */}
                 <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-white/10 -translate-y-1/2 -z-10" />
                 <div 
                   className="absolute top-1/2 left-0 h-[2px] bg-gradient-to-r from-[#ff2e93] to-[#00d7f5] -translate-y-1/2 -z-10 transition-all duration-300"
-                  style={{ width: `${step === 1 ? '0%' : step === 2 ? '33%' : step === 3 ? '66%' : '100%'}` }}
+                  style={{ width: `${step === 1 ? '0%' : step === 2 ? '25%' : step === 3 ? '50%' : step === 4 ? '75%' : '100%'}` }}
                 />
 
                 {/* Node 1 */}
@@ -1289,12 +1506,29 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
                   type="button"
                   className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs border transition-all ${
                     step === 4 
+                      ? 'border-[#9b30ff] bg-[#9b30ff]/10 text-white shadow-[0_0_15px_rgba(155,48,255,0.45)]' 
+                      : step > 4
+                        ? 'border-cyan-400 bg-cyan-950 text-cyan-300 shadow-[0_0_10px_rgba(0,215,245,0.2)]'
+                        : 'border-white/10 bg-[#0f0a15] text-[#ff2e93]/50 disabled:opacity-50'
+                  }`}
+                >
+                  {step > 4 ? <CheckCircle2 className="w-4 h-4 text-cyan-300" /> : <Sparkles className="w-4 h-4" />}
+                  <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[8px] font-black uppercase tracking-wider text-white/50 whitespace-nowrap">INTEL</span>
+                </button>
+
+                {/* Node 5 */}
+                <button 
+                  onClick={() => (hasPhotos && profile.fullName && profile.age && profile.instagram && profile.profession && profile.college && profile.city && profile.bio && (profile.interests || []).length) ? setStep(5) : null}
+                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.instagram || !profile.profession || !profile.college || !profile.city || !profile.bio}
+                  type="button"
+                  className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs border transition-all ${
+                    step === 5 
                       ? 'border-[#ff2e93] bg-[#ff2e93]/10 text-white shadow-[0_0_15px_rgba(255,46,147,0.45)]' 
                       : 'border-white/10 bg-[#0f0a15] text-[#ff2e93]/50 disabled:opacity-50'
                   }`}
                 >
-                  <Sparkles className="w-4 h-4" />
-                  <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[8px] font-black uppercase tracking-wider text-white/50 whitespace-nowrap">INTEL</span>
+                  <SlidersHorizontal className="w-4 h-4" />
+                  <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[8px] font-black uppercase tracking-wider text-white/50 whitespace-nowrap">PREFS</span>
                 </button>
               </div>
 
@@ -1811,6 +2045,104 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
                 </motion.div>
               )}
 
+              {step === 5 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.25 }}
+                  className="space-y-6 max-h-[50vh] overflow-y-auto pr-1 no-scrollbar"
+                >
+                  {/* Preferred Gender */}
+                  <div className="space-y-3">
+                    <div>
+                      <span className="block text-xs font-black uppercase tracking-wider text-white/60">Preferred Matching Gender</span>
+                      <p className="text-[10px] text-white/40 mt-0.5">Filter candidate pool based on gender identity.</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                      {['Male', 'Female', 'All'].map(genderOpt => {
+                        const currentPref = profile.preferred_gender || 'All';
+                        const isSelected = currentPref === genderOpt;
+                        return (
+                          <button
+                            key={genderOpt}
+                            type="button"
+                            onClick={() => onChange({ ...profile, preferred_gender: genderOpt })}
+                            className={`rounded-xl px-3 py-2 text-center border text-xs font-black uppercase tracking-wider transition-all duration-200 active:scale-95 ${
+                              isSelected 
+                                ? 'border-[#ff2e93] bg-[#ff2e93]/15 text-white shadow-[0_0_10px_rgba(255,46,147,0.15)]' 
+                                : 'border-white/5 bg-white/[0.02] text-white/50 hover:bg-white/[0.04]'
+                            }`}
+                          >
+                            {genderOpt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Preferred Age Range */}
+                  <div className="space-y-3">
+                    <div>
+                      <span className="block text-xs font-black uppercase tracking-wider text-white/60">Preferred Age Limits</span>
+                      <p className="text-[10px] text-white/40 mt-0.5">Define compatible age ranges for matching.</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Min Age */}
+                      <div className="relative rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-2 focus-within:border-fuchsia-400/30 focus-within:bg-white/[0.04] transition duration-200 flex items-center gap-3">
+                        <div className="flex-1">
+                          <span className="block text-[9px] font-black uppercase tracking-wider text-white/45">Minimum Age</span>
+                          <input 
+                            value={profile.min_age !== undefined ? profile.min_age : 18} 
+                            onChange={event => onChange({ ...profile, min_age: Math.max(18, Number(event.target.value.replace(/\D/g, '').slice(0, 2))) })} 
+                            placeholder="18"
+                            inputMode="numeric"
+                            className="w-full bg-transparent text-sm text-white font-semibold outline-none py-0.5 placeholder-white/20"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Max Age */}
+                      <div className="relative rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-2 focus-within:border-fuchsia-400/30 focus-within:bg-white/[0.04] transition duration-200 flex items-center gap-3">
+                        <div className="flex-1">
+                          <span className="block text-[9px] font-black uppercase tracking-wider text-white/45">Maximum Age</span>
+                          <input 
+                            value={profile.max_age !== undefined ? profile.max_age : 99} 
+                            onChange={event => onChange({ ...profile, max_age: Math.min(99, Number(event.target.value.replace(/\D/g, '').slice(0, 2))) })} 
+                            placeholder="99"
+                            inputMode="numeric"
+                            className="w-full bg-transparent text-sm text-white font-semibold outline-none py-0.5 placeholder-white/20"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Preferred Distance */}
+                  <div className="space-y-3">
+                    <div>
+                      <span className="block text-xs font-black uppercase tracking-wider text-white/60">Preferred Distance Radius</span>
+                      <p className="text-[10px] text-white/40 mt-0.5">Maximum geographical range in kilometers.</p>
+                    </div>
+
+                    <div className="relative rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-2 focus-within:border-fuchsia-400/30 focus-within:bg-white/[0.04] transition duration-200 flex items-center gap-3">
+                      <div className="flex-1">
+                        <span className="block text-[9px] font-black uppercase tracking-wider text-white/45">Max Distance (KM)</span>
+                        <input 
+                          value={profile.preferred_distance_km !== undefined ? profile.preferred_distance_km : 100} 
+                          onChange={event => onChange({ ...profile, preferred_distance_km: Number(event.target.value.replace(/\D/g, '').slice(0, 4)) })} 
+                          placeholder="100"
+                          inputMode="numeric"
+                          className="w-full bg-transparent text-sm text-white font-semibold outline-none py-0.5 placeholder-white/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
             </div>
           </>
         )}
@@ -1827,7 +2159,7 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
             </button>
           )}
 
-          {step < 4 && !saving ? (
+          {step < 5 && !saving ? (
             <button 
               type="button"
               disabled={!canContinue()}
@@ -1933,7 +2265,9 @@ function Badge({ icon: Icon, text, tone = 'pink' }) {
   const tones = {
     pink: 'border-fuchsia-300/25 bg-fuchsia-300/10 text-fuchsia-100',
     cyan: 'border-cyan-300/25 bg-cyan-300/10 text-cyan-100',
-    gold: 'border-amber-200/25 bg-amber-200/10 text-amber-100'
+    gold: 'border-amber-200/25 bg-amber-200/10 text-amber-100',
+    blue: 'border-blue-300/25 bg-blue-300/10 text-blue-100',
+    emerald: 'border-emerald-300/25 bg-emerald-300/10 text-emerald-100'
   };
   return <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.08em] ${tones[tone]}`}><Icon className="h-3.5 w-3.5" />{text}</span>;
 }
@@ -2361,8 +2695,9 @@ function MatchmakingHub({ appState, onApiCall }) {
 
                 {/* Candidate credentials & explanations */}
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-['Outfit'] text-lg font-black text-white leading-tight">
+                  <h4 className="flex items-center gap-1.5 font-['Outfit'] text-lg font-black text-white leading-tight">
                     {cand.profile.fullName}, {cand.profile.age}
+                    {renderVerificationBadge(cand.profile.verification_level)}
                   </h4>
                   <p className="text-[11px] text-white/60 font-semibold mt-1">
                     {cand.profile.profession || 'Creative Professional'} at {cand.profile.college || 'Verified College'}
@@ -2370,6 +2705,17 @@ function MatchmakingHub({ appState, onApiCall }) {
                   <p className="text-[10px] text-[#ff2e93] font-bold mt-0.5 flex items-center gap-1">
                     <MapPin className="h-3 w-3 shrink-0" /> {cand.profile.city || 'Mumbai Lounge'}
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-cyan-400/20 bg-cyan-400/5 px-2 py-0.5 font-black text-cyan-200">
+                      Reliability: {cand.trustScore || cand.profile.trustMetrics?.trustScore || 90}%
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-md border border-fuchsia-400/20 bg-fuchsia-400/5 px-2 py-0.5 font-black text-fuchsia-200">
+                      Would Meet Again: {cand.profile.trustMetrics?.would_meet_again_pct || 100}%
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/20 bg-emerald-400/5 px-2 py-0.5 font-black text-emerald-200">
+                      Attendance: {cand.profile.trustMetrics?.attendance_score || 100}%
+                    </span>
+                  </div>
 
                   {/* Matching Factors / Reasons */}
                   <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -2770,6 +3116,226 @@ function RecommendedEventsSection({ appState, onApiCall }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onVibeClick, onProfileClick, onToggleRsvp, onJoinPlan, navigate }) {
+  const [selectedActivity, setSelectedActivity] = React.useState(null);
+  const [activeTab, setActiveTab] = React.useState('members');
+
+  const activities = [
+    { id: 'Coffee', label: 'Coffee ☕', key: 'coffee' },
+    { id: 'Movie', label: 'Movie 🎬', key: 'movie' },
+    { id: 'Dinner', label: 'Dinner 🍽', key: 'dinner' },
+    { id: 'Road Trip', label: 'Road Trip 🚗', key: 'road trip' },
+    { id: 'Pickleball', label: 'Pickleball 🎾', key: 'pickleball' },
+    { id: 'Networking', label: 'Networking 💼', key: 'networking' },
+    { id: 'Night Out', label: 'Night Out 🥂', key: 'night out' }
+  ];
+
+  const term = selectedActivity ? selectedActivity.toLowerCase() : '';
+
+  const matchingMembers = React.useMemo(() => {
+    if (!selectedActivity) return [];
+    return (resolvedMembers || []).filter(m => {
+      const status = (m.currentWeekendStatus || '').toLowerCase();
+      const weekendText = (m.weekendStatus || '').toLowerCase();
+      const bioText = (m.bio || '').toLowerCase();
+      const vibeText = (m.vibe || '').toLowerCase();
+      return status === term || 
+             weekendText.includes(term) || 
+             bioText.includes(term) || 
+             vibeText.includes(term);
+    });
+  }, [resolvedMembers, selectedActivity, term]);
+
+  const matchingEvents = React.useMemo(() => {
+    if (!selectedActivity) return [];
+    return (appState.hostedEvents || []).filter(e => {
+      const title = (e.title || '').toLowerCase();
+      const desc = (e.description || '').toLowerCase();
+      const type = (e.type || '').toLowerCase();
+      const category = (e.category || '').toLowerCase();
+      return title.includes(term) || desc.includes(term) || type.includes(term) || category.includes(term);
+    });
+  }, [appState.hostedEvents, selectedActivity, term]);
+
+  const matchingPlans = React.useMemo(() => {
+    if (!selectedActivity) return [];
+    return (appState.instantPlans || []).filter(p => {
+      const title = (p.title || '').toLowerCase();
+      const act = (p.activity || '').toLowerCase();
+      return title.includes(term) || act.includes(term);
+    });
+  }, [appState.instantPlans, selectedActivity, term]);
+
+  return (
+    <div className="fixed inset-0 bg-[#08060d]/80 backdrop-blur-md flex items-center justify-center p-4" style={{ zIndex: 1000 }}>
+      <div className="rounded-[32px] border border-white/10 bg-[#0f0a19]/95 w-[640px] max-w-full p-6 shadow-[0_30px_110px_rgba(0,0,0,.65)] relative overflow-hidden">
+        <button className="absolute top-4 right-4 text-white/50 hover:text-white" onClick={onClose} aria-label="Close modal"><X className="w-6 h-6" /></button>
+        
+        {!selectedActivity ? (
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-[0.24em] text-fuchsia-400">Real-World Action</span>
+            <h2 className="font-['Outfit'] text-2xl font-black text-white mt-1 mb-2">Meet Someone This Week ⚡</h2>
+            <p className="text-xs text-white/60 mb-5 font-semibold">
+              Stop browsing profiles. Choose what you want to do, and we will connect you immediately with active members, mixers, and instant plans nearby.
+            </p>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {activities.map(act => (
+                <button
+                  key={act.id}
+                  onClick={() => setSelectedActivity(act.id)}
+                  className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 text-white font-['Outfit'] text-sm font-black text-center cursor-pointer transition-all duration-300 hover:border-fuchsia-500/50 hover:bg-fuchsia-500/5"
+                >
+                  {act.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <button 
+                onClick={() => { setSelectedActivity(null); setActiveTab('members'); }}
+                className="bg-white/[0.05] border-none text-white rounded-full w-8 h-8 flex items-center justify-center cursor-pointer"
+              >
+                ←
+              </button>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-[0.24em] text-fuchsia-400">Active Lounges</span>
+                <h2 className="font-['Outfit'] text-xl font-black text-white leading-tight">Doing: {selectedActivity}</h2>
+              </div>
+            </div>
+
+            <div className="flex gap-1.5 bg-white/[0.03] p-1 rounded-[14px] border border-white/5 mb-4">
+              {[
+                { id: 'members', label: `Partners (${matchingMembers.length})` },
+                { id: 'events', label: `Mixers (${matchingEvents.length})` },
+                { id: 'plans', label: `Plans (${matchingPlans.length})` }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex-1 py-2 rounded-xl border-none text-xs font-black cursor-pointer transition-all duration-200 ${
+                    activeTab === tab.id ? 'bg-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/25' : 'bg-transparent text-white/50 hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="max-h-[320px] overflow-y-auto pr-1 grid gap-3">
+              {activeTab === 'members' && (
+                matchingMembers.length === 0 ? (
+                  <div className="text-center py-8 px-4 bg-white/[0.01] border border-dashed border-white/5 rounded-2xl text-white/40">
+                    <Users className="mx-auto h-8 w-8 text-white/20 mb-2" />
+                    <h4 className="font-['Outfit'] text-sm font-black text-white">No Members Yet</h4>
+                    <p className="text-[11px] mt-1 max-w-xs mx-auto">Nobody has updated their status for this activity. Be the first!</p>
+                  </div>
+                ) : (
+                  matchingMembers.map(member => (
+                    <div key={member.id} className="grid grid-cols-[auto_1fr_auto] items-center p-3.5 bg-white/[0.02] border border-white/5 rounded-2xl gap-3">
+                      <div className="w-11 h-11 rounded-full border border-white/10 overflow-hidden bg-gradient-to-br from-fuchsia-500/10 to-cyan-500/10 shrink-0">
+                        {member.photos?.[0] ? <img src={member.photos[0]} alt="" className="h-full w-full object-cover" /> : <div className="h-full w-full flex items-center justify-center font-black text-sm">{member.name.slice(0, 1)}</div>}
+                      </div>
+                      <div className="min-w-0">
+                        <strong className="flex items-center gap-1 font-['Outfit'] text-sm font-black text-white">
+                          {(member.name || '').split(',')[0].trim().split(' ')[0]}, {member.age || (member.name || '').split(',')[1]?.trim()}
+                          {member.verification_level === 'highly_verified' && <ShieldCheck className="w-3.5 h-3.5 text-amber-400 fill-amber-400/10 shrink-0" />}
+                          {member.verification_level === 'identity' && <ShieldCheck className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                          {member.verification_level === 'basic' && <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />}
+                        </strong>
+                        <span className="block text-[10px] text-white/40 mt-1 truncate">
+                          Reliability: {member.trustScore || 94}% • {member.city}
+                        </span>
+                      </div>
+                      <button 
+                        className="h-8 px-4 rounded-lg bg-fuchsia-500 hover:bg-fuchsia-600 text-white text-[10px] font-black uppercase tracking-wider transition active:scale-95 shadow-lg shadow-fuchsia-500/20"
+                        onClick={() => { onClose(); onVibeClick(member); }}
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  ))
+                )
+              )}
+
+              {activeTab === 'events' && (
+                matchingEvents.length === 0 ? (
+                  <div className="text-center py-8 px-4 bg-white/[0.01] border border-dashed border-white/5 rounded-2xl text-white/40">
+                    <CalendarCheck className="mx-auto h-8 w-8 text-white/20 mb-2" />
+                    <h4 className="font-['Outfit'] text-sm font-black text-white">No Events Available</h4>
+                    <p className="text-[11px] mt-1 max-w-xs mx-auto">No social mixers scheduled for this activity category currently.</p>
+                  </div>
+                ) : (
+                  matchingEvents.map(event => {
+                    const isJoined = Boolean(appState.rsvps[event.id]);
+                    return (
+                      <div key={event.id} className="grid grid-cols-[auto_1fr_auto] items-center p-3.5 bg-white/[0.02] border border-white/5 rounded-2xl gap-3">
+                        <img src={event.image} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                        <div className="min-w-0">
+                          <strong className="block font-['Outfit'] text-sm font-black text-white truncate">{event.title}</strong>
+                          <span className="block text-[10px] text-white/40 mt-1 truncate">
+                            {event.date} • {event.place}
+                          </span>
+                        </div>
+                        <button 
+                          className={`h-8 px-4 rounded-lg text-[10px] font-black uppercase tracking-wider transition active:scale-95 ${
+                            isJoined ? 'border border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-300' : 'bg-white hover:bg-white/90 text-black'
+                          }`}
+                          onClick={() => onToggleRsvp(event)}
+                        >
+                          {isJoined ? "RSVP'd ✓" : 'RSVP 🎟'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )
+              )}
+
+              {activeTab === 'plans' && (
+                matchingPlans.length === 0 ? (
+                  <div className="text-center py-8 px-4 bg-white/[0.01] border border-dashed border-white/5 rounded-2xl text-white/40">
+                    <Zap className="mx-auto h-8 w-8 text-white/20 mb-2" />
+                    <h4 className="font-['Outfit'] text-sm font-black text-white">No Meetups Planned</h4>
+                    <p className="text-[11px] mt-1 max-w-xs mx-auto">No fast-join instant plans exist for this activity right now.</p>
+                  </div>
+                ) : (
+                  matchingPlans.map(plan => {
+                    const hasJoined = plan.members.some(m => m.id === appState.profile.id);
+                    return (
+                      <div key={plan.id} className="grid grid-cols-[1fr_auto] items-center p-3.5 bg-white/[0.02] border border-white/5 rounded-2xl gap-3">
+                        <div className="min-w-0">
+                          <strong className="block font-['Outfit'] text-sm font-black text-white truncate">{plan.title}</strong>
+                          <span className="block text-[10px] text-white/40 mt-1 truncate">
+                            Activity: {plan.activity} • {plan.time} • Host: {plan.creatorName} ({plan.creatorTrustScore}% Trust)
+                          </span>
+                        </div>
+                        <button 
+                          className={`h-8 px-4 rounded-lg text-[10px] font-black uppercase tracking-wider transition active:scale-95 ${
+                            hasJoined ? 'border border-cyan-400/20 bg-cyan-950/20 text-cyan-300' : 'bg-white hover:bg-white/90 text-black'
+                          }`}
+                          onClick={() => onJoinPlan(plan.id, hasJoined)}
+                        >
+                          {hasJoined ? 'Joined ✓' : 'Join ⚡'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        <button className="w-full mt-5 py-2.5 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] text-white/70 text-xs font-black transition-all" onClick={onClose}>
+          Close
+        </button>
       </div>
     </div>
   );

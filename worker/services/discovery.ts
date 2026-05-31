@@ -47,7 +47,11 @@ export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
         photo: photoUrls[0] || user?.avatar_url || '',
         photos: photoUrls,
         interests,
-        trustMetrics: trust
+        trustMetrics: trust,
+        phone_verified: profile.phone_verified,
+        instagram_verified: profile.instagram_verified,
+        profile_verified: profile.profile_verified,
+        verification_level: profile.verification_level
       }
     });
   }

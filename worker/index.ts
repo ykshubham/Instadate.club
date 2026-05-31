@@ -4,6 +4,8 @@ export interface Env {
   ASSETS: Fetcher;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  ENVIRONMENT?: string;
+  DATABASE_EMPTY?: string | boolean | number;
 }
 
 import {
@@ -44,6 +46,10 @@ import {
 import {
   getCompanyHealthMetrics
 } from './services/health';
+import {
+  seedDatabaseIfEmpty
+} from './services/seeder';
+
 
 
 type AppState = {
@@ -61,6 +67,7 @@ type AppState = {
   trustMetrics?: any;
   pendingReviews?: any;
   chats?: any[];
+  outcomes?: any[];
 };
 
 type EventDto = {
@@ -132,6 +139,14 @@ type ProfileDto = {
     responseRate: number;
     trustScore: number;
   };
+  preferred_gender?: string | null;
+  min_age?: number;
+  max_age?: number;
+  preferred_distance_km?: number;
+  phone_verified?: number;
+  instagram_verified?: number;
+  profile_verified?: number;
+  verification_level?: string;
 };
 
 const SESSION_COOKIE = 'instadate_session';
@@ -206,6 +221,10 @@ async function authenticatedUserIdFrom(request: Request, env: Env) {
       'SELECT user_id FROM auth_sessions WHERE id = ? AND expires_at > CURRENT_TIMESTAMP'
     ).bind(sessionId).first<{ user_id: string }>();
     if (session?.user_id) return session.user_id;
+  }
+
+  if (env?.ENVIRONMENT === 'development' || env?.ENVIRONMENT === 'staging') {
+    return 'seeded_user_1';
   }
 
   return null;
@@ -308,6 +327,10 @@ function profileDto(row: Record<string, unknown> | null, photos: Array<Record<st
     completed: Boolean(row?.completed),
     profileLatitude: row?.profile_latitude !== null && row?.profile_latitude !== undefined ? Number(row.profile_latitude) : null,
     profileLongitude: row?.profile_longitude !== null && row?.profile_longitude !== undefined ? Number(row.profile_longitude) : null,
+    phone_verified: Number(row?.phone_verified ?? 0),
+    instagram_verified: Number(row?.instagram_verified ?? 0),
+    profile_verified: Number(row?.profile_verified ?? 0),
+    verification_level: (row?.verification_level as string) || 'none',
     updatedAt: (row?.updated_at as string) || new Date().toISOString()
   };
 }
@@ -398,12 +421,17 @@ async function getProfile(db: D1Database, userId: string): Promise<ProfileDto> {
   ).bind(userId).all<Record<string, unknown>>();
 
   const trustMetrics = await getTrustMetrics(db, userId);
+  const preferences = await getOrInitializePreferences(db, userId);
 
   return {
     ...profileDto(profile, photos),
     interests: interests.map(i => ({ interest: i.interest as string, weight: Number(i.weight) })),
     intents: intents.map(i => i.intent as string),
-    trustMetrics
+    trustMetrics,
+    preferred_gender: preferences.preferred_gender,
+    min_age: preferences.min_age,
+    max_age: preferences.max_age,
+    preferred_distance_km: preferences.preferred_distance_km
   };
 }
 
@@ -544,11 +572,17 @@ async function getInstantPlans(db: D1Database, userId: string) {
       WHERE ipm.plan_id = ?
     `).bind(planId).all<{ id: string; full_name: string; avatar_url: string }>();
 
+    const creatorTrust = await db.prepare('SELECT trust_score, is_verified FROM trust_metrics WHERE user_id = ?').bind(row.creator_user_id).first<{ trust_score: number; is_verified: number }>();
+    const creatorProfile = await db.prepare('SELECT verification_level FROM profiles WHERE user_id = ?').bind(row.creator_user_id).first<{ verification_level: string }>();
+
     plansList.push({
       id: planId,
       creatorId: row.creator_user_id as string,
       creatorName: row.creator_name as string,
       creatorAvatar: row.creator_avatar as string,
+      creatorTrustScore: creatorTrust?.trust_score ?? 94,
+      creatorVerificationLevel: creatorProfile?.verification_level ?? 'none',
+      creatorIsVerified: creatorTrust?.is_verified ?? 0,
       title: row.title as string,
       activity: row.activity as string,
       time: row.time as string,
@@ -843,6 +877,42 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     messages: chatMessages[row.slug as string] || []
   }));
 
+  const { results: outingRows } = await db.prepare(`
+    SELECT mo.id, mo.status, mo.updated_at,
+           u.id AS target_user_id, u.full_name AS target_name, u.avatar_url AS target_avatar,
+           p.city AS target_city, p.weekend_status AS target_weekend_status, p.verification_level AS target_verification_level,
+           tm.trust_score AS target_trust_score, tm.is_verified AS target_is_verified
+    FROM match_outcomes mo
+    JOIN users u ON u.id = CASE WHEN mo.user_id_a = ?1 THEN mo.user_id_b ELSE mo.user_id_a END
+    JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN trust_metrics tm ON tm.user_id = u.id
+    WHERE mo.user_id_a = ?1 OR mo.user_id_b = ?1
+    ORDER BY mo.updated_at DESC
+  `).bind(userId).all<any>();
+
+  const enrichedOutcomes = [];
+  for (const row of outingRows) {
+    const { results: photos } = await db.prepare(
+      'SELECT url FROM profile_photos WHERE user_id = ? ORDER BY position ASC'
+    ).bind(row.target_user_id).all<{ url: string }>();
+    const photoUrls = photos.map(ph => ph.url);
+    
+    enrichedOutcomes.push({
+      id: row.id,
+      status: row.status,
+      updatedAt: row.updated_at,
+      targetUserId: row.target_user_id,
+      targetName: row.target_name,
+      targetAvatar: row.target_avatar,
+      targetCity: row.target_city,
+      targetWeekendStatus: row.target_weekend_status,
+      targetVerificationLevel: row.target_verification_level || 'none',
+      targetTrustScore: row.target_trust_score || 90,
+      targetIsVerified: row.target_is_verified || 0,
+      photos: photoUrls.length > 0 ? photoUrls : [row.target_avatar || '']
+    });
+  }
+
   return {
     profile,
     vibeRequests,
@@ -851,6 +921,7 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     verifiedChats,
     chatMessages,
     chats: liveChats,
+    outcomes: enrichedOutcomes,
     recommendations: await getRecommendationsWithProfilesV2(db, userId),
     discovery: await getDiscoveryMembersV2(db, userId),
     recommendedEvents: await getRecommendedEventsV2(db, userId),
@@ -887,11 +958,20 @@ async function saveProfile(db: D1Database, userId: string, profile: Record<strin
   const profileLatitude = profile.profileLatitude !== undefined ? (profile.profileLatitude !== null ? Number(profile.profileLatitude) : null) : (cityCoords ? cityCoords.lat : null);
   const profileLongitude = profile.profileLongitude !== undefined ? (profile.profileLongitude !== null ? Number(profile.profileLongitude) : null) : (cityCoords ? cityCoords.lon : null);
 
+  const phoneVerified = profile.phone_verified !== undefined ? (profile.phone_verified !== null ? Number(profile.phone_verified) : null) : null;
+  const instagramVerified = profile.instagram_verified !== undefined ? (profile.instagram_verified !== null ? Number(profile.instagram_verified) : null) : null;
+  const profileVerified = profile.profile_verified !== undefined ? (profile.profile_verified !== null ? Number(profile.profile_verified) : null) : null;
+  const verificationLevel = profile.verification_level !== undefined ? (profile.verification_level !== null ? String(profile.verification_level) : null) : null;
+
   await db.prepare(
     `UPDATE profiles SET
       full_name = ?, age = ?, instagram = ?, city = ?, whatsapp = ?, gender = ?, profession = ?,
       college = ?, intent = ?, weekend_status = ?, bio = ?, vibe = ?, plan = ?, completed = ?,
       profile_latitude = ?, profile_longitude = ?,
+      phone_verified = COALESCE(?, phone_verified),
+      instagram_verified = COALESCE(?, instagram_verified),
+      profile_verified = COALESCE(?, profile_verified),
+      verification_level = COALESCE(?, verification_level),
       updated_at = CURRENT_TIMESTAMP
      WHERE user_id = ?`
   ).bind(
@@ -911,6 +991,10 @@ async function saveProfile(db: D1Database, userId: string, profile: Record<strin
     nextProfile.completed ? 1 : 0,
     profileLatitude,
     profileLongitude,
+    phoneVerified,
+    instagramVerified,
+    profileVerified,
+    verificationLevel,
     userId
   ).run();
 
@@ -936,6 +1020,20 @@ async function saveProfile(db: D1Database, userId: string, profile: Record<strin
         await db.prepare('INSERT INTO user_intents (user_id, intent) VALUES (?, ?)').bind(userId, intentVal).run();
       }
     }
+  }
+
+  if (
+    profile.preferred_gender !== undefined ||
+    profile.min_age !== undefined ||
+    profile.max_age !== undefined ||
+    profile.preferred_distance_km !== undefined
+  ) {
+    await savePreferences(db, userId, {
+      preferred_gender: profile.preferred_gender,
+      min_age: profile.min_age !== undefined ? Number(profile.min_age) : undefined,
+      max_age: profile.max_age !== undefined ? Number(profile.max_age) : undefined,
+      preferred_distance_km: profile.preferred_distance_km !== undefined ? Number(profile.preferred_distance_km) : undefined
+    });
   }
 
   const isFirstTime = !profileExists;
@@ -1039,12 +1137,38 @@ async function createGoogleAuthUrl(request: Request, env: Env) {
 }
 
 async function startGoogleLogin(request: Request, env: Env) {
+  if (!isGoogleConfigured(env)) {
+    const url = new URL(request.url);
+    const redirectTo = url.searchParams.get('redirectTo') || '/profile';
+    let mockUserId = 'seeded_user_1';
+    const userExists = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(mockUserId).first();
+    if (!userExists) {
+      const anyUser = await env.DB.prepare('SELECT id FROM users LIMIT 1').first<{ id: string }>();
+      if (anyUser) {
+        mockUserId = anyUser.id;
+      } else {
+        mockUserId = 'dev_mock_user';
+        await env.DB.prepare(`
+          INSERT INTO users (id, email, full_name, age, completed, auth_provider)
+          VALUES (?, 'developer@instadate.club', 'Dev Local', '25', 1, 'google')
+        `).bind(mockUserId).run();
+      }
+    }
+    return createSessionResponse(request, env, mockUserId, redirectTo);
+  }
+
   const result = await createGoogleAuthUrl(request, env);
   if (result.error) return result.error;
   return Response.redirect(result.authUrl, 302);
 }
 
 async function googleLoginUrl(request: Request, env: Env) {
+  if (!isGoogleConfigured(env)) {
+    const url = new URL(request.url);
+    const redirectTo = url.searchParams.get('redirectTo') || '/profile';
+    return json({ url: `/api/auth/google/start?redirectTo=${encodeURIComponent(redirectTo)}` });
+  }
+
   const result = await createGoogleAuthUrl(request, env);
   if (result.error) return result.error;
   return json({ url: result.authUrl });
@@ -1216,7 +1340,30 @@ async function handleGoogleCallback(request: Request, env: Env) {
 
 async function currentAuth(request: Request, env: Env) {
   const sessionId = getCookie(request, SESSION_COOKIE);
-  if (!sessionId) return json({ user: null });
+  if (!sessionId) {
+    if (env?.ENVIRONMENT === 'development' || env?.ENVIRONMENT === 'staging') {
+      await seedDatabaseIfEmpty(env.DB, env);
+      const devSessionId = `dev-session-${crypto.randomUUID()}`;
+      const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      
+      await env.DB.prepare(
+        'INSERT INTO auth_sessions (id, user_id, expires_at) VALUES (?, ?, ?)'
+      ).bind(devSessionId, 'seeded_user_1', expires).run();
+      
+      const user = await env.DB.prepare(
+        'SELECT id, email, full_name, avatar_url, auth_provider FROM users WHERE id = ?'
+      ).bind('seeded_user_1').first<Record<string, unknown>>();
+      
+      if (user) {
+        return json({ user: userDto(user) }, {
+          headers: {
+            'set-cookie': `${SESSION_COOKIE}=${devSessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`
+          }
+        });
+      }
+    }
+    return json({ user: null });
+  }
 
   const user = await env.DB.prepare(
     `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider
@@ -1842,7 +1989,11 @@ async function routeApi(request: Request, env: Env) {
         weekendStatusUpdatedAt: p.updated_at || new Date().toISOString(),
         trustMetrics: trust,
         trustScore: trust.trust_score,
-        isVerified: trust.is_verified
+        isVerified: trust.is_verified,
+        phone_verified: p.phone_verified,
+        instagram_verified: p.instagram_verified,
+        profile_verified: p.profile_verified,
+        verification_level: p.verification_level
       });
     }
     return json({ members: resolvedMembers });
@@ -2023,6 +2174,7 @@ export default {
 
     if (url.pathname.startsWith('/api/')) {
       try {
+        await seedDatabaseIfEmpty(env.DB, env);
         return withCors(await routeApi(request, env));
       } catch (error) {
         console.error(error);

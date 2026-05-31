@@ -96,6 +96,31 @@ export async function getOrInitializeTrustMetrics(db: D1Database, userId: string
   const wmaPositive = wmaRow?.positive ?? 0;
   const wouldMeetAgainPct = wmaTotal > 0 ? (wmaPositive / wmaTotal) * 100 : 100.0;
 
+  // Retrieve verification fields from profiles table to dynamically build verification score
+  const profileRow = await db.prepare('SELECT phone_verified, instagram_verified, profile_verified, verification_level FROM profiles WHERE user_id = ?').bind(userId).first<any>();
+  let computedVerificationScore = 0.0;
+  let computedIsVerified = 0;
+
+  if (profileRow) {
+    if (profileRow.verification_level === 'highly_verified' || profileRow.profile_verified === 1) {
+      computedVerificationScore = 100.0;
+      computedIsVerified = 1;
+    } else if (profileRow.verification_level === 'identity') {
+      computedVerificationScore = 85.0;
+      computedIsVerified = 1;
+    } else if (profileRow.verification_level === 'basic' || profileRow.phone_verified === 1) {
+      computedVerificationScore = 50.0;
+      computedIsVerified = 1;
+    } else if (profileRow.instagram_verified === 1) {
+      computedVerificationScore = 30.0;
+      computedIsVerified = 1;
+    }
+  }
+
+  // Update in-memory metrics with computed verification fields
+  metrics.verification_score = computedVerificationScore;
+  metrics.is_verified = computedIsVerified;
+
   // Mix in the would_meet_again_pct to metrics for calculation
   const metricsWithWma = {
     ...metrics,
@@ -104,11 +129,13 @@ export async function getOrInitializeTrustMetrics(db: D1Database, userId: string
 
   const { score: computedTrust } = calculateTrustScore(completed, metricsWithWma);
   
-  // Sync computed score back to DB if different
-  if (Math.abs(Number(metrics.trust_score) - computedTrust) > 1) {
-    await db.prepare('UPDATE trust_metrics SET trust_score = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?')
-      .bind(computedTrust, userId).run();
+  // Sync computed score and verification details back to DB if different
+  if (Math.abs(Number(metrics.trust_score) - computedTrust) > 1 || Number(metrics.verification_score) !== computedVerificationScore || Number(metrics.is_verified) !== computedIsVerified) {
+    await db.prepare('UPDATE trust_metrics SET trust_score = ?, verification_score = ?, is_verified = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?')
+      .bind(computedTrust, computedVerificationScore, computedIsVerified, userId).run();
     metrics.trust_score = computedTrust;
+    metrics.verification_score = computedVerificationScore;
+    metrics.is_verified = computedIsVerified;
   }
 
   return {

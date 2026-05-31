@@ -84,44 +84,55 @@ export default function AdminAnalyticsPage({ navigate }) {
   const { northStar, matchQuality, eventQuality, trustAnalytics, realWorldSuccess } = dashboard;
 
   return (
-    <section className="page-shell admin-analytics-shell" style={{ color: '#fff', paddingBottom: '5rem' }}>
+    <section className="page-shell admin-analytics-shell" style={{
+      color: '#fff',
+      paddingBottom: '6rem',
+      height: '100%',
+      overflowY: 'auto',
+      width: '100%',
+      boxSizing: 'border-box',
+      display: 'block'
+    }}>
       {/* Header bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button className="btn-quiet" style={{ minWidth: '40px', padding: '0 10px' }} onClick={() => navigate('/')}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2.5rem', gap: '1.5rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+          <button className="btn-quiet" style={{ minWidth: '42px', height: '42px', padding: 0, borderRadius: '14px', display: 'grid', placeItems: 'center' }} onClick={() => navigate('/')}>
             <ArrowLeft style={{ width: '18px', height: '18px' }} />
           </button>
           <div>
-            <span className="eyebrow" style={{ color: 'var(--pink)', fontWeight: 'bold' }}>Lead Admin Panel</span>
-            <h1 style={{ margin: '0.1rem 0 0', font: '900 2.2rem Outfit, sans-serif' }}>Operational Validation Dashboard</h1>
+            <span className="eyebrow" style={{ color: 'var(--pink)', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '0.75rem' }}>Lead Admin Panel</span>
+            <h1 style={{ margin: '0.1rem 0 0', font: '900 2.4rem Outfit, sans-serif', letterSpacing: '-0.02em', background: 'linear-gradient(135deg, #fff, #b5a4ca)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+              Operational Validation Dashboard
+            </h1>
           </div>
         </div>
-        <button className="btn-quiet" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={fetchAnalytics}>
-          <RefreshCw style={{ width: '14px', height: '14px' }} /> Sync Logs
+        <button className="btn-main" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '14px', fontWeight: 'bold' }} onClick={fetchAnalytics}>
+          <RefreshCw style={{ width: '15px', height: '15px' }} /> Sync Analytics
         </button>
       </div>
 
       {/* Critical Alert Warning Banners */}
       {alerts && alerts.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2.5rem' }}>
           {alerts.map((alert, i) => (
             <motion.div
               key={i}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
               style={{
                 background: 'rgba(255, 46, 147, 0.08)',
                 border: '1px solid rgba(255, 46, 147, 0.25)',
-                borderRadius: '16px',
-                padding: '1rem 1.25rem',
+                borderRadius: '18px',
+                padding: '1.1rem 1.4rem',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
-                color: '#ff68b4'
+                gap: '14px',
+                color: '#ff68b4',
+                boxShadow: '0 8px 24px rgba(255, 46, 147, 0.08)'
               }}
             >
-              <AlertTriangle style={{ width: '20px', height: '20px', flexShrink: 0 }} />
-              <span style={{ fontSize: '0.86rem', fontWeight: 'bold', lineHeight: 1.45 }}>{alert.message}</span>
+              <AlertTriangle style={{ width: '22px', height: '22px', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.88rem', fontWeight: '700', lineHeight: 1.45 }}>{alert.message}</span>
             </motion.div>
           ))}
         </div>
@@ -130,14 +141,16 @@ export default function AdminAnalyticsPage({ navigate }) {
       {/* Navigation Sub-Tabs */}
       <div style={{
         display: 'flex',
-        background: 'rgba(255, 255, 255, 0.02)',
-        border: '1px solid rgba(255, 255, 255, 0.05)',
-        borderRadius: '16px',
-        padding: '4px',
-        marginBottom: '2rem',
+        background: 'rgba(15, 10, 25, 0.6)',
+        backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.06)',
+        borderRadius: '20px',
+        padding: '6px',
+        marginBottom: '2.5rem',
         overflowX: 'auto',
-        gap: '4px',
-        whiteSpace: 'nowrap'
+        gap: '6px',
+        whiteSpace: 'nowrap',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
       }}>
         {[
           { id: 'overview', label: 'North Star', icon: Star },
@@ -155,21 +168,21 @@ export default function AdminAnalyticsPage({ navigate }) {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{
-                background: active ? 'linear-gradient(135deg, rgba(255, 46, 147, 0.15), rgba(155, 48, 255, 0.15))' : 'transparent',
-                border: active ? '1px solid rgba(255, 46, 147, 0.25)' : '1px solid transparent',
-                borderRadius: '12px',
-                color: active ? '#fff' : 'var(--muted)',
-                padding: '10px 16px',
-                fontSize: '0.82rem',
+                background: active ? 'linear-gradient(135deg, rgba(255, 46, 147, 0.18), rgba(155, 48, 255, 0.18))' : 'transparent',
+                border: active ? '1px solid rgba(255, 46, 147, 0.35)' : '1px solid transparent',
+                borderRadius: '14px',
+                color: active ? '#fff' : 'rgba(255, 255, 255, 0.45)',
+                padding: '12px 20px',
+                fontSize: '0.84rem',
                 fontWeight: 'bold',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
               }}
             >
-              <Icon style={{ width: '14px', height: '14px' }} />
+              <Icon style={{ width: '15px', height: '15px' }} />
               {tab.label}
             </button>
           );
@@ -640,38 +653,83 @@ function MetricCard({ title, value, sub, icon, gradient }) {
   const grad = gradient === 'cyan' ? 'linear-gradient(135deg, #00f2fe, #4facfe)' :
                gradient === 'purple' ? 'linear-gradient(135deg, #9b30ff, #ff2e93)' :
                gradient === 'pink' ? 'linear-gradient(135deg, #ff2e93, #ff8a00)' :
-               'linear-gradient(135deg, #25d366, #14a347)';
+               'linear-gradient(135deg, #10b981, #059669)';
+
+  const glowColor = gradient === 'cyan' ? 'rgba(6, 182, 212, 0.15)' :
+                    gradient === 'purple' ? 'rgba(168, 85, 247, 0.15)' :
+                    gradient === 'pink' ? 'rgba(236, 72, 153, 0.15)' :
+                    'rgba(16, 185, 129, 0.15)';
+
   return (
-    <div className="feature-card" style={{ padding: '1.25rem', position: 'relative', display: 'flex', gap: '12px', alignItems: 'center' }}>
+    <motion.div 
+      whileHover={{ y: -4, scale: 1.02 }}
+      className="feature-card" 
+      style={{ 
+        padding: '1.5rem', 
+        position: 'relative', 
+        display: 'flex', 
+        gap: '16px', 
+        alignItems: 'center',
+        background: 'rgba(20, 16, 30, 0.65)',
+        backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.07)',
+        borderRadius: '24px',
+        boxShadow: `0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.05), 0 0 40px ${glowColor}`,
+        overflow: 'hidden',
+        transition: 'box-shadow 0.3s ease, border-color 0.3s ease'
+      }}
+    >
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        left: '10%',
+        right: '10%',
+        height: '2px',
+        background: grad,
+        opacity: 0.7,
+        borderRadius: '0 0 100% 100%'
+      }} />
+
       <div style={{
         background: grad,
-        borderRadius: '12px',
-        padding: '8px',
+        borderRadius: '16px',
+        padding: '12px',
         color: '#fff',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        boxShadow: `0 4px 15px ${glowColor}`
       }}>
-        {icon}
+        {React.cloneElement(icon, { style: { width: '22px', height: '22px' } })}
       </div>
       <div>
-        <span style={{ fontSize: '0.74rem', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>{title}</span>
-        <strong style={{ display: 'block', fontSize: '1.6rem', color: '#fff', margin: '2px 0' }}>{value}</strong>
-        <small style={{ color: 'var(--muted)', fontSize: '0.74rem' }}>{sub}</small>
+        <span style={{ fontSize: '0.74rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase', fontWeight: '800', letterSpacing: '0.05em' }}>{title}</span>
+        <strong style={{ display: 'block', fontSize: '2rem', fontWeight: '900', fontStyle: 'normal', font: 'Outfit, sans-serif', color: '#fff', margin: '4px 0', letterSpacing: '-0.02em' }}>{value}</strong>
+        <small style={{ color: 'rgba(255, 255, 255, 0.35)', fontSize: '0.74rem', fontWeight: '500' }}>{sub}</small>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 function FunnelBar({ label, count, percent, color }) {
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px', fontWeight: 'bold' }}>
+    <div style={{ marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '6px', fontWeight: '700', color: 'rgba(255,255,255,0.9)' }}>
         <span>{label}</span>
-        <span>{count} ({Math.round(percent)}%)</span>
+        <span style={{ color: color, fontWeight: '900' }}>{count} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 'normal', fontSize: '0.75rem' }}>({Math.round(percent)}%)</span></span>
       </div>
-      <div style={{ height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '99px', overflow: 'hidden' }}>
-        <div style={{ width: `${percent}%`, height: '100%', background: color, borderRadius: '99px' }} />
+      <div style={{ height: '14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '99px', padding: '2px', overflow: 'hidden' }}>
+        <motion.div 
+          initial={{ width: 0 }}
+          animate={{ width: `${percent}%` }}
+          transition={{ duration: 0.8, ease: 'easeOut' }}
+          style={{ 
+            height: '100%', 
+            background: `linear-gradient(90deg, ${color}cc, ${color})`, 
+            borderRadius: '99px',
+            boxShadow: `0 0 10px ${color}80`
+          }} 
+        />
       </div>
     </div>
   );
