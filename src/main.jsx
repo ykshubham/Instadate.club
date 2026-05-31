@@ -16,6 +16,11 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
 import AdminAnalyticsPage from './AdminAnalyticsPage.jsx';
 import AdminHealthPage from './AdminHealthPage.jsx';
 
+// Redirect non-canonical Pages URLs to canonical Worker URL
+if (typeof window !== 'undefined' && window.location && window.location.hostname && window.location.hostname.endsWith('instadate-club.pages.dev')) {
+  window.location.replace('https://instadateclub.heyshubham1323.workers.dev' + window.location.pathname + window.location.search);
+}
+
 
 
 

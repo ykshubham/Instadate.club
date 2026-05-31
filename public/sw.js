@@ -3,9 +3,6 @@ const CACHE_NAME = 'instadate-react-pwa-v3';
 const APP_SHELL = [
   './',
   './index.html',
-  './active-users.html',
-  './chat.html',
-  './events.html',
   './offline.html',
   './manifest.webmanifest',
   './assets/glowing_hearts.png',
