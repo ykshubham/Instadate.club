@@ -1635,9 +1635,19 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
   const [threeLoaded, setThreeLoaded] = React.useState(false);
   const [gsapLoaded, setGsapLoaded] = React.useState(false);
   const [lenisLoaded, setLenisLoaded] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(true);
 
   const canvasRef = React.useRef(null);
   const threeApp = React.useRef(null);
+
+  // Simulate loading state - set to false when members are loaded
+  React.useEffect(() => {
+    if (resolvedMembers && resolvedMembers.length > 0) {
+      // Add a small delay to show shimmer effect
+      const timer = setTimeout(() => setIsLoading(false), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [resolvedMembers]);
 
   // Load all CDNs dynamically
   React.useEffect(() => {
@@ -1985,16 +1995,95 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
 
       {/* The Member Grid */}
       <div className="member-grid" style={{ minHeight: '300px' }}>
-        {filtered.map(member => (
-          <div key={member.name} className="gsap-member-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <MemberCard 
-              member={member} 
-              requested={Boolean(appState.vibeRequests[member.id])} 
-              onVibeClick={onVibeClick} 
-              onProfileClick={onProfileClick}
-            />
-          </div>
-        ))}
+        {isLoading ? (
+          // Shimmer loading skeleton
+          Array.from({ length: 6 }).map((_, index) => (
+            <div key={`shimmer-${index}`} className="member-card-shimmer" style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem',
+              padding: '1.25rem',
+              height: '100%',
+              background: 'rgba(14, 14, 20, 0.72)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '24px',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              {/* Shimmer animation overlay */}
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%)',
+                animation: 'shimmer 2s infinite',
+                transform: 'translateX(-100%)'
+              }} />
+
+              {/* Avatar shimmer */}
+              <div style={{
+                width: '80px',
+                height: '80px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.05)',
+                margin: '0 auto'
+              }} />
+
+              {/* Name shimmer */}
+              <div style={{
+                height: '20px',
+                width: '60%',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '4px',
+                margin: '0.5rem auto'
+              }} />
+
+              {/* Score shimmer */}
+              <div style={{
+                height: '16px',
+                width: '40%',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '4px',
+                margin: '0 auto'
+              }} />
+
+              {/* Bio shimmer */}
+              <div style={{
+                height: '14px',
+                width: '90%',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '4px',
+                marginTop: '0.5rem'
+              }} />
+              <div style={{
+                height: '14px',
+                width: '70%',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '4px'
+              }} />
+
+              {/* Button shimmer */}
+              <div style={{
+                height: '40px',
+                width: '100%',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '12px',
+                marginTop: 'auto'
+              }} />
+            </div>
+          ))
+        ) : (
+          filtered.map(member => (
+            <div key={member.name} className="gsap-member-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              <MemberCard
+                member={member}
+                requested={Boolean(appState.vibeRequests[member.id])}
+                onVibeClick={onVibeClick}
+                onProfileClick={onProfileClick}
+              />
+            </div>
+          ))
+        )}
       </div>
 
       {filtered.length === 0 && (

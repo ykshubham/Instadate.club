@@ -3299,3 +3299,26 @@ body:has(.fullscreen-main) .app-toast {
 .animate-gold-pass:hover {
   animation: none !important;
 }
+
+/* --- Shimmer Loading Animation --- */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.member-card-shimmer {
+  animation: shimmerPulse 2s ease-in-out infinite;
+}
+
+@keyframes shimmerPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
