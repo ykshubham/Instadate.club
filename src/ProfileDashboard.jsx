@@ -845,11 +845,11 @@ function StickyProfileNav({ completion, navigate, onOpenDrawer, unreadCount, onO
   return (
     <motion.div variants={fadeUp} className="-mx-4 mb-4 border-b border-white/10 bg-[#050506]/78 px-4 py-3 backdrop-blur-2xl sm:mx-0 sm:rounded-[28px] sm:border" data-profile-card>
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-fuchsia-300/80">Relationship Identity</p>
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-bold uppercase tracking-[0.24em] text-fuchsia-300/80">Relationship Identity</p>
           <h1 className="font-['Outfit'] text-2xl font-black leading-none text-white">Profile</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button onClick={onOpenDrawer} className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95" aria-label="Open drawer">
             <Menu className="h-5 w-5" />
           </button>
@@ -927,8 +927,8 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
               {isPremium && <Badge icon={Gem} text="Elite VIP" tone="gold" />}
             </div>
             
-            <h2 className="flex items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white flex-wrap">
-              <span>{(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}</span>
+            <h2 className="flex min-w-0 items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white flex-wrap">
+              <span className="min-w-0 break-words">{(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}</span>
               {renderVerificationBadge(profile.verification_level, "w-6 h-6")}
             </h2>
             

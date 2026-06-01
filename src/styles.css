@@ -52,12 +52,21 @@
 
 html {
   min-height: 100dvh;
+  overflow-x: clip;
 }
 body {
   margin: 0;
   min-width: 320px;
+  max-width: 100%;
+  overflow-x: clip;
   background: var(--bg);
   min-height: 100dvh;
+}
+/* Mobile guard: never let a single too-wide child create a page-level horizontal
+   scroll that shifts/clips the whole layout (profile header, hero, photo rows). */
+#root {
+  max-width: 100%;
+  overflow-x: clip;
 }
 button, input { font: inherit; }
 button { cursor: pointer; }
