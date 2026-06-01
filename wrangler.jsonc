@@ -41,6 +41,12 @@
   // Acts as the bootstrap before any DB role is assigned; ongoing roles live in
   // users.role ('member' | 'moderator' | 'admin'). Override per-env or via secret.
   "vars": {
+    // Fail-closed prod marker: disables dev-only behaviour (seeder, magic-link devLink).
+    "ENVIRONMENT": "production",
+    // Must stay false in prod so the seeder never runs on the request hot path.
+    "DATABASE_EMPTY": "false",
+    // SMS provider selector — set to "msg91" or "twilio" once provider secrets are added.
+    "SMS_PROVIDER": "",
     "ADMIN_USER_IDS": ""
   },
   "durable_objects": {
