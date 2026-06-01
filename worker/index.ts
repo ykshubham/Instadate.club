@@ -993,9 +993,14 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     chatMessages,
     chats: liveChats,
     outcomes: enrichedOutcomes,
-    recommendations: await getRecommendationsWithProfilesV2(db, userId),
-    discovery: await getDiscoveryMembersV2(db, userId),
-    recommendedEvents: await getRecommendedEventsV2(db, userId),
+    // Beta/free-plan CPU budget: the recommendation + discovery + recommended-event
+    // generators (O(9·N) compatibility scoring) are NOT run inline here — they blew the
+    // Workers CPU limit and 503'd /api/state. The client lazy-loads them from their own
+    // endpoints (/api/recommendations, /api/discovery, /api/events/recommended), each with
+    // its own CPU budget. getState stays cheap (profile, chats, events, notifications...).
+    recommendations: [],
+    discovery: {},
+    recommendedEvents: [],
     instantPlans: await getInstantPlans(db, userId),
     trustMetrics: await getOrInitializeTrustMetrics(db, userId, profile.completed),
     pendingReviews,

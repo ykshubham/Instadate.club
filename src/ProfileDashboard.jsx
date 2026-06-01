@@ -339,6 +339,34 @@ export default function ProfileDashboard({
     }
   }, [isGuest]);
 
+  // Lazy-load the CPU-heavy feeds that were removed from /api/state (they blew the
+  // Workers CPU limit there). Each is its own request with its own budget. Recommendations
+  // runs first to warm the 1h recommendation cache so /api/discovery is then a cache hit.
+  React.useEffect(() => {
+    if (isGuest) return;
+    let cancelled = false;
+    const getJson = url => fetch(url, { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .catch(() => null);
+    (async () => {
+      const rec = await getJson('/api/recommendations');
+      if (!cancelled && rec?.recommendations) {
+        setLocalState(prev => ({ ...prev, recommendations: rec.recommendations }));
+      }
+      const [disc, evt] = await Promise.all([
+        getJson('/api/discovery'),
+        getJson('/api/events/recommended')
+      ]);
+      if (cancelled) return;
+      setLocalState(prev => ({
+        ...prev,
+        discovery: disc?.discovery ?? prev.discovery ?? {},
+        recommendedEvents: evt?.events ?? prev.recommendedEvents ?? []
+      }));
+    })();
+    return () => { cancelled = true; };
+  }, [isGuest, appState.lastUpdated]);
+
   async function handleMarkNotificationRead(id) {
     const data = await apiCall('/api/notifications/read', 'POST', { notificationId: id });
     if (data && data.state) {
