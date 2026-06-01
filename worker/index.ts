@@ -1548,9 +1548,13 @@ async function deleteProfilePhoto(env: Env, userId: string, photoId: string) {
 }
 
 async function serveProfilePhoto(request: Request, env: Env, userId: string, photoId: string) {
+  // Profile photos are visible to other members (discovery/members publish these URLs).
+  // Look up by the (random, unguessable) photo id only — NOT scoped to the viewer's
+  // user_id, which previously 404'd every cross-user photo so nobody could see anyone
+  // else's pictures.
   const photo = await env.DB.prepare(
-    'SELECT r2_key, content_type FROM profile_photos WHERE id = ? AND user_id = ?'
-  ).bind(photoId, userId).first<Record<string, unknown>>();
+    'SELECT r2_key, content_type FROM profile_photos WHERE id = ?'
+  ).bind(photoId).first<Record<string, unknown>>();
   if (!photo) return json({ error: 'Photo not found' }, { status: 404 });
 
   const object = await env.PROFILE_IMAGES.get(photo.r2_key as string);

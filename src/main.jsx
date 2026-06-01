@@ -316,7 +316,9 @@ function useApiState(fallbackFactory, enabled) {
       return applyApiState(state);
     } catch (error) {
       if (!quiet) console.warn('Failed to refresh state:', error);
-      setStatus('offline');
+      // Only flag offline when the browser is genuinely offline — a transient server
+      // error must not latch the whole app into "offline mode".
+      if (typeof navigator !== 'undefined' && !navigator.onLine) setStatus('offline');
       return null;
     }
   }, [apiRequest, applyApiState]);
@@ -367,7 +369,7 @@ function useApiState(fallbackFactory, enabled) {
       });
     }
 
-    const isCurrentlyOffline = (typeof navigator !== 'undefined' && !navigator.onLine) || status === 'offline';
+    const isCurrentlyOffline = (typeof navigator !== 'undefined' && !navigator.onLine);
 
     if (isCurrentlyOffline) {
       const queue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
@@ -384,14 +386,18 @@ function useApiState(fallbackFactory, enabled) {
     try {
       return applyApiState(await apiRequest(path, options));
     } catch (error) {
-      console.warn('Mutation failed, falling back to offline queue:', error);
-      const queue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
-      const actionId = `act-${crypto.randomUUID()}`;
-      queue.push({ id: actionId, path, options });
-      localStorage.setItem('instadate_pending_actions', JSON.stringify(queue));
-
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Connection degraded. Action queued for sync.' }));
-      setStatus('offline');
+      console.warn('Mutation failed:', error);
+      // Only queue + flag offline when the browser is genuinely offline. A transient
+      // server error while online must NOT latch the app into "offline mode"; keep the
+      // optimistic state and let the next poll reconcile.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const queue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
+        const actionId = `act-${crypto.randomUUID()}`;
+        queue.push({ id: actionId, path, options });
+        localStorage.setItem('instadate_pending_actions', JSON.stringify(queue));
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: 'You are offline. Action queued for sync.' }));
+        setStatus('offline');
+      }
       return fallbackRef.current;
     }
   }, [apiRequest, applyApiState, status]);
