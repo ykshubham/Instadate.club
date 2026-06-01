@@ -2,11 +2,11 @@
 -- SQLite Foreign Key Rebuild Migration for Sprint 2 Task 8
 -- Reconstructs meetup_feedback table to enforce strict ON DELETE CASCADE constraints on all columns.
 --
--- D1 compatibility note: D1's query API rejects explicit `BEGIN TRANSACTION`/`COMMIT`/`SAVEPOINT`
--- (error 7500) — it wraps each migration file in its own transaction. The previous explicit
--- transaction control and `PRAGMA foreign_keys` toggles were removed; D1 does not enforce FKs at
--- runtime, so the OFF/ON toggle and `PRAGMA foreign_key_check` are unnecessary. The rebuild logic
--- (orphan cleanup → create → copy → drop → rename → reindex) is unchanged.
+-- D1 compatibility note: D1's query API rejects explicit SQL transaction-control statements
+-- (error 7500) and wraps each migration file in its own transaction. The previous explicit
+-- transaction wrapper and foreign_keys PRAGMA toggles were removed; D1 does not enforce FKs at
+-- runtime, so those toggles are unnecessary. The rebuild logic
+-- (orphan cleanup, create, copy, drop, rename, reindex) is unchanged.
 
 -- 1. Backfill Validation: Clean up orphaned rows to ensure integrity before rebuilding
 DELETE FROM meetup_feedback
