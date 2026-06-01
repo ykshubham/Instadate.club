@@ -2,10 +2,10 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, ArrowRight, Award, BadgeCheck, Ban, Bell, Briefcase, Calendar, CalendarCheck, Camera,
-  CheckCircle2, ChevronRight, Clock, CreditCard, Crown, Eye, Flame, Gem, Gift,
+  CheckCircle2, ChevronRight, Clock, CreditCard, Crown, Download, Eye, Flame, Gem, Gift,
   Headphones, Heart, HeartHandshake, HelpCircle, History, ImagePlus, Instagram,
-  Lock, LogOut, MapPin, MapPinned, Menu, MessageCircle, Pencil, Radio, ReceiptText,
-  RotateCcw, Settings, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Star,
+  Lock, LogOut, MapPin, MapPinned, Menu, MessageCircle, PauseCircle, Pencil, Radio, ReceiptText,
+  RotateCcw, Settings, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Star, Trash2,
   TrendingUp, UserCheck, Users, Wallet, WandSparkles, X, Zap
 } from 'lucide-react';
 
@@ -1135,9 +1135,154 @@ function WeekendStatusSheet({ value, onClose, onSave }) {
   );
 }
 
+// AUTH-BE-08 / AUTH-FE-08 — Account lifecycle: export, deactivate (reversible), delete (30d grace).
+function DangerZone({ onLogout }) {
+  const [mode, setMode] = React.useState(null); // null | 'deactivate' | 'delete'
+  const [confirmText, setConfirmText] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  const exportData = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/account/export', { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = 'instadate-export.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      setError(e.message || 'Could not export your data.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deactivate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/account/deactivate', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) throw new Error('Could not deactivate account.');
+      onLogout?.();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (confirmText.trim().toUpperCase() !== 'DELETE') {
+      setError('Type DELETE to confirm.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/account', { method: 'DELETE', credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) throw new Error('Could not delete account.');
+      onLogout?.();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-5 rounded-2xl border border-[#ff2e93]/20 bg-[#ff2e93]/[0.04] p-4">
+      <h4 className="font-['Outfit'] text-xs font-black uppercase tracking-wide text-rose-200">Account &amp; Data</h4>
+      <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+        Download everything we hold about you, take a break, or permanently delete your account.
+      </p>
+
+      <div className="mt-3 grid gap-2">
+        <button
+          onClick={exportData}
+          disabled={busy}
+          className="flex min-h-[44px] items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3.5 text-left text-white/80 transition active:scale-[.99] disabled:opacity-50"
+        >
+          <span className="flex items-center gap-2.5 text-xs font-bold"><Download className="h-4 w-4 text-[#00d7f5]" /> Export my data</span>
+          <span className="text-[10px] text-white/40">JSON</span>
+        </button>
+
+        <button
+          onClick={() => { setMode('deactivate'); setError(null); }}
+          className="flex min-h-[44px] items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 text-left text-xs font-bold text-white/80 transition active:scale-[.99]"
+        >
+          <PauseCircle className="h-4 w-4 text-amber-300" /> Deactivate account
+        </button>
+
+        <button
+          onClick={() => { setMode('delete'); setError(null); setConfirmText(''); }}
+          className="flex min-h-[44px] items-center gap-2.5 rounded-xl border border-[#ff2e93]/30 bg-[#ff2e93]/10 px-3.5 text-left text-xs font-bold text-rose-200 transition active:scale-[.99]"
+        >
+          <Trash2 className="h-4 w-4" /> Delete account
+        </button>
+      </div>
+
+      {error && <p className="mt-2 text-[11px] font-semibold text-rose-300">{error}</p>}
+
+      <AnimatePresence>
+        {mode && (
+          <motion.div
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-black/65 p-4 backdrop-blur-md"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-sm rounded-[24px] border border-white/10 bg-[#0f0a14] p-5 shadow-2xl"
+              initial={{ scale: 0.94, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.94, opacity: 0 }}
+            >
+              {mode === 'deactivate' ? (
+                <>
+                  <h3 className="font-['Outfit'] text-lg font-black text-white">Deactivate account?</h3>
+                  <p className="mt-2 text-xs leading-relaxed text-white/60">
+                    Your profile is hidden from everyone and chats pause. Sign back in any time to reactivate — nothing is deleted.
+                  </p>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button onClick={() => setMode(null)} className="min-h-[40px] rounded-lg bg-white/10 text-xs font-black text-white transition active:scale-95">Cancel</button>
+                    <button onClick={deactivate} disabled={busy} className="min-h-[40px] rounded-lg bg-amber-400/90 text-xs font-black text-black transition active:scale-95 disabled:opacity-60">
+                      {busy ? 'Working…' : 'Deactivate'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 className="font-['Outfit'] text-lg font-black text-rose-200">Delete account permanently?</h3>
+                  <p className="mt-2 text-xs leading-relaxed text-white/60">
+                    Your account is hidden now and permanently erased after 30 days — including photos, chats, and matches.
+                    Sign in within 30 days to cancel. Type <strong className="text-white">DELETE</strong> to confirm.
+                  </p>
+                  <input
+                    value={confirmText}
+                    onChange={e => setConfirmText(e.target.value)}
+                    placeholder="DELETE"
+                    className="mt-3 w-full rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-sm font-bold tracking-widest text-white placeholder:text-white/25 focus:border-[#ff2e93]/60 focus:outline-none"
+                  />
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button onClick={() => setMode(null)} className="min-h-[40px] rounded-lg bg-white/10 text-xs font-black text-white transition active:scale-95">Cancel</button>
+                    <button onClick={deleteAccount} disabled={busy} className="min-h-[40px] rounded-lg bg-[#ff2e93] text-xs font-black text-white transition active:scale-95 disabled:opacity-60">
+                      {busy ? 'Working…' : 'Delete forever'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {error && <p className="mt-2 text-center text-[11px] font-semibold text-rose-300">{error}</p>}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function SimplifiedSettings({ onLogout, profile, upgrade, authUser, onGoogleLogin }) {
   const [activeDialog, setActiveDialog] = React.useState(null);
-
   const sections = [
     {
       title: authUser ? "Google Account Connected" : "Google Login",
@@ -1204,13 +1349,16 @@ function SimplifiedSettings({ onLogout, profile, upgrade, authUser, onGoogleLogi
             <HelpCircle className="h-4 w-4" /> Help Center
           </button>
 
-          <button 
+          <button
             onClick={onLogout}
             className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#ff2e93]/15 bg-[#ff2e93]/10 text-rose-200 transition active:scale-95"
           >
             <LogOut className="h-4 w-4" /> Sign Out
           </button>
         </div>
+
+        {/* AUTH-FE-08 / AUTH-BE-08: account lifecycle controls */}
+        <DangerZone onLogout={onLogout} />
       </div>
 
       {/* Minimal dialog popup to prevent screen overload */}

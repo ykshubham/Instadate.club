@@ -2,16 +2,21 @@ import { D1Database } from '@cloudflare/workers-types';
 import { getOrGenerateRecommendationsV2 } from './recommendations';
 import { calculateLocationScore } from './location';
 import { getOrInitializeTrustMetrics } from './trust';
+import { visibleUserIds } from '../visibility';
 
 export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
   // Fetch master recommendations list
   const recs = await getOrGenerateRecommendationsV2(db, userId);
-  
+  // Visibility guard: drop blocked (either direction), rejected, self, and non-active accounts
+  // even if they are still present in the cached recommendation set.
+  const visible = await visibleUserIds(db, userId, recs.map(r => r.recommended_user_id));
+
   // Resolve full profiles, trust, and metadata
   const enrichedCandidates: any[] = [];
   const myProfile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').bind(userId).first<any>();
-  
+
   for (const r of recs) {
+    if (!visible.has(r.recommended_user_id)) continue;
     const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').bind(r.recommended_user_id).first<any>();
     if (!profile) continue;
 

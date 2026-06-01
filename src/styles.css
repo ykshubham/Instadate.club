@@ -180,6 +180,25 @@ button { cursor: pointer; }
   color: #4285f4;
 }
 
+/* Phone OTP inputs (Sprint 2 Task 1) */
+.login-input {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  color: var(--text);
+  font: 600 0.95rem Outfit, sans-serif;
+  outline: none;
+  box-sizing: border-box;
+}
+.login-input:focus {
+  border-color: var(--pink);
+}
+.login-input::placeholder {
+  color: var(--muted);
+}
+
 .route-error {
   margin: 2rem auto;
   max-width: 44rem;

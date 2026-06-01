@@ -30,5 +30,16 @@
   ],
   "compatibility_flags": [
     "nodejs_compat"
-  ]
+  ],
+  // Daily cron drives the scheduled() handler: matchmaking refresh + account purge job.
+  "triggers": {
+    "crons": [
+      "23 3 * * *"
+    ]
+  },
+  // Comma-separated user ids granted admin access to /api/admin/* (analytics,
+  // account status, and the moderation queue). Override per-env or via secret.
+  "vars": {
+    "ADMIN_USER_IDS": ""
+  }
 }

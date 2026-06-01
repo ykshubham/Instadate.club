@@ -13,3 +13,6 @@ wrangler-dev.*.log
 
 
 
+
+# Local DB dumps / backups (may contain user PII) — never commit
+backups/
