@@ -4,7 +4,7 @@ import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import gsap from 'gsap';
 import {
   ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Gem, Heart, Home, MapPin, Menu,
-  MessageCircle, MessageSquare, Mic, Moon, Search, Send, ShieldCheck, Sparkles, Star, Sun, Ticket, User, Users, X, Zap
+  MessageCircle, MessageSquare, Mic, Moon, Search, Send, ShieldCheck, Sparkles, Star, Sun, Ticket, User, Users, X, Zap, Mail, Paperclip
 } from 'lucide-react';
 import './styles.css';
 import ProfileDashboard from './ProfileDashboard.jsx';
@@ -16,6 +16,7 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
 import AdminAnalyticsPage from './AdminAnalyticsPage.jsx';
 import AdminHealthPage from './AdminHealthPage.jsx';
 import AdminModerationPage from './AdminModerationPage.jsx';
+import { EmptyState, Skeleton, ErrorState } from './components/FeedbackState.jsx';
 
 // Redirect non-canonical Pages URLs to canonical Worker URL
 if (typeof window !== 'undefined' && window.location && window.location.hostname && window.location.hostname.endsWith('instadate-club.pages.dev')) {
@@ -248,29 +249,57 @@ function useApiState(fallbackFactory, enabled) {
   const fallback = React.useMemo(() => fallbackFactory(), [fallbackFactory]);
   const fallbackRef = React.useRef(fallback);
   const loadedRef = React.useRef(false);
-  const [value, setValue] = React.useState(fallback);
+  const [value, setValue] = React.useState(() => {
+    const cached = localStorage.getItem('instadate_cached_state');
+    return cached ? JSON.parse(cached) : fallback;
+  });
   const [status, setStatus] = React.useState('connecting');
+  const [isOnline, setIsOnline] = React.useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Persistence of active state inside local storage
+  React.useEffect(() => {
+    if (value && value !== fallback) {
+      localStorage.setItem('instadate_cached_state', JSON.stringify(value));
+    }
+  }, [value, fallback]);
+
+  // Exponential backoff retry utility
+  const fetchWithRetry = async (path, options, retries = 3, delay = 500) => {
+    try {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          'content-type': 'application/json',
+          ...(options.headers || {})
+        },
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.dispatchEvent(new CustomEvent('api-unauthorized'));
+        }
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `API request failed: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (retries > 0) {
+        console.warn(`API request failed. Retrying in ${delay}ms... (${retries} retries left)`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return fetchWithRetry(path, options, retries - 1, delay * 2.5); // Exponential backoff
+      }
+      throw error;
+    }
+  };
 
   const apiRequest = React.useCallback(async (path, options = {}) => {
-    const response = await fetch(path, {
-      ...options,
-      headers: {
-        'content-type': 'application/json',
-        ...(options.headers || {})
-      },
-      credentials: 'same-origin',
-      cache: 'no-store'
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        window.dispatchEvent(new CustomEvent('api-unauthorized'));
-      }
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || `API request failed: ${response.status}`);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('browser_offline');
     }
-
-    return response.json();
+    return fetchWithRetry(path, options);
   }, []);
 
   const applyApiState = React.useCallback(payload => {
@@ -283,13 +312,52 @@ function useApiState(fallbackFactory, enabled) {
 
   const refreshState = React.useCallback(async ({ quiet = false } = {}) => {
     try {
-      return applyApiState(await apiRequest(CLOUD_STATE_ENDPOINT));
+      const state = await apiRequest(CLOUD_STATE_ENDPOINT);
+      return applyApiState(state);
     } catch (error) {
-      if (!quiet) console.warn(error);
+      if (!quiet) console.warn('Failed to refresh state:', error);
       setStatus('offline');
       return null;
     }
   }, [apiRequest, applyApiState]);
+
+  // Queue runner to execute pending mutations sequentially once back online
+  const flushPendingQueue = React.useCallback(async () => {
+    const queueStr = localStorage.getItem('instadate_pending_actions');
+    if (!queueStr) return;
+    
+    let queue = [];
+    try {
+      queue = JSON.parse(queueStr);
+    } catch (e) {
+      console.error('Failed to parse pending actions:', e);
+    }
+
+    if (queue.length === 0) return;
+
+    console.log(`Connection restored. Flushing ${queue.length} pending actions sequentially...`);
+    localStorage.removeItem('instadate_pending_actions'); // Lock the queue
+
+    for (const action of queue) {
+      try {
+        console.log(`Executing queued action: ${action.path}`);
+        await fetchWithRetry(action.path, action.options, 2, 300);
+      } catch (err) {
+        console.error(`Failed to execute queued action: ${action.path}`, err);
+        if (err.message !== 'browser_offline' && !err.message.includes('failed')) {
+          continue;
+        }
+        const currentQueue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
+        localStorage.setItem('instadate_pending_actions', JSON.stringify([action, ...currentQueue]));
+        setStatus('offline');
+        return;
+      }
+    }
+
+    console.log('Pending actions queue flushed successfully!');
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Connection restored. Cached actions synced!' }));
+    await refreshState();
+  }, [refreshState]);
 
   const mutateState = React.useCallback(async (path, options = {}, optimisticUpdater) => {
     if (optimisticUpdater) {
@@ -299,14 +367,64 @@ function useApiState(fallbackFactory, enabled) {
       });
     }
 
+    const isCurrentlyOffline = (typeof navigator !== 'undefined' && !navigator.onLine) || status === 'offline';
+
+    if (isCurrentlyOffline) {
+      const queue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
+      const actionId = `act-${crypto.randomUUID()}`;
+      queue.push({ id: actionId, path, options });
+      localStorage.setItem('instadate_pending_actions', JSON.stringify(queue));
+
+      console.log(`Offline: Action queued successfully (${path})`);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'You are offline. Action queued for sync.' }));
+      setStatus('offline');
+      return fallbackRef.current;
+    }
+
     try {
       return applyApiState(await apiRequest(path, options));
     } catch (error) {
-      console.warn(error);
+      console.warn('Mutation failed, falling back to offline queue:', error);
+      const queue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
+      const actionId = `act-${crypto.randomUUID()}`;
+      queue.push({ id: actionId, path, options });
+      localStorage.setItem('instadate_pending_actions', JSON.stringify(queue));
+
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Connection degraded. Action queued for sync.' }));
       setStatus('offline');
-      throw error;
+      return fallbackRef.current;
     }
-  }, [apiRequest, applyApiState]);
+  }, [apiRequest, applyApiState, status]);
+
+  // Online / Offline Listeners for reconnect handling
+  React.useEffect(() => {
+    const handleOnline = () => {
+      console.log('Browser online event received.');
+      setIsOnline(true);
+      setStatus('connecting');
+      flushPendingQueue();
+    };
+
+    const handleOffline = () => {
+      console.log('Browser offline event received.');
+      setIsOnline(false);
+      setStatus('offline');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    if (navigator.onLine) {
+      flushPendingQueue();
+    } else {
+      setStatus('offline');
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [flushPendingQueue]);
 
   React.useEffect(() => {
     if (!enabled) {
@@ -315,9 +433,18 @@ function useApiState(fallbackFactory, enabled) {
       return undefined;
     }
 
-    refreshState();
+    if (navigator.onLine) {
+      refreshState();
+    } else {
+      setStatus('offline');
+    }
+
     const intervalId = window.setInterval(() => {
-      refreshState({ quiet: true });
+      if (navigator.onLine) {
+        refreshState({ quiet: true });
+      } else {
+        setStatus('offline');
+      }
     }, CLOUD_STATE_POLL_MS);
 
     return () => {
@@ -342,19 +469,36 @@ function SplashScreen() {
 }
 
 function LoginPage({ onGoogleLogin, authError, navigate }) {
-  const { startPhoneOtp, verifyPhoneOtp } = useAuth();
+  const { startPhoneOtp, verifyPhoneOtp, startEmailMagicLink } = useAuth();
   const COUNTRY_CODES = ['+91', '+1', '+44', '+61', '+971', '+65'];
 
-  const [stage, setStage] = React.useState('phone'); // 'phone' | 'code'
+  const [stage, setStage] = React.useState('phone'); // 'phone' | 'code' | 'email' | 'emailSent'
   const [countryCode, setCountryCode] = React.useState('+91');
   const [phone, setPhone] = React.useState('');
   const [code, setCode] = React.useState('');
+  const [email, setEmail] = React.useState('');
+  const [magicLinkUrl, setMagicLinkUrl] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [info, setInfo] = React.useState('');
   const [attemptsLeft, setAttemptsLeft] = React.useState(null);
   const [locked, setLocked] = React.useState(false);
   const [cooldown, setCooldown] = React.useState(0);
+
+  // Parse error parameters on load (e.g. from magic callback redirects)
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const errParam = urlParams.get('error');
+    if (errParam) {
+      const errorMap = {
+        invalid_token: 'The magic link is invalid or already used.',
+        consumed: 'This magic link has already been consumed.',
+        expired: 'This magic link has expired. Please request a new one.',
+        invalid_magic_link: 'Could not verify magic link.'
+      };
+      setError(errorMap[errParam] || 'Magic link verification failed.');
+    }
+  }, []);
 
   // Resend cooldown ticker.
   React.useEffect(() => {
@@ -373,7 +517,8 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
     expired: 'That code expired. Request a new one.',
     locked: 'Too many wrong attempts. Try again in 15 minutes.',
     no_code: 'Request a code first.',
-    invalid_input: 'Enter the 6-digit code.'
+    invalid_input: 'Enter the 6-digit code.',
+    invalid_email: 'Please enter a valid email address.'
   }[errCode] || 'Something went wrong. Try again.');
 
   const sendCode = async () => {
@@ -409,12 +554,31 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
     }
   };
 
+  const handleSendMagicLink = async () => {
+    setError(''); setInfo(''); setBusy(true);
+    try {
+      const res = await startEmailMagicLink(email);
+      setStage('emailSent');
+      setMagicLinkUrl(res?.devLink || '');
+      setInfo(res?.devLink ? 'Magic link generated successfully!' : 'Magic link sent. Please check your inbox.');
+    } catch (e) {
+      const m = /:(\w+)/.exec(e.message);
+      setError(friendly(e.code || m?.[1]) || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="login-page">
       <div className="login-panel">
         <span className="eyebrow">Member Access</span>
         <h1>Sign in to Instadate</h1>
-        <p>Verify your phone to unlock events, RSVPs, matches, and chats across devices.</p>
+        <p>
+          {stage === 'email' || stage === 'emailSent'
+            ? 'Enter your email to receive a passwordless magic link to access your account.'
+            : 'Verify your phone to unlock events, RSVPs, matches, and chats across devices.'}
+        </p>
         {authError && <div className="login-alert">Session check failed. You can still try signing in again.</div>}
 
         <button className="login-google-btn" onClick={() => onGoogleLogin('/profile')}>
@@ -449,6 +613,13 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
             <button className="login-google-btn" disabled={busy || phone.length < 6} onClick={sendCode}>
               {busy ? 'Sending…' : 'Send code'}
             </button>
+            
+            <button
+              onClick={() => { setStage('email'); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 0, color: 'var(--pink)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', marginTop: 8 }}
+            >
+              Sign in with Email Magic Link
+            </button>
           </div>
         )}
 
@@ -481,6 +652,58 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
             {attemptsLeft != null && attemptsLeft > 0 && !locked && (
               <p style={{ color: '#fbbf24', fontSize: '0.78rem', margin: 0, textAlign: 'center' }}>{attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left</p>
             )}
+          </div>
+        )}
+
+        {stage === 'email' && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <input
+              className="login-input"
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+            <button className="login-google-btn" disabled={busy || !email.includes('@')} onClick={handleSendMagicLink}>
+              {busy ? 'Generating Link…' : 'Send Magic Link'}
+            </button>
+
+            <button
+              onClick={() => { setStage('phone'); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 0, color: 'var(--pink)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', marginTop: 8 }}
+            >
+              Sign in with Phone SMS Code
+            </button>
+          </div>
+        )}
+
+        {stage === 'emailSent' && (
+          <div style={{ display: 'grid', gap: 12, textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--pink)', fontSize: '2.5rem', marginBottom: 5 }}>
+              <Mail style={{ width: 48, height: 48 }} />
+            </div>
+            <p style={{ fontSize: '0.9rem', color: 'var(--muted)', margin: 0, lineHeight: '1.4' }}>
+              We've sent a magic login link to <strong>{email}</strong>. Check your inbox (and spam folder) and click the link to log in.
+            </p>
+            
+            {magicLinkUrl && (
+              <div style={{ marginTop: 10, padding: 12, borderRadius: 8, background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.3)', display: 'grid', gap: 8 }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Development Magic Link</span>
+                <a
+                  href={magicLinkUrl}
+                  style={{ color: 'var(--cyan)', fontSize: '0.82rem', wordBreak: 'break-all', textDecoration: 'underline', fontWeight: 700 }}
+                >
+                  Click here to log in directly
+                </a>
+              </div>
+            )}
+
+            <button
+              onClick={() => { setStage('email'); setMagicLinkUrl(''); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 0, color: 'var(--pink)', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', marginTop: 8 }}
+            >
+              Try another email
+            </button>
           </div>
         )}
 
@@ -579,7 +802,8 @@ function App() {
   const [profileMember, setProfileMember] = React.useState(null);
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const { user: authUser, isAuthenticated, isLoading, authError, signIn, signOut } = useAuth();
-  const canBrowseApp = isAuthenticated || guestMode;
+  const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos, refreshProfile } = useProfile();
+  const canBrowseApp = (isAuthenticated && profile?.completed) || guestMode;
 
   React.useEffect(() => {
     const handleUnauthorized = () => {
@@ -593,7 +817,6 @@ function App() {
   }, [signOut, isAuthenticated]);
 
   const [appState, , cloudStateStatus, , mutateState] = useApiState(createInitialAppState, canBrowseApp);
-  const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos } = useProfile();
   const [toast, setToast] = React.useState('');
   const [reviewEvent, setReviewEvent] = React.useState(null);
   const [feedbackMeetup, setFeedbackMeetup] = React.useState(null);
@@ -652,6 +875,14 @@ function App() {
   React.useEffect(() => {
     window.scrollTo(0, 0);
   }, [route]);
+
+  React.useEffect(() => {
+    const handleAppToast = (e) => {
+      if (e.detail) notify(e.detail);
+    };
+    window.addEventListener('app-toast', handleAppToast);
+    return () => window.removeEventListener('app-toast', handleAppToast);
+  }, []);
 
   React.useEffect(() => {
     if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
@@ -893,11 +1124,21 @@ function App() {
           {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} navigate={navigate} onProfileClick={setProfileMember} />}
           {guardedRoute === '/requests' && <ConnectionRequestsPage navigate={navigate} />}
           {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
-          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} />}
+          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
           {guardedRoute === '/profile' && <ProfileDashboard initialProfile={currentAppState.profile} appState={currentAppState} onSave={saveProfile} onUploadPhotos={uploadProfilePhotos} onLogout={handleLogout} navigate={navigate} onOpenDrawer={() => setMenuOpen(true)} authUser={authUser} onGoogleLogin={startGoogleLogin} onReviewClick={setReviewEvent} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} navigate={navigate} />}
-          {guardedRoute === '/onboarding' && <OnboardingFlow onExplore={exploreAsGuest} onComplete={() => navigate('/login')} />}
+          {guardedRoute === '/onboarding' && (
+            <OnboardingFlow
+              onExplore={exploreAsGuest}
+              onComplete={async () => {
+                sessionStorage.setItem('instadate_guest_mode', 'false');
+                setGuestMode(false);
+                await refreshProfile();
+                navigate('/profile');
+              }}
+            />
+          )}
           {guardedRoute === '/' && <HomePage appState={currentAppState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} onMeetSomeoneClick={() => setMeetSomeoneOpen(true)} />}
         </RouteErrorBoundary>
       </main>
@@ -931,7 +1172,38 @@ function App() {
           navigate={navigate}
         />
       )}
-      {cloudStateStatus === 'offline' && <div className="app-toast">Cloud storage unavailable. Start Cloudflare dev or deploy the Worker.</div>}
+      {cloudStateStatus === 'offline' && (
+        <div style={{
+          position: 'fixed',
+          top: '1rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          background: 'rgba(255, 46, 147, 0.25)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 46, 147, 0.4)',
+          borderRadius: '16px',
+          padding: '0.6rem 1.2rem',
+          color: '#fff',
+          font: '800 0.82rem Outfit, sans-serif',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          boxShadow: '0 8px 30px rgba(255, 46, 147, 0.3)',
+          letterSpacing: '0.02em',
+          pointerEvents: 'none'
+        }}>
+          <span style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: '#ff2e93',
+            display: 'inline-block',
+            animation: 'shimmerPulse 1.5s infinite'
+          }} />
+          Offline Mode • Actions will sync automatically when connection restores
+        </div>
+      )}
       {toast && <div className="app-toast">{toast}</div>}
       <AnimatePresence>
         {menuOpen && (
@@ -992,7 +1264,7 @@ function Header({ route, navigate, menuOpen, setMenuOpen, authUser, onGoogleLogi
 }
 
 function SideDrawer({ route, navigate, onClose, appState }) {
-  const { user: authUser } = useAuth();
+  const { user: authUser, isModerator } = useAuth();
   const [gsapLoaded, setGsapLoaded] = React.useState(Boolean(window.gsap));
 
   // Load GSAP CDN if not loaded
@@ -1028,10 +1300,10 @@ function SideDrawer({ route, navigate, onClose, appState }) {
     { path: '/events', label: 'mixers Calendar', subtitle: 'RSVP scheduled offline mixer', icon: Calendar },
     { path: '/profile', label: 'My Club Profile', subtitle: 'Aadhaar safety & tier locker', icon: User },
     { path: '/onboarding', label: 'Onboarding 🚀', subtitle: 'Vibe check & Speakeasy Tour', icon: Sparkles },
-    { path: '/admin/analytics', label: 'Admin Analytics 📊', subtitle: 'Telemetry & conversions', icon: BarChart2 },
-    { path: '/admin/health', label: 'Company Health 💓', subtitle: 'Funnel & North Star', icon: Heart },
-    { path: '/admin/moderation', label: 'Moderation Queue 🚩', subtitle: 'Abuse reports & safety', icon: ShieldCheck }
-  ];
+    { path: '/admin/analytics', label: 'Admin Analytics 📊', subtitle: 'Telemetry & conversions', icon: BarChart2, admin: true },
+    { path: '/admin/health', label: 'Company Health 💓', subtitle: 'Funnel & North Star', icon: Heart, admin: true },
+    { path: '/admin/moderation', label: 'Moderation Console 🚩', subtitle: 'Reports, users, events & audit', icon: ShieldCheck, admin: true }
+  ].filter(item => !item.admin || isModerator);
 
   const profile = appState.profile;
   const isVipProfile = profile.completed || Boolean(authUser);
@@ -2231,85 +2503,10 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
       {/* The Member Grid */}
       <div className="member-grid" style={{ minHeight: '300px' }}>
         {isLoading ? (
-          // Shimmer loading skeleton
-          Array.from({ length: 6 }).map((_, index) => (
-            <div key={`shimmer-${index}`} className="member-card-shimmer" style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.6rem',
-              padding: '1.25rem',
-              height: '100%',
-              background: 'rgba(14, 14, 20, 0.72)',
-              backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '24px',
-              overflow: 'hidden',
-              position: 'relative'
-            }}>
-              {/* Shimmer animation overlay */}
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%)',
-                animation: 'shimmer 2s infinite',
-                transform: 'translateX(-100%)'
-              }} />
-
-              {/* Avatar shimmer */}
-              <div style={{
-                width: '80px',
-                height: '80px',
-                borderRadius: '50%',
-                background: 'rgba(255,255,255,0.05)',
-                margin: '0 auto'
-              }} />
-
-              {/* Name shimmer */}
-              <div style={{
-                height: '20px',
-                width: '60%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px',
-                margin: '0.5rem auto'
-              }} />
-
-              {/* Score shimmer */}
-              <div style={{
-                height: '16px',
-                width: '40%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px',
-                margin: '0 auto'
-              }} />
-
-              {/* Bio shimmer */}
-              <div style={{
-                height: '14px',
-                width: '90%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px',
-                marginTop: '0.5rem'
-              }} />
-              <div style={{
-                height: '14px',
-                width: '70%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px'
-              }} />
-
-              {/* Button shimmer */}
-              <div style={{
-                height: '40px',
-                width: '100%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '12px',
-                marginTop: 'auto'
-              }} />
-            </div>
-          ))
+          <Skeleton type="grid" count={6} />
         ) : (
           filtered.map(member => (
-            <div key={member.name} className="gsap-member-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div key={member.id} className="gsap-member-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
               <MemberCard
                 member={member}
                 requested={Boolean(appState.vibeRequests[member.id])}
@@ -2322,18 +2519,13 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
       </div>
 
       {filtered.length === 0 && (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 2rem',
-          background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)',
-          borderRadius: '24px',
-          color: 'var(--muted)'
-        }}>
-          <Sparkles style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No matches found</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>Try searching another city like Juhu, Bandra, Delhi, or Bangalore.</p>
-        </div>
+        <EmptyState
+          type="discovery"
+          title="No matches found"
+          description="No active members match your search criteria. Try loosening your search keyword or checking other neighborhoods like Bandra or Juhu."
+          actionText="Reset Search"
+          onAction={() => setQuery('')}
+        />
       )}
     </section>
   );
@@ -2910,23 +3102,16 @@ function ConnectionRequestsPage({ navigate }) {
       <PageTitle eyebrow="Requests" title="Connection Requests" text="People who want to connect with you. Accept to start a chat, or decline." />
       {requests === null ? (
         <div className="inbox-list">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="inbox-card" style={{ opacity: 0.5 }}>
-              <div className="avatar pink" style={{ width: 48, height: 48 }} />
-              <div className="inbox-copy"><div className="inbox-row"><strong>Loading…</strong></div></div>
-            </div>
-          ))}
+          <Skeleton type="list" count={3} />
         </div>
       ) : requests.length === 0 ? (
-        <div style={{
-          textAlign: 'center', padding: '4rem 2rem', background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '24px', color: 'var(--muted)', marginTop: '2rem'
-        }}>
-          <Users style={{ width: 40, height: 40, color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No pending requests</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>When someone sends you a connection request, it will show up here.</p>
-          <button className="btn-main" style={{ marginTop: '1.25rem' }} onClick={() => navigate('/members')}>Discover people</button>
-        </div>
+        <EmptyState
+          type="connections"
+          title="No pending requests"
+          description="When someone sends you a connection request, it will show up here."
+          actionText="Discover People"
+          onAction={() => navigate('/members')}
+        />
       ) : (
         <div className="inbox-list">
           {requests.map(req => (
@@ -2967,20 +3152,13 @@ function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], nav
         <Users style={{ width: 16, height: 16 }} /> View connection requests
       </button>
       {hasNoChats ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 2rem',
-          background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)',
-          borderRadius: '24px',
-          color: 'var(--muted)',
-          marginTop: '2rem'
-        }}>
-          <MessageSquare style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No Conversations Yet</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>You don't have any active chats yet. Connect with members in discovery to unlock voice verification and start real-time messaging!</p>
-          <button className="btn-main" style={{ marginTop: '1.25rem' }} onClick={() => navigate('/members')}>Find Connections</button>
-        </div>
+        <EmptyState
+          type="chat"
+          title="No Conversations Yet"
+          description="You don't have any active chats yet. Connect with members in discovery to unlock voice verification and start real-time messaging!"
+          actionText="Find Connections"
+          onAction={() => navigate('/members')}
+        />
       ) : (
         <div className="inbox-list">
           {(resolvedChats || []).map(chat => {
@@ -3001,6 +3179,27 @@ function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], nav
       )}
     </section>
   );
+}
+
+function formatLastSeen(lastActiveAt) {
+  if (!lastActiveAt) return 'Offline';
+  try {
+    const parsedDate = lastActiveAt.includes('T') ? new Date(lastActiveAt) : new Date(lastActiveAt.replace(' ', 'T') + 'Z');
+    const diffMs = Date.now() - parsedDate.getTime();
+    if (Number.isNaN(diffMs)) return 'Offline';
+    
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Active just now';
+    if (diffMins < 60) return `Active ${diffMins}m ago`;
+    
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `Active ${diffHours}h ago`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    return `Active ${diffDays}d ago`;
+  } catch (e) {
+    return 'Offline';
+  }
 }
 
 function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = [], route, navigate, onVerify, onSend, onProfileClick, onMeetupFeedbackClick }) {
@@ -3030,14 +3229,388 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
 
   const profile = getChatProfile(active, resolvedMembers);
   const isVerified = Boolean(appState.verifiedChats[active.slug]);
-  const thread = appState.chatMessages[active.slug] || active.messages;
+  
   const [draft, setDraft] = React.useState('');
+  const [liveMessages, setLiveMessages] = React.useState(() => appState.chatMessages[active.slug] || active.messages || []);
+  const [peerOnline, setPeerOnline] = React.useState(false);
+  const [peerTyping, setPeerTyping] = React.useState(false);
+
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [recordingDuration, setRecordingDuration] = React.useState(0);
+
+  const socketRef = React.useRef(null);
+  const reconnectTimeoutRef = React.useRef(null);
+  const typingTimeoutRef = React.useRef(null);
+  const fileInputRef = React.useRef(null);
+  const mediaRecorderRef = React.useRef(null);
+  const audioChunksRef = React.useRef([]);
+  const durationIntervalRef = React.useRef(null);
+
+  // Sync with global appState messages (e.g. if page is refreshed or parent state changes)
+  React.useEffect(() => {
+    setLiveMessages(appState.chatMessages[active.slug] || active.messages || []);
+  }, [appState.chatMessages, active.slug, active.messages]);
+
+  // Reset statuses when changing chats
+  React.useEffect(() => {
+    setPeerOnline(false);
+    setPeerTyping(false);
+    setIsRecording(false);
+  }, [active.slug]);
+
+  // Mark all messages as read via HTTP API on mount/switch
+  React.useEffect(() => {
+    if (isVerified) {
+      fetch(`/api/chats/${active.slug}/read`, { method: 'POST' }).catch(() => {});
+    }
+  }, [active.slug, isVerified]);
+
+  // WebSocket connection lifecycle & reconnection logic
+  React.useEffect(() => {
+    if (!isVerified) return;
+
+    let activeConnection = true;
+
+    function connect() {
+      if (!activeConnection) return;
+      
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = window.location.port === '5173' ? `${window.location.hostname}:8787` : window.location.host;
+      const wsUrl = `${wsProtocol}//${wsHost}/api/chats/${active.slug}/ws`;
+
+      console.log(`[WS] Connecting to ${wsUrl}`);
+      const ws = new WebSocket(wsUrl);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        if (!activeConnection) {
+          ws.close();
+          return;
+        }
+        console.log(`[WS] Connected successfully to chat DO for ${active.slug}`);
+        // Catch up on anything missed while the socket was down, without falling
+        // back to the full-state poll. Cursor = id of the last message we hold.
+        setLiveMessages(prev => {
+          const lastServerId = [...prev].reverse().find(m => m[3] && !String(m[3]).startsWith('cm-'))?.[3];
+          const qs = lastServerId ? `?cursor=${encodeURIComponent(lastServerId)}` : '';
+          fetch(`/api/chats/${active.slug}/since${qs}`, { credentials: 'same-origin', cache: 'no-store' })
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => {
+              if (!data?.messages?.length) return;
+              setLiveMessages(curr => {
+                const have = new Set(curr.map(m => m[3]));
+                const merged = curr.slice();
+                for (const m of data.messages) {
+                  if (!have.has(m.id)) merged.push([m.role, m.body, 'sent', m.id, m.attachmentUrl]);
+                }
+                return merged;
+              });
+            })
+            .catch(err => console.error('[WS] since catch-up failed:', err));
+          return prev;
+        });
+      };
+
+      ws.onmessage = (event) => {
+        if (!activeConnection) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'message') {
+            const senderRole = data.senderId === appState.profile.id ? 'you' : 'match';
+            setLiveMessages(prev => {
+              // If this echoes our own optimistic send, replace the temp bubble
+              // (matched by clientMsgId) with the server-assigned id + 'sent'.
+              if (data.clientMsgId) {
+                const idx = prev.findIndex(([, , , msgId]) => msgId === data.clientMsgId);
+                if (idx !== -1) {
+                  const next = prev.slice();
+                  next[idx] = [senderRole, data.message, 'sent', data.id, data.attachmentUrl];
+                  return next;
+                }
+              }
+              // Deduplicate same message id to prevent dual listing
+              const isDuplicate = prev.some(([from, text, status, msgId]) => msgId === data.id);
+              if (isDuplicate) return prev;
+              return [...prev, [senderRole, data.message, 'sent', data.id, data.attachmentUrl]];
+            });
+            if (data.senderId !== appState.profile.id) {
+              setPeerTyping(false);
+              // Send read receipt immediately back over WebSocket
+              ws.send(JSON.stringify({ type: 'read', messageId: data.id }));
+            }
+          } else if (data.type === 'ack') {
+            // Idempotent dedup hit (server already had this clientMsgId): mark sent.
+            setLiveMessages(prev => prev.map(msg =>
+              msg[3] === data.clientMsgId ? [msg[0], msg[1], 'sent', data.id, msg[4]] : msg
+            ));
+          } else if (data.type === 'deleted') {
+            setLiveMessages(prev => prev.map(msg =>
+              msg[3] === data.id ? [msg[0], '[message deleted]', msg[2], msg[3], null] : msg
+            ));
+          } else if (data.type === 'typing') {
+            if (data.userId !== appState.profile.id) {
+              setPeerTyping(data.isTyping);
+            }
+          } else if (data.type === 'presence') {
+            if (data.userId !== appState.profile.id) {
+              setPeerOnline(data.status === 'online');
+            }
+          } else if (data.type === 'read') {
+            if (data.userId !== appState.profile.id) {
+              setLiveMessages(prev => prev.map(msg => {
+                if (msg[3] === data.messageId) {
+                  return [msg[0], msg[1], 'read', msg[3], msg[4]];
+                }
+                return msg;
+              }));
+            }
+          } else if (data.type === 'read_all') {
+            if (data.userId !== appState.profile.id) {
+              setLiveMessages(prev => prev.map(msg => {
+                if (msg[0] === 'you') {
+                  return [msg[0], msg[1], 'read', msg[3], msg[4]];
+                }
+                return msg;
+              }));
+            }
+          }
+        } catch (err) {
+          console.error('[WS] Error processing incoming payload:', err);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('[WS] Connection closed:', event);
+        if (activeConnection) {
+          console.log('[WS] Reconnecting in 3s...');
+          reconnectTimeoutRef.current = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error('[WS] Connection error encountered:', err);
+        ws.close();
+      };
+    }
+
+    connect();
+
+    return () => {
+      activeConnection = false;
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+      }
+    };
+  }, [active.slug, isVerified, appState.profile.id]);
 
   const submitMessage = event => {
     event.preventDefault();
-    if (!isVerified) return;
-    onSend(active.slug, draft);
+    if (!isVerified || !draft.trim()) return;
+
+    const text = draft.trim();
     setDraft('');
+
+    // Clear typing timeout since user is sending
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      // Client message id makes resends idempotent server-side and lets us
+      // reconcile the optimistic bubble when the ack / echo returns.
+      const clientMsgId = `cm-${crypto.randomUUID()}`;
+      socketRef.current.send(JSON.stringify({
+        type: 'message',
+        message: text,
+        clientMsgId
+      }));
+      // Append optimistically (tempId = clientMsgId so the echo can replace it).
+      setLiveMessages(prev => [...prev, ['you', text, 'sending', clientMsgId]]);
+      // Send typing false immediately to stop typing indicator
+      socketRef.current.send(JSON.stringify({
+        type: 'typing',
+        isTyping: false
+      }));
+    } else {
+      // Fallback: use the parent's HTTP onSend callback
+      onSend(active.slug, text);
+    }
+  };
+
+  const handleInputChange = (event) => {
+    setDraft(event.target.value);
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: 'typing',
+        isTyping: true
+      }));
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          socketRef.current.send(JSON.stringify({
+            type: 'typing',
+            isTyping: false
+          }));
+        }
+      }, 1500);
+    }
+  };
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const previewUrl = URL.createObjectURL(file);
+    
+    // Add optimistic sending bubble with preview
+    setLiveMessages(prev => [...prev, ['you', '[Sending Image...]', 'sending', tempId, previewUrl]]);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`/api/chats/${active.slug}/attachments`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', '[Image]', 'sent', msg[3], data.attachmentUrl];
+        }
+        return msg;
+      }));
+    } catch (err) {
+      console.error('[Upload] Image transfer failed:', err);
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', 'Failed to send image.', 'error', msg[3]];
+        }
+        return msg;
+      }));
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+
+        if (audioChunksRef.current.length === 0) return;
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (audioBlob.size <= 0) return;
+
+        await uploadVoiceNote(audioBlob);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      durationIntervalRef.current = setInterval(() => {
+        setRecordingDuration(prev => {
+          if (prev >= 59) {
+            stopRecording();
+            return 60;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+
+    } catch (err) {
+      console.error('[Audio] Microphone access failed:', err);
+      alert('Could not access microphone.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
+    audioChunksRef.current = [];
+  };
+
+  const uploadVoiceNote = async (blob) => {
+    const tempId = `temp-${Date.now()}`;
+    const previewUrl = URL.createObjectURL(blob);
+    
+    // Add optimistic sending bubble with audio preview
+    setLiveMessages(prev => [...prev, ['you', '[Voice Note]', 'sending', tempId, previewUrl]]);
+
+    try {
+      const file = new File([blob], 'voice-note.webm', { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/chats/${active.slug}/attachments`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', '[Voice Note]', 'sent', msg[3], data.attachmentUrl];
+        }
+        return msg;
+      }));
+    } catch (err) {
+      console.error('[Upload] Voice note transfer failed:', err);
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', 'Failed to send voice note.', 'error', msg[3]];
+        }
+        return msg;
+      }));
+    }
   };
 
   return (
@@ -3054,7 +3627,20 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
                 {active.verification_level === 'identity' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#22d3ee', flexShrink: 0 }} title="Identity Verified Selfie Check Complete" />}
                 {active.verification_level === 'basic' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#3b82f6', flexShrink: 0 }} title="Basic Verified Phone Connected" />}
               </h2>
-              <p>{active.meta} • Trust: {active.trustScore || 94}%</p>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {peerOnline ? (
+                  <>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
+                    <span style={{ color: '#22c55e', fontWeight: 'bold' }}>Active now</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.3)', display: 'inline-block' }} />
+                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>{formatLastSeen(active.lastActiveAt)}</span>
+                  </>
+                )}
+                <span>• Trust: {active.trustScore || 94}%</span>
+              </p>
             </span>
           </button>
           <span className="expiry">6d 23h</span>
@@ -3095,18 +3681,152 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
           </div>
         )}
         <div className="message-thread">
-          {thread.map(([from, text], index) => <div key={`${from}-${index}`} className={`message-bubble ${from}`}>{text}</div>)}
+          {liveMessages.map(([from, text, status, msgId, attachmentUrl], index) => {
+            const isAudio = attachmentUrl && (attachmentUrl.endsWith('.webm') || attachmentUrl.endsWith('.ogg') || attachmentUrl.endsWith('.wav') || attachmentUrl.endsWith('.bin') || text === '[Voice Note]');
+            return (
+              <div key={`${from}-${index}`} style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+                maxWidth: 'min(520px, 88%)',
+                alignSelf: from === 'you' ? 'flex-end' : from === 'match' ? 'flex-start' : 'center',
+                width: 'fit-content'
+              }}>
+                <div className={`message-bubble ${from}`} style={{ maxWidth: '100%', alignSelf: 'unset', padding: attachmentUrl ? (isAudio ? '8px 12px' : '4px') : '0.75rem 0.9rem', overflow: 'hidden' }}>
+                  {attachmentUrl ? (
+                    isAudio ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '220px' }}>
+                        <audio src={attachmentUrl} controls style={{ width: '100%', height: '36px', filter: from === 'you' ? 'invert(1)' : 'none' }} />
+                      </div>
+                    ) : (
+                      <img src={attachmentUrl} alt="Chat attachment" style={{ maxWidth: '100%', maxHeight: '280px', borderRadius: '14px', display: 'block', objectFit: 'cover' }} />
+                    )
+                  ) : (
+                    text
+                  )}
+                </div>
+                {from === 'you' && (
+                  <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', alignSelf: 'flex-end', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                    {status === 'read' ? (
+                      <>
+                        <span style={{ color: '#22d3ee', fontWeight: 'bold' }}>Read</span>
+                        <svg style={{ width: '12px', height: '12px', color: '#22d3ee' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      </>
+                    ) : (
+                      <>
+                        <span>Sent</span>
+                        <svg style={{ width: '12px', height: '12px', color: 'rgba(255,255,255,0.3)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {peerTyping && (
+            <div className="message-bubble match" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '12px 16px', maxWidth: 'fit-content' }}>
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+            </div>
+          )}
         </div>
         <div className={`voice-lock compact-lock ${isVerified ? 'verified-lock' : ''}`}>
           <Mic />
           <div><h3>{isVerified ? 'Voice Verified' : 'Voice Connection Locked'}</h3><p>{isVerified ? 'You can now send messages in this chat.' : 'Listen to their intro or record yours to fully unlock texting.'}</p></div>
           {!isVerified && <button className="btn-quiet" onClick={() => onVerify(active.slug)}>Verify Voice</button>}
         </div>
-        <form className="chat-composer" onSubmit={submitMessage}>
-          <input value={draft} disabled={!isVerified} onChange={event => setDraft(event.target.value)} placeholder={isVerified ? 'Write a message...' : 'Verify voice to send messages'} />
-          <button className="btn-main" type="submit" disabled={!isVerified || !draft.trim()} aria-label="Send message"><Send /></button>
-        </form>
+        {isRecording ? (
+          <div className="chat-composer recording-composer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '8px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="pulsing-red-dot" style={{ width: '10px', height: '10px', backgroundColor: '#ef4444', borderRadius: '50%', display: 'inline-block' }}></span>
+              <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 'bold' }}>Recording... 0:{recordingDuration.toString().padStart(2, '0')}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button type="button" className="btn-quiet" onClick={cancelRecording} style={{ color: 'rgba(255,255,255,0.6)', background: 'transparent', border: 0, cursor: 'pointer', padding: '4px 8px', fontSize: '0.86rem' }}>Cancel</button>
+              <button type="button" className="btn-main" onClick={stopRecording} style={{ background: '#ef4444', border: 0, padding: '6px 16px', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.86rem' }}>Send</button>
+            </div>
+          </div>
+        ) : (
+          <form className="chat-composer" onSubmit={submitMessage}>
+            <button 
+              type="button" 
+              disabled={!isVerified} 
+              onClick={() => fileInputRef.current?.click()} 
+              style={{
+                background: 'transparent',
+                border: 0,
+                color: isVerified ? 'var(--soft)' : 'rgba(255,255,255,0.1)',
+                cursor: isVerified ? 'pointer' : 'default',
+                padding: '0 8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+              aria-label="Attach photo"
+            >
+              <Paperclip style={{ width: '20px', height: '20px' }} />
+            </button>
+            <button 
+              type="button" 
+              disabled={!isVerified} 
+              onClick={startRecording} 
+              style={{
+                background: 'transparent',
+                border: 0,
+                color: isVerified ? 'var(--soft)' : 'rgba(255,255,255,0.1)',
+                cursor: isVerified ? 'pointer' : 'default',
+                padding: '0 8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+              aria-label="Record voice note"
+            >
+              <Mic style={{ width: '20px', height: '20px' }} />
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleImageUpload} 
+              accept="image/*" 
+              style={{ display: 'none' }} 
+            />
+            <input value={draft} disabled={!isVerified} onChange={handleInputChange} placeholder={isVerified ? 'Write a message...' : 'Verify voice to send messages'} />
+            <button className="btn-main" type="submit" disabled={!isVerified || !draft.trim()} aria-label="Send message"><Send /></button>
+          </form>
+        )}
       </section>
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes typing-pulse {
+          0%, 100% { transform: translateY(0); opacity: 0.4; }
+          50% { transform: translateY(-4px); opacity: 1; }
+        }
+        .typing-dot {
+          width: 6px;
+          height: 6px;
+          background-color: rgba(255,255,255,0.7);
+          border-radius: 50%;
+          display: inline-block;
+          animation: typing-pulse 1.2s infinite ease-in-out;
+        }
+        .typing-dot:nth-child(2) {
+          animation-delay: 0.2s;
+        }
+        .typing-dot:nth-child(3) {
+          animation-delay: 0.4s;
+        }
+        @keyframes pulsing-dot {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.3); opacity: 0.4; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .pulsing-red-dot {
+          animation: pulsing-dot 1.2s infinite ease-in-out;
+        }
+      `}} />
     </section>
   );
 }
@@ -3280,7 +4000,7 @@ function HostEventPage({ navigate, onCreateEvent }) {
   );
 }
 
-function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick }) {
+function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick, navigate }) {
   const [filter, setFilter] = React.useState('all'); // 'all', 'plans', 'mixers', 'invite'
   const [query, setQuery] = React.useState('');
   const [threeLoaded, setThreeLoaded] = React.useState(false);
@@ -3768,18 +4488,13 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
       </div>
 
       {filteredEvents.length === 0 && (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 2rem',
-          background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)',
-          borderRadius: '24px',
-          color: 'var(--muted)'
-        }}>
-          <Calendar style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No events found</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>Try searching another term, or switch categories to explore active scheduled mixers.</p>
-        </div>
+        <EmptyState
+          type="events"
+          title="No events found"
+          description="Try searching another term, or switch categories to explore active scheduled mixers."
+          actionText="Host Your Outing"
+          onAction={() => navigate('/host')}
+        />
       )}
     </section>
   );

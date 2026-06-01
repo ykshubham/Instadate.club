@@ -37,9 +37,24 @@
       "23 3 * * *"
     ]
   },
-  // Comma-separated user ids granted admin access to /api/admin/* (analytics,
-  // account status, and the moderation queue). Override per-env or via secret.
+  // Comma-separated user ids granted break-glass super-admin (full /api/admin/*).
+  // Acts as the bootstrap before any DB role is assigned; ongoing roles live in
+  // users.role ('member' | 'moderator' | 'admin'). Override per-env or via secret.
   "vars": {
     "ADMIN_USER_IDS": ""
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT_ROOM",
+        "class_name": "ChatRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["ChatRoom"]
+    }
+  ]
 }

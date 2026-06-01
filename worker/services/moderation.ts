@@ -82,15 +82,21 @@ export async function createReport(
 /** Moderation queue listing (admin). Optional status filter. */
 export async function listReports(db: D1Database, status?: string) {
   const useFilter = status && REPORT_STATUSES.has(status);
-  const stmt = useFilter
-    ? db.prepare(`
-        SELECT r.*, ru.full_name AS reporter_name
-        FROM reports r LEFT JOIN users ru ON ru.id = r.reporter_user_id
-        WHERE r.status = ? ORDER BY r.created_at DESC LIMIT 200`).bind(status)
-    : db.prepare(`
-        SELECT r.*, ru.full_name AS reporter_name
-        FROM reports r LEFT JOIN users ru ON ru.id = r.reporter_user_id
-        ORDER BY r.created_at DESC LIMIT 200`);
+  const query = `
+    SELECT r.*, 
+           ru.full_name AS reporter_name,
+           CASE r.target_type
+             WHEN 'user' THEN (SELECT full_name FROM profiles WHERE user_id = r.target_id)
+             WHEN 'event' THEN (SELECT title FROM events WHERE id = r.target_id)
+             WHEN 'message' THEN (SELECT body FROM chat_messages WHERE id = r.target_id)
+             ELSE NULL
+           END AS target_name
+    FROM reports r 
+    LEFT JOIN users ru ON ru.id = r.reporter_user_id
+    ${useFilter ? 'WHERE r.status = ?' : ''} 
+    ORDER BY r.created_at DESC LIMIT 200
+  `;
+  const stmt = useFilter ? db.prepare(query).bind(status) : db.prepare(query);
   const { results } = await stmt.all<any>();
   return results;
 }

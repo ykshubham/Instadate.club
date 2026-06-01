@@ -9,7 +9,7 @@ export interface TrustMetrics {
   is_verified: boolean;
   response_rate: number;
   trust_score: number;
-  would_meet_again_pct?: number;
+  would_meet_again_pct: number;
 }
 
 export function calculateTrustScore(
@@ -73,18 +73,34 @@ export function calculateTrustScore(
   return { score, explanations };
 }
 
-export async function getOrInitializeTrustMetrics(db: D1Database, userId: string, completed = false): Promise<TrustMetrics> {
+/**
+ * authoritative recalculation and cache refresh of a user's trust metrics
+ */
+export async function recomputeTrustMetrics(
+  db: D1Database,
+  userId: string,
+  completed?: boolean
+): Promise<TrustMetrics> {
+  // 1. Fetch profile status
+  const profileRow = await db.prepare(
+    'SELECT completed, phone_verified, instagram_verified, profile_verified, verification_level FROM profiles WHERE user_id = ?'
+  ).bind(userId).first<any>();
+
+  const isProfileCompleted = completed !== undefined ? completed : (profileRow ? Boolean(profileRow.completed) : false);
+
+  // 2. Load or initialize base metrics
   let metrics = await db.prepare('SELECT * FROM trust_metrics WHERE user_id = ?').bind(userId).first<any>();
-  
   if (!metrics) {
     await db.prepare(`
-      INSERT INTO trust_metrics (user_id, attendance_score, no_show_count, attended_count, verification_score, is_verified, response_rate, trust_score)
-      VALUES (?, 100.0, 0, 0, 0.0, 0, 100.0, 75.0)
+      INSERT INTO trust_metrics (
+        user_id, attendance_score, no_show_count, attended_count,
+        verification_score, is_verified, response_rate, trust_score, would_meet_again_pct
+      ) VALUES (?, 100.0, 0, 0, 0.0, 0, 100.0, 75.0, 100.0)
     `).bind(userId).run();
     metrics = await db.prepare('SELECT * FROM trust_metrics WHERE user_id = ?').bind(userId).first<any>();
   }
 
-  // Calculate Would Meet Again % from meetup_feedback exactly (handling both column names for compatibility)
+  // 3. Compute Would Meet Again percentage from meetup outcomes feedback
   const wmaRow = await db.prepare(`
     SELECT COUNT(*) as total, 
            SUM(CASE WHEN would_meet_again = 1 OR meet_again = 1 THEN 1 ELSE 0 END) as positive 
@@ -94,10 +110,9 @@ export async function getOrInitializeTrustMetrics(db: D1Database, userId: string
   
   const wmaTotal = wmaRow?.total ?? 0;
   const wmaPositive = wmaRow?.positive ?? 0;
-  const wouldMeetAgainPct = wmaTotal > 0 ? (wmaPositive / wmaTotal) * 100 : 100.0;
+  const wouldMeetAgainPct = wmaTotal > 0 ? (wmaPositive / wmaTotal) * 100.0 : 100.0;
 
-  // Retrieve verification fields from profiles table to dynamically build verification score
-  const profileRow = await db.prepare('SELECT phone_verified, instagram_verified, profile_verified, verification_level FROM profiles WHERE user_id = ?').bind(userId).first<any>();
+  // 4. Determine verification metrics
   let computedVerificationScore = 0.0;
   let computedIsVerified = 0;
 
@@ -117,38 +132,69 @@ export async function getOrInitializeTrustMetrics(db: D1Database, userId: string
     }
   }
 
-  // Update in-memory metrics with computed verification fields
-  metrics.verification_score = computedVerificationScore;
-  metrics.is_verified = computedIsVerified;
-
-  // Mix in the would_meet_again_pct to metrics for calculation
+  // 5. Combine and calculate overall trust score
   const metricsWithWma = {
     ...metrics,
+    verification_score: computedVerificationScore,
+    is_verified: computedIsVerified,
     would_meet_again_pct: wouldMeetAgainPct
   };
 
-  const { score: computedTrust } = calculateTrustScore(completed, metricsWithWma);
-  
-  // Sync computed score and verification details back to DB if different
-  if (Math.abs(Number(metrics.trust_score) - computedTrust) > 1 || Number(metrics.verification_score) !== computedVerificationScore || Number(metrics.is_verified) !== computedIsVerified) {
-    await db.prepare('UPDATE trust_metrics SET trust_score = ?, verification_score = ?, is_verified = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?')
-      .bind(computedTrust, computedVerificationScore, computedIsVerified, userId).run();
-    metrics.trust_score = computedTrust;
-    metrics.verification_score = computedVerificationScore;
-    metrics.is_verified = computedIsVerified;
-  }
+  const { score: computedTrust } = calculateTrustScore(isProfileCompleted, metricsWithWma);
+
+  // 6. Write back fully populated cache row
+  await db.prepare(`
+    UPDATE trust_metrics 
+    SET trust_score = ?, 
+        verification_score = ?, 
+        is_verified = ?, 
+        would_meet_again_pct = ?, 
+        updated_at = CURRENT_TIMESTAMP 
+    WHERE user_id = ?
+  `).bind(
+    computedTrust,
+    computedVerificationScore,
+    computedIsVerified,
+    wouldMeetAgainPct,
+    userId
+  ).run();
 
   return {
     user_id: userId,
     attendance_score: Number(metrics.attendance_score ?? 100.0),
     no_show_count: Number(metrics.no_show_count ?? 0),
     attended_count: Number(metrics.attended_count ?? 0),
-    verification_score: Number(metrics.verification_score ?? 0.0),
-    is_verified: Boolean(metrics.is_verified ?? 0),
+    verification_score: computedVerificationScore,
+    is_verified: computedIsVerified === 1,
     response_rate: Number(metrics.response_rate ?? 100.0),
     trust_score: computedTrust,
     would_meet_again_pct: wouldMeetAgainPct
   };
+}
+
+export async function getOrInitializeTrustMetrics(
+  db: D1Database,
+  userId: string,
+  completed = false
+): Promise<TrustMetrics> {
+  const metrics = await db.prepare('SELECT * FROM trust_metrics WHERE user_id = ?').bind(userId).first<any>();
+  
+  if (metrics) {
+    return {
+      user_id: userId,
+      attendance_score: Number(metrics.attendance_score ?? 100.0),
+      no_show_count: Number(metrics.no_show_count ?? 0),
+      attended_count: Number(metrics.attended_count ?? 0),
+      verification_score: Number(metrics.verification_score ?? 0.0),
+      is_verified: Boolean(metrics.is_verified ?? 0),
+      response_rate: Number(metrics.response_rate ?? 100.0),
+      trust_score: Number(metrics.trust_score ?? 75.0),
+      would_meet_again_pct: Number(metrics.would_meet_again_pct ?? 100.0)
+    };
+  }
+
+  // Fallback to calculation and caching if the record wasn't initialized yet
+  return recomputeTrustMetrics(db, userId, completed);
 }
 
 /**
@@ -217,7 +263,7 @@ export async function recordMeetupOutcome(
     }
   }
 
-  // Sync trust scores for both participants
-  await getOrInitializeTrustMetrics(db, reporterUserId);
-  await getOrInitializeTrustMetrics(db, targetUserId);
+  // Authoritatively recompute and update trust scores in the cache for both participants
+  await recomputeTrustMetrics(db, reporterUserId);
+  await recomputeTrustMetrics(db, targetUserId);
 }

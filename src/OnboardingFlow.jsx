@@ -4,8 +4,12 @@ import gsap from 'gsap';
 import {
   ArrowLeft, ArrowRight, BadgeCheck, CalendarCheck, Camera, CheckCircle2,
   ChevronRight, Crown, Gem, HeartHandshake, Lock, MapPin, MessageCircle,
-  ShieldCheck, Sparkles, Star, Ticket, UserCheck, Users, WandSparkles, X, Zap
+  ShieldCheck, Sparkles, Star, Ticket, UserCheck, Users, WandSparkles, X, Zap, Mail, Plus
 } from 'lucide-react';
+import { useAuth } from './contexts/AuthContext.jsx';
+import { useProfile } from './contexts/ProfileContext.jsx';
+
+const COUNTRY_CODES = ['+91', '+1', '+44', '+61', '+971', '+65'];
 
 const slides = [
   {
@@ -39,10 +43,10 @@ const slides = [
   },
   {
     eyebrow: 'Trust layer',
-    title: 'Know who is going before you show up.',
+    title: 'Why verification matters',
     text: 'Events are just the vehicle. Instadate shows people, vibe, interests, and social context first.',
     accent: 'from-emerald-300 via-cyan-300 to-fuchsia-300',
-    primary: 'I like this',
+    primary: 'Continue',
     trust: [
       ['Identity check', 'Active', ShieldCheck],
       ['Selfie check', 'Ready', Camera],
@@ -50,37 +54,6 @@ const slides = [
       ['Report flow', 'One tap', BadgeCheck]
     ],
     visual: 'trust'
-  },
-  {
-    eyebrow: 'Compatibility setup',
-    title: 'Make new friends as an adult.',
-    text: 'Expand beyond the same contacts and meet people who already share your interests.',
-    accent: 'from-violet-300 via-fuchsia-300 to-cyan-300',
-    primary: 'Save my vibe',
-    visual: 'choices'
-  },
-  {
-    eyebrow: 'Members only',
-    title: 'Become the center of the social circle.',
-    text: 'Host the plan you want, build your own tribe, and meet people faster than waiting to be invited.',
-    image: '/assets/rooftop_sunset_soiree.png',
-    accent: 'from-amber-200 via-fuchsia-300 to-cyan-300',
-    primary: 'View final step',
-    perks: [
-      ['Host status', Crown],
-      ['Small groups', Ticket],
-      ['Instant plans', Zap],
-      ['Local tribe', Gem]
-    ],
-    visual: 'club'
-  },
-  {
-    eyebrow: 'Ready',
-    title: 'Your Instadate pass is almost ready.',
-    text: 'Not every connection has to be romantic. Start with the plan, then let the connection grow naturally.',
-    accent: 'from-[#ff2e93] via-[#7c3aed] to-[#00d7f5]',
-    primary: 'Apply now',
-    visual: 'finish'
   }
 ];
 
@@ -97,16 +70,59 @@ function cn(...classes) {
 }
 
 export default function OnboardingFlow({ onExplore, onComplete }) {
+  const {
+    user: authUser,
+    isAuthenticated,
+    startPhoneOtp,
+    verifyPhoneOtp,
+    startEmailMagicLink,
+    signIn
+  } = useAuth();
+  
+  const {
+    profile: cloudProfile,
+    saveProfile: saveCloudProfile,
+    uploadProfilePhotos,
+    deleteProfilePhoto
+  } = useProfile();
+
   const [index, setIndex] = React.useState(0);
   const [direction, setDirection] = React.useState(1);
-  const [goal, setGoal] = React.useState('Long-term');
-  const [energy, setEnergy] = React.useState('Coffee date');
-  const [applying, setApplying] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
-  const shellRef = React.useRef(null);
-  const current = slides[index];
-  const isLast = index === slides.length - 1;
+  const [draft, setDraft] = React.useState(() => {
+    try {
+      const local = localStorage.getItem('onboarding_draft');
+      return local ? JSON.parse(local) : {};
+    } catch {
+      return {};
+    }
+  });
 
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [info, setInfo] = React.useState('');
+  
+  // States for step components
+  const [phoneStage, setPhoneStage] = React.useState('phone'); // 'phone' | 'code'
+  const [countryCode, setCountryCode] = React.useState('+91');
+  const [phone, setPhone] = React.useState('');
+  const [code, setCode] = React.useState('');
+  const [cooldown, setCooldown] = React.useState(0);
+  const [emailStage, setEmailStage] = React.useState('input'); // 'input' | 'sent'
+  const [email, setEmail] = React.useState('');
+  const [magicLinkUrl, setMagicLinkUrl] = React.useState('');
+  
+  const [completionPercent, setCompletionPercent] = React.useState(0);
+
+  const shellRef = React.useRef(null);
+  
+  // Timer for cooldown
+  React.useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  // GSAP animation for background decorative lines
   React.useEffect(() => {
     if (!shellRef.current) return undefined;
     const beams = shellRef.current.querySelectorAll('[data-beam]');
@@ -124,42 +140,625 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
     return () => ctx.revert();
   }, []);
 
-  React.useEffect(() => {
-    if (!applying) return undefined;
-    setProgress(0);
-    const timer = window.setInterval(() => {
-      setProgress(prev => {
-        const next = Math.min(prev + 8, 100);
-        if (next >= 100) {
-          window.clearInterval(timer);
-          window.setTimeout(() => {
-            setApplying(false);
-            onComplete?.();
-          }, 350);
-        }
-        return next;
-      });
-    }, 110);
-    return () => window.clearInterval(timer);
-  }, [applying, onComplete]);
+  // Sync draft local storage and server draft persistence
+  const updateDraft = React.useCallback(async (updatedFields) => {
+    const nextDraft = { ...draft, ...updatedFields };
+    setDraft(nextDraft);
+    localStorage.setItem('onboarding_draft', JSON.stringify(nextDraft));
 
-  function goTo(nextIndex) {
-    if (nextIndex < 0 || nextIndex >= slides.length || nextIndex === index) return;
+    if (isAuthenticated) {
+      try {
+        const patchData = {
+          fullName: nextDraft.fullName,
+          age: nextDraft.age,
+          gender: nextDraft.gender,
+          city: nextDraft.city,
+          whatsapp: nextDraft.phone,
+          profession: nextDraft.profession,
+          college: nextDraft.college,
+          bio: nextDraft.bio,
+          intent: nextDraft.intent,
+          preferred_gender: nextDraft.preferred_gender,
+          min_age: nextDraft.min_age,
+          max_age: nextDraft.max_age,
+          preferred_distance_km: nextDraft.preferred_distance_km,
+          onboarding_step: index
+        };
+        const response = await saveCloudProfile(patchData);
+        if (response?.completionPercent != null) {
+          setCompletionPercent(response.completionPercent);
+        }
+      } catch (err) {
+        console.warn('Silent onboarding draft sync failed:', err);
+      }
+    }
+  }, [draft, isAuthenticated, index, saveCloudProfile]);
+
+  // Server Resume Logic (ONB-FE-04)
+  React.useEffect(() => {
+    if (isAuthenticated && authUser) {
+      const serverStep = authUser.onboardingStep ?? 0;
+      // If server has progressed further than local slide index, resume from there
+      if (serverStep > index) {
+        setIndex(serverStep);
+      }
+      
+      // Seed default draft from cloud profile if available
+      if (cloudProfile) {
+        setDraft(prev => ({
+          ...prev,
+          fullName: prev.fullName || cloudProfile.fullName || '',
+          age: prev.age || cloudProfile.age || '',
+          gender: prev.gender || cloudProfile.gender || '',
+          phone: prev.phone || cloudProfile.whatsapp || '',
+          city: prev.city || cloudProfile.city || '',
+          profession: prev.profession || cloudProfile.profession || '',
+          college: prev.college || cloudProfile.college || '',
+          bio: prev.bio || cloudProfile.bio || '',
+          intent: prev.intent || cloudProfile.intent || '',
+          preferred_gender: prev.preferred_gender || cloudProfile.preferred_gender || 'All',
+          min_age: prev.min_age || cloudProfile.min_age || 18,
+          max_age: prev.max_age || cloudProfile.max_age || 40,
+          preferred_distance_km: prev.preferred_distance_km || cloudProfile.preferred_distance_km || 50
+        }));
+      }
+    }
+  }, [isAuthenticated, authUser, cloudProfile]);
+
+  // Dynamic Navigation & Validation gates (ONB-FE-07)
+  const validationGate = () => {
+    setError('');
+    
+    // Step 4: Auth (Must be logged in)
+    if (index === 3 && !isAuthenticated) {
+      setError('Please sign in or continue as guest to advance.');
+      return false;
+    }
+    // Step 5: Phone OTP
+    if (index === 4 && (!draft.phone || cloudProfile?.phone_verified !== 1)) {
+      setError('Phone verification is required to build a verified pass.');
+      return false;
+    }
+    // Step 6: Basics (fullName, age, gender)
+    if (index === 5) {
+      if (!draft.fullName?.trim()) {
+        setError('Please enter your full name.');
+        return false;
+      }
+      const ageVal = parseInt(draft.age, 10);
+      if (isNaN(ageVal) || ageVal < 18) {
+        setError('You must be 18 or older to join Instadate.');
+        return false;
+      }
+      if (!draft.gender) {
+        setError('Please select your gender.');
+        return false;
+      }
+    }
+    // Step 7: Photos (>= 1 photo)
+    if (index === 6) {
+      const photos = cloudProfile?.photos || [];
+      if (photos.length < 1) {
+        setError('Please upload at least one photo.');
+        return false;
+      }
+    }
+    // Step 9: Intent (intent)
+    if (index === 8 && !draft.intent) {
+      setError('Dating intention is mandatory for matches.');
+      return false;
+    }
+    // Step 11: City (city text)
+    if (index === 10 && !draft.city?.trim()) {
+      setError('City location is mandatory.');
+      return false;
+    }
+
+    return true;
+  };
+
+  const goTo = (nextIndex) => {
+    if (nextIndex < 0 || nextIndex > 12 || nextIndex === index) return;
+    
+    // Validate forward navigation
+    if (nextIndex > index) {
+      for (let i = index; i < nextIndex; i++) {
+        if (!validationGate()) return;
+      }
+    }
+
     setDirection(nextIndex > index ? 1 : -1);
     setIndex(nextIndex);
-  }
+    setError('');
+    setInfo('');
+  };
 
-  function next() {
-    if (isLast) {
-      setApplying(true);
+  const next = async () => {
+    if (!validationGate()) return;
+
+    if (index === 12) {
+      // Complete flow
+      setBusy(true);
+      try {
+        if (isAuthenticated) {
+          // Final cloud save setting completed to true
+          await saveCloudProfile({
+            fullName: draft.fullName,
+            age: draft.age,
+            gender: draft.gender,
+            city: draft.city,
+            whatsapp: draft.phone,
+            profession: draft.profession,
+            college: draft.college,
+            bio: draft.bio,
+            intent: draft.intent,
+            preferred_gender: draft.preferred_gender,
+            min_age: draft.min_age,
+            max_age: draft.max_age,
+            preferred_distance_km: draft.preferred_distance_km,
+            completed: true,
+            onboarding_step: 13
+          });
+        }
+        localStorage.removeItem('onboarding_draft');
+        onComplete?.();
+      } catch (err) {
+        setError(err.message || 'Verification save failed.');
+      } finally {
+        setBusy(false);
+      }
       return;
     }
-    goTo(index + 1);
-  }
 
-  function back() {
+    goTo(index + 1);
+  };
+
+  const back = () => {
     goTo(index - 1);
-  }
+  };
+
+  // OTP Handling Functions
+  const sendCode = async () => {
+    setError(''); setInfo(''); setBusy(true);
+    try {
+      const res = await startPhoneOtp(phone, countryCode);
+      setPhoneStage('code');
+      setCooldown(30);
+      setInfo(res?.devCode ? `Dev code: ${res.devCode}` : 'Code sent. Check your messages.');
+    } catch (e) {
+      setError(e.message || 'OTP Send Failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitCode = async () => {
+    setError(''); setBusy(true);
+    try {
+      await verifyPhoneOtp(phone, code, countryCode);
+      await updateDraft({ phone: `${countryCode}${phone}` });
+      setInfo('Phone verified successfully!');
+      // Autocomplete OtpStep
+      setTimeout(() => {
+        next();
+      }, 500);
+    } catch (e) {
+      setError(e.message || 'Incorrect verification code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Magic Link Handling
+  const handleMagicLink = async () => {
+    setError(''); setInfo(''); setBusy(true);
+    try {
+      const res = await startEmailMagicLink(email);
+      setEmailStage('sent');
+      setMagicLinkUrl(res?.devLink || '');
+      setInfo(res?.devLink ? 'Link generated!' : 'Magic link dispatched to inbox.');
+    } catch (e) {
+      setError(e.message || 'Magic Link Send Failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Photo Uploader helper
+  const handlePhotoUpload = async (event) => {
+    setError(''); setBusy(true);
+    try {
+      const files = event.target.files;
+      if (files && files.length > 0) {
+        await uploadProfilePhotos(files);
+        setInfo('Photo uploaded successfully!');
+      }
+    } catch (e) {
+      setError(e.message || 'Photo upload failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // JIT Permissions prompt triggers
+  const triggerLocationRequest = () => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          await updateDraft({
+            profileLatitude: position.coords.latitude,
+            profileLongitude: position.coords.longitude,
+            allowPreciseLocation: true
+          });
+          setInfo('Precise location permissions active!');
+          setTimeout(() => next(), 500);
+        },
+        () => {
+          setError('Location access was denied. Continuing with city only.');
+          updateDraft({ allowPreciseLocation: false });
+        }
+      );
+    } else {
+      setError('Geolocation not supported by this browser.');
+    }
+  };
+
+  const triggerNotificationsRequest = () => {
+    if ('Notification' in window) {
+      Notification.requestPermission().then((permission) => {
+        if (permission === 'granted') {
+          updateDraft({ allowNotifications: true });
+          setInfo('Notifications active!');
+        } else {
+          setError('Notifications permission denied.');
+          updateDraft({ allowNotifications: false });
+        }
+        setTimeout(() => next(), 500);
+      });
+    } else {
+      next();
+    }
+  };
+
+  // Render Step Panels
+  const renderStep = () => {
+    switch (index) {
+      case 0:
+        return <HeroVisual slide={slides[0]} />;
+      case 1:
+        return <TimelineVisual slide={slides[1]} />;
+      case 2:
+        return <TrustVisual slide={slides[2]} />;
+      
+      // Step 4: Auth Setup
+      case 3:
+        if (isAuthenticated) {
+          return (
+            <GlassCard className="p-5 text-center">
+              <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
+              <h3 className="mt-4 font-['Outfit'] text-xl font-bold">Successfully Logged In</h3>
+              <p className="mt-2 text-sm text-white/60">Connected via: {authUser?.authProvider || 'Email'}</p>
+              <p className="mt-1 text-xs text-white/40">{authUser?.email}</p>
+            </GlassCard>
+          );
+        }
+        return (
+          <GlassCard className="p-4 grid gap-4">
+            <p className="text-sm text-white/70 text-center">Create a pass to unlock matches, speakeasy circles, and events.</p>
+            
+            <button className="w-full flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 py-3.5 text-sm font-bold text-white hover:bg-white/10" onClick={() => signIn('/onboarding')}>
+              <Crown className="h-4 w-4 text-cyan-200" /> Continue with Google
+            </button>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '5px 0', color: 'var(--muted)', fontSize: '0.75rem' }}>
+              <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} /> OR <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
+            </div>
+
+            {/* In-flow Phone Code Trigger */}
+            <div className="grid gap-2">
+              <span className="text-xs text-white/50 uppercase font-black tracking-wider">Option A: Direct Phone SMS</span>
+              {phoneStage === 'phone' ? (
+                <div className="flex gap-2">
+                  <select value={countryCode} onChange={e => setCountryCode(e.target.value)} className="rounded-xl border border-white/10 bg-black/40 px-2 text-sm text-white">
+                    {COUNTRY_CODES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <input type="tel" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white" />
+                  <button onClick={sendCode} className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">Send</button>
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <div className="flex gap-2">
+                    <input type="text" maxLength={6} placeholder="6-digit code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white text-center tracking-widest" />
+                    <button onClick={submitCode} className="rounded-xl bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-4 py-2 text-xs font-bold text-white">Verify</button>
+                  </div>
+                  <button onClick={() => setPhoneStage('phone')} className="text-left text-xs text-white/40 underline">Change Number</button>
+                </div>
+              )}
+            </div>
+
+            {/* In-flow Email Magic Link */}
+            <div className="grid gap-2 mt-2">
+              <span className="text-xs text-white/50 uppercase font-black tracking-wider">Option B: Passwordless Magic Link</span>
+              {emailStage === 'input' ? (
+                <div className="flex gap-2">
+                  <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white" />
+                  <button onClick={handleMagicLink} className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">Link</button>
+                </div>
+              ) : (
+                <div className="grid gap-2 text-center p-3 rounded-2xl border border-white/10 bg-black/20">
+                  <Mail className="mx-auto h-8 w-8 text-fuchsia-200" />
+                  <p className="text-xs text-white/60">Sent login code link to {email}.</p>
+                  {magicLinkUrl && (
+                    <a href={magicLinkUrl} className="text-xs text-cyan-200 underline font-bold mt-1">Dev: Quick Confirm Link</a>
+                  )}
+                  <button onClick={() => setEmailStage('input')} className="text-xs text-white/40 underline mt-1">Try another email</button>
+                </div>
+              )}
+            </div>
+          </GlassCard>
+        );
+
+      // Step 5: Phone OTP
+      case 4:
+        const isPhoneVerified = cloudProfile?.phone_verified === 1;
+        if (isPhoneVerified) {
+          return (
+            <GlassCard className="p-5 text-center">
+              <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
+              <h3 className="mt-4 font-['Outfit'] text-xl font-bold">Phone Verified</h3>
+              <p className="mt-2 text-sm text-white/60">{draft.phone || cloudProfile?.whatsapp}</p>
+            </GlassCard>
+          );
+        }
+        return (
+          <GlassCard className="p-4 grid gap-3">
+            <h3 className="font-['Outfit'] text-base font-bold text-cyan-200">Verify Your Phone Number</h3>
+            <p className="text-xs text-white/50 leading-relaxed">This acts as our premium trust barrier, preventing multi-accounts, scammers, and bots.</p>
+            {phoneStage === 'phone' ? (
+              <div className="flex gap-2">
+                <select value={countryCode} onChange={e => setCountryCode(e.target.value)} className="rounded-xl border border-white/10 bg-black/40 px-2 text-sm text-white">
+                  {COUNTRY_CODES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input type="tel" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white" />
+                <button onClick={sendCode} className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">Send</button>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <div className="flex gap-2">
+                  <input type="text" maxLength={6} placeholder="6-digit code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white text-center tracking-widest" />
+                  <button onClick={submitCode} className="rounded-xl bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-4 py-2 text-xs font-bold text-white">Verify</button>
+                </div>
+                <button onClick={() => setPhoneStage('phone')} className="text-left text-xs text-white/40 underline">Change Number</button>
+              </div>
+            )}
+          </GlassCard>
+        );
+
+      // Step 6: Basics (fullName, age, gender)
+      case 5:
+        return (
+          <GlassCard className="p-4 grid gap-4">
+            <div className="grid gap-1">
+              <label className="text-xs text-white/50 uppercase font-black">Full Name</label>
+              <input type="text" placeholder="Priyanka Sen" value={draft.fullName || ''} onChange={e => updateDraft({ fullName: e.target.value })} className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white" />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-xs text-white/50 uppercase font-black">Age (Must be 18+)</label>
+              <input type="tel" maxLength={2} placeholder="23" value={draft.age || ''} onChange={e => updateDraft({ age: e.target.value.replace(/\D/g, '') })} className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white" />
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-xs text-white/50 uppercase font-black">Gender Identity</label>
+              <div className="flex gap-2">
+                {['Female', 'Male', 'Non-binary'].map(g => {
+                  const active = draft.gender === g;
+                  return (
+                    <button key={g} onClick={() => updateDraft({ gender: g })} className={cn('flex-1 rounded-xl border py-2.5 text-xs font-bold transition', active ? 'border-fuchsia-500/40 bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white' : 'border-white/10 bg-white/5 text-white/60')}>
+                      {g}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </GlassCard>
+        );
+
+      // Step 7: Photos
+      case 6:
+        const photos = cloudProfile?.photos || [];
+        return (
+          <GlassCard className="p-4 grid gap-4">
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-white/50 uppercase font-black">Upload Profile Photos ({photos.length}/6)</span>
+              <span className="text-[10px] text-fuchsia-200">Required: at least 1</span>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-3">
+              {Array.from({ length: 6 }).map((_, slotIndex) => {
+                const photoUrl = photos[slotIndex];
+                if (photoUrl) {
+                  return (
+                    <div key={slotIndex} className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                      <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+                      <button onClick={() => deleteProfilePhoto(photoUrl)} className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white/80 hover:text-white">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <label key={slotIndex} className="relative aspect-[3/4] flex flex-col justify-center items-center rounded-2xl border-2 border-dashed border-white/10 bg-white/[0.02] cursor-pointer hover:bg-white/[0.05]">
+                    <input type="file" accept="image/*" className="sr-only" onChange={handlePhotoUpload} />
+                    <Plus className="h-5 w-5 text-white/40" />
+                    <span className="text-[9px] text-white/30 uppercase mt-1 font-black">Add</span>
+                  </label>
+                );
+              })}
+            </div>
+          </GlassCard>
+        );
+
+      // Step 8: Bio & Profession
+      case 7:
+        return (
+          <GlassCard className="p-4 grid gap-4">
+            <div className="grid gap-1">
+              <label className="text-xs text-white/50 uppercase font-black">Short Bio</label>
+              <textarea placeholder="Coffee lover, indie film enthusiast, and slow traveler..." value={draft.bio || ''} onChange={e => updateDraft({ bio: e.target.value })} className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white min-h-[90px]" />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-xs text-white/50 uppercase font-black">Profession</label>
+              <input type="text" placeholder="Photographer, Designer, Founder" value={draft.profession || ''} onChange={e => updateDraft({ profession: e.target.value })} className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white" />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-xs text-white/50 uppercase font-black">College</label>
+              <input type="text" placeholder="St. Xavier's College" value={draft.college || ''} onChange={e => updateDraft({ college: e.target.value })} className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white" />
+            </div>
+          </GlassCard>
+        );
+
+      // Step 9: Intent & dating prefs
+      case 8:
+        const intents = ['Dating', 'Friendship', 'Networking'];
+        const targetGenders = ['All', 'Female', 'Male', 'Non-binary'];
+        return (
+          <GlassCard className="p-4 grid gap-4">
+            <div className="grid gap-1.5">
+              <label className="text-xs text-white/50 uppercase font-black">Dating Intention</label>
+              <div className="flex gap-2">
+                {intents.map(i => {
+                  const active = draft.intent === i;
+                  return (
+                    <button key={i} onClick={() => updateDraft({ intent: i })} className={cn('flex-1 rounded-xl border py-2 text-xs font-bold transition', active ? 'border-fuchsia-500/40 bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white shadow-xl' : 'border-white/10 bg-white/5 text-white/60')}>
+                      {i}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-xs text-white/50 uppercase font-black">Matching Preference</label>
+              <div className="flex flex-wrap gap-2">
+                {targetGenders.map(g => {
+                  const active = (draft.preferred_gender || 'All') === g;
+                  return (
+                    <button key={g} onClick={() => updateDraft({ preferred_gender: g })} className={cn('rounded-full border px-3 py-1.5 text-xs font-bold transition', active ? 'border-fuchsia-500/40 bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white' : 'border-white/10 bg-white/5 text-white/60')}>
+                      {g}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-1">
+              <div className="flex justify-between items-center text-xs text-white/50 uppercase font-black">
+                <span>Distance Preference</span>
+                <span className="text-fuchsia-200">{draft.preferred_distance_km || 50} km</span>
+              </div>
+              <input type="range" min={5} max={150} value={draft.preferred_distance_km || 50} onChange={e => updateDraft({ preferred_distance_km: Number(e.target.value) })} className="w-full accent-fuchsia-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer" />
+            </div>
+          </GlassCard>
+        );
+
+      // Step 10: Interests
+      case 9:
+        const pool = ['Coffee', 'Pickleball', 'Art', 'Bookstore', 'Jazz', 'Live music', 'Hiking', 'Cooking', 'Travel', 'Speakeasies'];
+        const selected = draft.interests || [];
+        const toggleInterest = (tag) => {
+          const nextTags = selected.includes(tag) ? selected.filter(x => x !== tag) : [...selected, tag];
+          updateDraft({ interests: nextTags });
+        };
+        return (
+          <GlassCard className="p-4 grid gap-4">
+            <span className="text-xs text-white/50 uppercase font-black">Select Your Weekend Interests</span>
+            <div className="flex flex-wrap gap-2">
+              {pool.map(tag => {
+                const active = selected.includes(tag);
+                return (
+                  <button key={tag} onClick={() => toggleInterest(tag)} className={cn('rounded-full border px-3.5 py-2 text-xs font-bold transition', active ? 'border-cyan-300/40 bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-xl' : 'border-white/10 bg-white/5 text-white/60')}>
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+          </GlassCard>
+        );
+
+      // Step 11: City Picker
+      case 10:
+        return (
+          <GlassCard className="p-4 grid gap-3">
+            <span className="text-xs text-white/50 uppercase font-black">Select Your City</span>
+            <input type="text" placeholder="Mumbai, Bangalore, Delhi NCR..." value={draft.city || ''} onChange={e => updateDraft({ city: e.target.value })} className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white" />
+            
+            <div className="p-3.5 rounded-2xl border border-cyan-300/10 bg-cyan-400/5 grid gap-2.5 mt-2">
+              <MapPin className="h-6 w-6 text-cyan-200" />
+              <p className="text-xs text-white/60 leading-relaxed">Instadate uses precise location permissions to search and show active events and circles happening in your immediate vicinity.</p>
+              <button onClick={triggerLocationRequest} className="w-full bg-cyan-300 py-2.5 rounded-xl text-black font-bold text-xs">Enable Precise GPS</button>
+            </div>
+          </GlassCard>
+        );
+
+      // Step 12: JIT Permissions
+      case 11:
+        return (
+          <GlassCard className="p-4 grid gap-4">
+            <h3 className="font-['Outfit'] text-base font-bold text-fuchsia-200">Push Notifications Permission</h3>
+            <p className="text-xs text-white/50 leading-relaxed">Don't miss out. Receive in-app notifications only when an attendee requests to join your speakeasy hosted event, or a new partner vibe match is verified.</p>
+            
+            <div className="grid gap-2.5">
+              <button onClick={triggerNotificationsRequest} className="w-full bg-white py-3 rounded-xl text-black font-bold text-xs uppercase tracking-wider">Enable Notifications</button>
+              <button onClick={() => next()} className="w-full border border-white/10 bg-white/5 py-2.5 rounded-xl text-white/60 text-xs">Skip for now</button>
+            </div>
+          </GlassCard>
+        );
+
+      // Step 13: Ready Step
+      case 12:
+        return (
+          <GlassCard className="p-5 text-center">
+            <div className="mx-auto grid h-24 w-24 place-items-center rounded-[32px] border border-cyan-200/20 bg-cyan-300/10">
+              <ShieldCheck className="h-12 w-12 text-cyan-200 animate-pulse" />
+            </div>
+            <h3 className="mt-5 font-['Outfit'] text-2xl font-black">All Checks Verified!</h3>
+            <p className="mt-2 text-sm text-white/52">Checking profile credentials, trust status, and match compatibility.</p>
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 to-cyan-400" style={{ width: `${completionPercent || 100}%` }} />
+            </div>
+            <p className="mt-2 text-xs font-black text-cyan-100">{completionPercent || 100}% profile completeness</p>
+          </GlassCard>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  const currentHeader = () => {
+    // Custom slide header config for step states
+    if (index >= 3) {
+      const stepHeaders = [
+        { eyebrow: 'Step 4 of 12: Auth Gate', title: 'Verify Member Identity', text: 'Sign in to establish your authenticated dating pass.' },
+        { eyebrow: 'Step 5 of 12: Phone OTP', title: 'Add Trust Factor', text: 'Confirm your phone number using a standard 6-digit verification code.' },
+        { eyebrow: 'Step 6 of 12: Basics', title: 'Tell Us About Yourself', text: 'Enter your name, age, and gender identity matching your verified documents.' },
+        { eyebrow: 'Step 7 of 12: Profile Photo', title: 'Show Your True Self', text: 'Add at least 1 high-fidelity profile photo to unlock discovery match pools.' },
+        { eyebrow: 'Step 8 of 12: Professional Bio', title: 'Tell Your Social Story', text: 'Optional details helping partners get to know your professional background.' },
+        { eyebrow: 'Step 9 of 12: Intention & Prefs', title: 'Select Match Intention', text: 'Configure matching preferences including preferred gender, range, and distance.' },
+        { eyebrow: 'Step 10 of 12: Vibe Interests', title: 'Select Social Activity', text: 'Select custom vibe chips used to fuel matching algorithms and activity plans.' },
+        { eyebrow: 'Step 11 of 12: Geographic City', title: 'Matching Location', text: 'Enter your city area or allow precise location permissions to search nearby events.' },
+        { eyebrow: 'Step 12 of 12: Permissions', title: 'Stay Connected', text: 'Allow just-in-time notification permissions so you never miss a match or plan update.' },
+        { eyebrow: 'Verification Complete', title: 'Instadate Pass Ready!', text: 'Your application is approved. Review your pass before entering the lounge.' }
+      ];
+      return <SlideHeader slide={stepHeaders[index - 3]} />;
+    }
+    return <SlideHeader slide={slides[index]} />;
+  };
+
+  const isSkippable = index === 7 || index === 9 || index === 11;
 
   return (
     <div ref={shellRef} className="relative h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#050507] text-white">
@@ -171,7 +770,7 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
       <main className="relative z-10 mx-auto flex h-full min-h-0 w-full max-w-[520px] flex-col px-5 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-[calc(1rem+env(safe-area-inset-top,0px))]">
         <TopBar onClose={onExplore} />
 
-        <CarouselIndicator index={index} total={slides.length} goTo={goTo} accent={current.accent} />
+        <CarouselIndicator index={index} total={13} goTo={goTo} accent="from-[#ff2e93] via-[#7c3aed] to-[#00d7f5]" />
 
         <section className="no-scrollbar onboarding-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain py-4 pb-[18rem]">
           <AnimatePresence mode="wait" custom={direction}>
@@ -185,21 +784,60 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
               transition={spring}
               className="flex shrink-0 flex-col gap-5"
             >
-              <SlideHeader slide={current} />
-              <VisualPanel slide={current} goal={goal} setGoal={setGoal} energy={energy} setEnergy={setEnergy} applying={applying} progress={progress} />
+              {currentHeader()}
+              {renderStep()}
             </motion.div>
           </AnimatePresence>
         </section>
 
-        <Controls
-          index={index}
-          isLast={isLast}
-          applying={applying}
-          primary={current.primary}
-          onBack={back}
-          onNext={next}
-          onExplore={onExplore}
-        />
+        <div className="fixed inset-x-5 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-30 mx-auto max-w-[480px] space-y-3 rounded-[28px] border border-white/10 bg-[#050507]/72 p-2.5 shadow-[0_-18px_70px_rgba(0,0,0,.55)] backdrop-blur-2xl">
+          <div className="grid grid-cols-[auto_1fr] gap-3">
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={back}
+              disabled={index === 0 || busy}
+              className="grid h-14 w-14 place-items-center rounded-2xl border border-white/10 bg-white/[0.055] text-white/80 disabled:opacity-30"
+              aria-label="Back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.975 }}
+              onClick={next}
+              disabled={busy}
+              className="relative h-14 overflow-hidden rounded-2xl bg-white font-['Outfit'] text-sm font-black text-black shadow-[0_18px_40px_rgba(255,255,255,.16)] disabled:opacity-70"
+            >
+              <span className="absolute inset-0 bg-gradient-to-r from-white via-fuchsia-100 to-cyan-100" />
+              <span className="relative inline-flex items-center gap-2">
+                {index === 12 ? (busy ? 'Creating Pass…' : 'Enter Instadate') : 'Continue'}
+                {index === 12 ? <Crown className="h-4.5 w-4.5" /> : <ArrowRight className="h-4.5 w-4.5" />}
+              </span>
+            </motion.button>
+          </div>
+          
+          {isSkippable ? (
+            <button
+              type="button"
+              onClick={() => next()}
+              disabled={busy}
+              className="w-full rounded-2xl border border-white/8 bg-white/[0.035] py-3 text-xs font-black uppercase tracking-[0.18em] text-white/45 transition active:scale-[.98]"
+            >
+              Skip for now
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onExplore}
+              disabled={busy}
+              className="w-full rounded-2xl border border-white/8 bg-white/[0.035] py-3 text-xs font-black uppercase tracking-[0.18em] text-white/45 transition active:scale-[.98]"
+            >
+              Explore app first
+            </button>
+          )}
+
+          {error && <p className="text-xs text-[#ff8aa8] text-center font-bold">{error}</p>}
+          {info && <p className="text-xs text-cyan-200 text-center font-bold">{info}</p>}
+        </div>
       </main>
     </div>
   );
@@ -284,17 +922,6 @@ function SlideHeader({ slide }) {
       </p>
     </div>
   );
-}
-
-function VisualPanel(props) {
-  const { slide } = props;
-
-  if (slide.visual === 'hero') return <HeroVisual slide={slide} />;
-  if (slide.visual === 'timeline') return <TimelineVisual slide={slide} />;
-  if (slide.visual === 'trust') return <TrustVisual slide={slide} />;
-  if (slide.visual === 'choices') return <ChoicesVisual {...props} />;
-  if (slide.visual === 'club') return <ClubVisual slide={slide} />;
-  return <FinishVisual slide={slide} applying={props.applying} progress={props.progress} />;
 }
 
 function HeroVisual({ slide }) {
@@ -391,169 +1018,13 @@ function TrustVisual({ slide }) {
   );
 }
 
-function ChoicesVisual({ goal, setGoal, energy, setEnergy }) {
-  const goals = ['Long-term', 'Slow dating', 'Events first'];
-  const energies = ['Coffee date', 'Live music', 'Rooftop', 'Bookstore'];
-
-  return (
-    <GlassCard className="p-4">
-      <div className="rounded-[26px] border border-white/10 bg-black/26 p-4">
-        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-white/42">Vibe card preview</p>
-        <div className="mt-3 flex items-center gap-3">
-          <span className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-fuchsia-500 to-cyan-400 font-['Outfit'] text-xl font-black">IS</span>
-          <div>
-            <p className="font-['Outfit'] text-xl font-black">Ishaan, 22</p>
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-white/50"><MapPin className="h-3.5 w-3.5" /> Mumbai</p>
-          </div>
-        </div>
-        <div className="mt-4 rounded-2xl border border-fuchsia-200/12 bg-fuchsia-300/8 p-3">
-          <p className="text-sm font-bold leading-6 text-white">Looking for {energy.toLowerCase()} with {goal.toLowerCase()} energy this weekend.</p>
-        </div>
-      </div>
-
-      <ChoiceGroup title="Dating intention" value={goal} values={goals} setValue={setGoal} />
-      <ChoiceGroup title="Weekend energy" value={energy} values={energies} setValue={setEnergy} />
-    </GlassCard>
-  );
-}
-
-function ChoiceGroup({ title, value, values, setValue }) {
-  return (
-    <div className="mt-4">
-      <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-white/45">{title}</p>
-      <div className="flex flex-wrap gap-2">
-        {values.map(item => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setValue(item)}
-            className={cn(
-              'rounded-full border px-3.5 py-2 text-xs font-black transition active:scale-95',
-              value === item
-                ? 'border-fuchsia-200/30 bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white shadow-[0_12px_28px_rgba(255,46,147,.22)]'
-                : 'border-white/10 bg-white/[0.04] text-white/55'
-            )}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ClubVisual({ slide }) {
-  return (
-    <GlassCard className="overflow-hidden p-3">
-      <div className="relative overflow-hidden rounded-[26px]">
-        <img src={slide.image} alt="" className="h-[240px] w-full object-cover sm:h-[290px]" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-black/10" />
-        <div className="absolute bottom-4 left-4 right-4">
-          <Badge tone="gold" icon={Crown}>Inner Circle</Badge>
-          <h3 className="mt-3 font-['Outfit'] text-2xl font-black">Secret rooftop sunset</h3>
-          <p className="mt-1 text-sm font-semibold text-white/58">Invite-only tables for verified members.</p>
-        </div>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {slide.perks.map(([title, Icon]) => (
-          <div key={title} className="rounded-[20px] border border-white/8 bg-white/[0.04] p-3">
-            <Icon className="h-4.5 w-4.5 text-amber-200" />
-            <p className="mt-2 text-xs font-black">{title}</p>
-          </div>
-        ))}
-      </div>
-    </GlassCard>
-  );
-}
-
-function FinishVisual({ applying, progress }) {
-  if (applying) {
-    return (
-      <GlassCard className="p-5 text-center">
-        <div className="mx-auto grid h-24 w-24 place-items-center rounded-[32px] border border-cyan-200/20 bg-cyan-300/10">
-          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.6, ease: 'linear' }}>
-            <ShieldCheck className="h-12 w-12 text-cyan-200" />
-          </motion.div>
-        </div>
-        <h3 className="mt-5 font-['Outfit'] text-2xl font-black">Creating your pass</h3>
-        <p className="mt-2 text-sm font-semibold text-white/52">Checking profile signal, trust status, and match access.</p>
-        <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
-          <motion.div className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 to-cyan-400" animate={{ width: `${progress}%` }} />
-        </div>
-        <p className="mt-2 text-xs font-black text-cyan-100">{progress}%</p>
-      </GlassCard>
-    );
-  }
-
-  return (
-    <GlassCard className="p-5">
-      <div className="grid gap-3">
-        {[
-          ['Profile reviewed', 'Your identity dashboard is ready.', UserCheck],
-          ['Matches waiting', 'Curated members refresh daily.', Users],
-          ['Weekend status', 'Show what kind of plan you want.', HeartHandshake]
-        ].map(([title, text, Icon]) => (
-          <div key={title} className="flex items-center gap-3 rounded-[22px] border border-white/8 bg-white/[0.035] p-3">
-            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-white/[0.06] text-fuchsia-200">
-              <Icon className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-['Outfit'] text-base font-black">{title}</p>
-              <p className="text-xs font-semibold text-white/50">{text}</p>
-            </div>
-            <CheckCircle2 className="ml-auto h-5 w-5 text-emerald-300" />
-          </div>
-        ))}
-      </div>
-    </GlassCard>
-  );
-}
-
-function Controls({ index, isLast, applying, primary, onBack, onNext, onExplore }) {
-  return (
-    <div className="fixed inset-x-5 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-30 mx-auto max-w-[480px] space-y-3 rounded-[28px] border border-white/10 bg-[#050507]/72 p-2.5 shadow-[0_-18px_70px_rgba(0,0,0,.55)] backdrop-blur-2xl">
-      <div className="grid grid-cols-[auto_1fr] gap-3">
-        <motion.button
-          whileTap={{ scale: 0.94 }}
-          onClick={onBack}
-          disabled={index === 0 || applying}
-          className="grid h-14 w-14 place-items-center rounded-2xl border border-white/10 bg-white/[0.055] text-white/80 disabled:opacity-30"
-          aria-label="Back"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </motion.button>
-        <motion.button
-          whileTap={{ scale: 0.975 }}
-          onClick={onNext}
-          disabled={applying}
-          className="relative h-14 overflow-hidden rounded-2xl bg-white font-['Outfit'] text-sm font-black text-black shadow-[0_18px_40px_rgba(255,255,255,.16)] disabled:opacity-70"
-        >
-          <span className="absolute inset-0 bg-gradient-to-r from-white via-fuchsia-100 to-cyan-100" />
-          <span className="relative inline-flex items-center gap-2">
-            {isLast ? 'Apply now' : primary}
-            {isLast ? <Crown className="h-4.5 w-4.5" /> : <ArrowRight className="h-4.5 w-4.5" />}
-          </span>
-        </motion.button>
-      </div>
-      <button
-        type="button"
-        onClick={onExplore}
-        disabled={applying}
-        className="w-full rounded-2xl border border-white/8 bg-white/[0.035] py-3 text-xs font-black uppercase tracking-[0.18em] text-white/45 transition active:scale-[.98]"
-      >
-        Explore app first
-      </button>
-    </div>
-  );
-}
-
 function GlassCard({ children, className = '' }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.08, ...spring }}
-      className={cn('rounded-[32px] border border-white/10 bg-white/[0.055] shadow-[0_28px_90px_rgba(0,0,0,.45)] backdrop-blur-2xl', className)}
+      className={cn('rounded-[32px] border border-white/10 bg-[#121118]/80 shadow-[0_28px_90px_rgba(0,0,0,.45)] backdrop-blur-2xl', className)}
     >
       {children}
     </motion.div>

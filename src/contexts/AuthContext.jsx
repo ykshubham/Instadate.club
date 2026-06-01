@@ -84,6 +84,18 @@ export function AuthProvider({ children }) {
     return payload;
   }, []);
 
+  // Email Magic Link (Sprint 2 Task 2). startEmailMagicLink requests magic link token email.
+  const startEmailMagicLink = React.useCallback(async (email) => {
+    const response = await fetch('/api/auth/magic/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ email })
+    });
+    return readJsonResponse(response, 'Could not request magic link');
+  }, []);
+
   const signOut = React.useCallback(async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
@@ -102,15 +114,19 @@ export function AuthProvider({ children }) {
     user,
     isAuthenticated: Boolean(user),
     accountStatus: user?.status || (user ? 'active' : null),
+    role: user?.role || 'member',
+    isModerator: user?.role === 'moderator' || user?.role === 'admin',
+    isAdmin: user?.role === 'admin',
     isLoading,
     authError,
     signIn,
     signInWithGoogleToken,
     startPhoneOtp,
     verifyPhoneOtp,
+    startEmailMagicLink,
     signOut,
     refreshAuth: checkSession
-  }), [user, isLoading, authError, signIn, signInWithGoogleToken, startPhoneOtp, verifyPhoneOtp, signOut, checkSession]);
+  }), [user, isLoading, authError, signIn, signInWithGoogleToken, startPhoneOtp, verifyPhoneOtp, startEmailMagicLink, signOut, checkSession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

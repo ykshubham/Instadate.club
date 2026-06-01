@@ -90,7 +90,7 @@ export async function getRecommendedEventsV2(db: D1Database, userId: string): Pr
     FROM events e
     LEFT JOIN users u ON u.id = e.host_user_id
     LEFT JOIN event_attendees ea ON ea.event_id = e.id
-    WHERE e.deleted_at IS NULL AND e.is_closed = 0
+    WHERE e.deleted_at IS NULL AND e.is_closed = 0 AND e.moderation_status = 'active'
     GROUP BY e.id
   `).all<any>();
 

@@ -3341,3 +3341,21 @@ body:has(.fullscreen-main) .app-toast {
     opacity: 0.7;
   }
 }
+
+.shimmer-effect-bar {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%);
+  animation: shimmer 2s infinite;
+  transform: translateX(-100%);
+}
+
+.empty-illustration-wrapper {
+  width: 60px;
+  height: 60px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
