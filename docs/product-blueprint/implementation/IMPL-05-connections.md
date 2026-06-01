@@ -29,6 +29,7 @@ ANY ─report─► reports queue (status open)
 - `CONN-FE-04` Unmatch action in chat header (confirm) → freeze thread.
 - `CONN-FE-05` Block + Report actions on profile/chat (report reason picker + optional evidence).
 - `CONN-FE-06` Notification surfacing (in-app bell) for request/accept (Step 6 notifications).
+  - Action handling: a `connection_request` notification's **"View Request"** button marks the notification read immediately (drops the unread bell count and refreshes the sheet via `/api/notifications/read` → fresh `state.notifications`, no reload), then deep-links to the Connection Requests screen carrying the sender id (`/requests?from=<senderId>`). `ConnectionRequestsPage` reads `?from=` and scrolls/highlights the matching request card. `connection_accept`'s "Start Chat" likewise marks read before navigating to `/chat`.
 
 ## Backend Tasks
 - `CONN-BE-01` `worker/services/connections.ts`: request/accept/reject/unmatch logic; pair dedup; 14d expiry; mutual-like auto-accept.

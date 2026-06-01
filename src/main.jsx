@@ -3071,6 +3071,12 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
 function ConnectionRequestsPage({ navigate }) {
   const [requests, setRequests] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
+  // Sender id passed from a "View Request" notification tap (/requests?from=<id>).
+  const highlightFrom = React.useMemo(
+    () => new URLSearchParams(window.location.search).get('from'),
+    []
+  );
+  const highlightRef = React.useRef(null);
 
   const load = React.useCallback(() => {
     fetch('/api/connections/requests', { credentials: 'same-origin', cache: 'no-store' })
@@ -3080,6 +3086,13 @@ function ConnectionRequestsPage({ navigate }) {
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
+
+  // Once the list is loaded, bring the deep-linked sender's request into view.
+  React.useEffect(() => {
+    if (requests && requests.length && highlightFrom && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [requests, highlightFrom]);
 
   const act = async (id, action) => {
     setBusyId(id);
@@ -3114,8 +3127,19 @@ function ConnectionRequestsPage({ navigate }) {
         />
       ) : (
         <div className="inbox-list">
-          {requests.map(req => (
-            <div key={req.id} className="inbox-card" style={{ alignItems: 'flex-start', cursor: 'default' }}>
+          {requests.map(req => {
+            const isHighlighted = highlightFrom && req.from.id === highlightFrom;
+            return (
+            <div
+              key={req.id}
+              ref={isHighlighted ? highlightRef : null}
+              className="inbox-card"
+              style={{
+                alignItems: 'flex-start',
+                cursor: 'default',
+                ...(isHighlighted ? { boxShadow: '0 0 0 2px #ff7ac2', borderRadius: 16 } : {})
+              }}
+            >
               <Avatar member={req.from} />
               <div className="inbox-copy" style={{ flex: 1, minWidth: 0 }}>
                 <div className="inbox-row">
@@ -3135,11 +3159,34 @@ function ConnectionRequestsPage({ navigate }) {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
   );
+}
+
+// Parse a chat timestamp that may be SQLite ('YYYY-MM-DD HH:MM:SS', no zone) or ISO (with Z).
+function parseChatTs(ts) {
+  if (!ts) return 0;
+  const str = String(ts);
+  const norm = str.includes('T') ? str : str.replace(' ', 'T');
+  const zoned = /[zZ]|[+-]\d\d:?\d\d$/.test(norm) ? norm : `${norm}Z`;
+  return Date.parse(zoned) || 0;
+}
+
+function formatInboxTime(ts) {
+  const t = parseChatTs(ts);
+  if (!t) return '';
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], navigate }) {
@@ -3161,15 +3208,23 @@ function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], nav
         />
       ) : (
         <div className="inbox-list">
-          {(resolvedChats || []).map(chat => {
+          {[...(resolvedChats || [])]
+            .sort((a, b) => parseChatTs(b.lastMessageAt) - parseChatTs(a.lastMessageAt))
+            .map(chat => {
             const profile = getChatProfile(chat, resolvedMembers);
-            const messageCount = (appState.chatMessages[chat.slug] || chat.messages || []).length;
+            const msgs = appState.chatMessages[chat.slug] || chat.messages || [];
+            const last = msgs.length ? msgs[msgs.length - 1] : null;
+            const previewRaw = last ? (last[4] ? '📎 Attachment' : last[1]) : 'Say hi 👋';
+            const preview = previewRaw && previewRaw.length > 40 ? `${previewRaw.slice(0, 40)}…` : previewRaw;
+            const unread = chat.unreadCount || 0;
             return (
             <button key={chat.slug} className="inbox-card" onClick={() => navigate(`/chat/${chat.slug}`)}>
               <Avatar member={profile} />
               <div className="inbox-copy">
-                <div className="inbox-row"><strong>{profile.name}</strong><span>6d 23h</span></div>
-                <small className="message-count-tag">{messageCount} messages</small>
+                <div className="inbox-row"><strong>{profile.name}</strong><span>{formatInboxTime(chat.lastMessageAt)}</span></div>
+                <small className="message-count-tag" style={unread > 0 ? { color: '#ff7ac2', fontWeight: 800 } : undefined}>
+                  {unread > 0 ? `${unread} new message${unread > 1 ? 's' : ''}` : preview}
+                </small>
               </div>
               <ChevronRight />
             </button>

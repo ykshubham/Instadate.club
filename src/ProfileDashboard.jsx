@@ -1436,8 +1436,15 @@ function NotificationsSheet({ notifications = [], onClose, onMarkRead, onMarkAll
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            // Mark read immediately (stopPropagation suppresses the row's
+                            // own mark-read), so the unread count drops and the list
+                            // refreshes without a reload.
+                            if (!n.readAt) onMarkRead(n.id);
                             onClose();
-                            navigate?.('/chat');
+                            // Go straight to the Connection Requests screen, carrying the
+                            // sender id so that screen can surface the relevant request.
+                            const senderId = n.payload?.senderId;
+                            navigate?.(senderId ? `/requests?from=${encodeURIComponent(senderId)}` : '/requests');
                           }}
                           className="rounded-lg bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-rose-300 hover:bg-rose-500/20 transition"
                         >
@@ -1448,6 +1455,7 @@ function NotificationsSheet({ notifications = [], onClose, onMarkRead, onMarkAll
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (!n.readAt) onMarkRead(n.id);
                             onClose();
                             navigate?.('/chat');
                           }}

@@ -15,6 +15,7 @@ Server-authorized messaging (participant + accepted connection + not blocked + a
 
 ## Frontend Tasks
 - `CHAT-FE-01` Inbox: connections list + separate "Requests" tab (Step 5); unread badges.
+  - Inbox rows now sort most-recent-first by `chat.lastMessageAt`, show a relative timestamp (`now`/`Nm`/`Nh`/`Nd`/date) via `formatInboxTime`, and render either an unread tag (`N new message(s)`, accent-coloured) when `chat.unreadCount > 0` or a 40-char last-message preview (`📎 Attachment` for attachment-only, `Say hi 👋` when empty). Backend `getState` (`worker/index.ts`) supplies `lastMessageAt` + `unreadCount` per chat: it now filters `chats` to the requesting participant, excludes soft-deleted messages (`deleted_at IS NULL`), and counts peer-sent messages the user hasn't read (`message_reads`), clearing on open. Mixed SQLite/ISO timestamps are normalised before comparison (the same parse logic lives in `parseChatTs` on the client and `tsMs` in the worker).
 - `CHAT-FE-02` Thread: header (name, honest verification, online/last-seen), composer, message states (sending/sent/read), typing indicator.
 - `CHAT-FE-03` Realtime client: WebSocket to chat Durable Object; fallback `GET /api/chats/:id/since?cursor=`.
 - `CHAT-FE-04` Image attach (reuse photo upload), voice note (record+cap), delete message (soft), block/report from header.

@@ -867,19 +867,23 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     FROM chats c
     LEFT JOIN users ua ON c.participant_a_user_id = ua.id
     LEFT JOIN users ub ON c.participant_b_user_id = ub.id
+    WHERE c.participant_a_user_id = ? OR c.participant_b_user_id = ?
     ORDER BY c.created_at ASC
-  `).bind(userId, userId, userId).all<Record<string, unknown>>();
+  `).bind(userId, userId, userId, userId, userId).all<Record<string, unknown>>();
   const chatMessages: Record<string, Array<[string, string, string?, string?, string?]>> = {};
   const verifiedChats: Record<string, boolean> = {};
+  const lastMessageAtBySlug: Record<string, string | null> = {};
+  const unreadBySlug: Record<string, number> = {};
 
   for (const chat of chatRows) {
     const { results: messages } = await db.prepare(`
-      SELECT cm.sender_user_id, cm.sender_role, cm.body, cm.id as message_id, cm.attachment_url,
-             (SELECT 1 FROM message_reads mr WHERE mr.message_id = cm.id AND mr.user_id = ?1) as is_read_by_peer
+      SELECT cm.sender_user_id, cm.sender_role, cm.body, cm.id as message_id, cm.attachment_url, cm.created_at,
+             (SELECT 1 FROM message_reads mr WHERE mr.message_id = cm.id AND mr.user_id = ?1) as is_read_by_peer,
+             (SELECT 1 FROM message_reads mr WHERE mr.message_id = cm.id AND mr.user_id = ?3) as read_by_me
       FROM chat_messages cm
-      WHERE cm.chat_id = ?2
+      WHERE cm.chat_id = ?2 AND cm.deleted_at IS NULL
       ORDER BY cm.created_at ASC
-    `).bind(chat.other_user_id, chat.id).all<Record<string, unknown>>();
+    `).bind(chat.other_user_id, chat.id, userId).all<Record<string, unknown>>();
 
     chatMessages[chat.slug as string] = messages.map(message => {
       let role = message.sender_role as string;
@@ -891,6 +895,16 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
       const attachmentUrl = message.attachment_url as string || '';
       return [role, message.body as string, status, msgId, attachmentUrl];
     });
+
+    // Recency + my unread count (peer-sent messages I haven't read yet → clears on open).
+    lastMessageAtBySlug[chat.slug as string] = messages.length
+      ? (messages[messages.length - 1].created_at as string)
+      : ((chat.created_at as string) || null);
+    unreadBySlug[chat.slug as string] = messages.reduce(
+      (n, m) => n + ((m.sender_user_id && m.sender_user_id !== userId && !m.read_by_me) ? 1 : 0),
+      0
+    );
+
     verifiedChats[chat.slug as string] = parseJson<string[]>(chat.verified_by_user_ids_json as string, []).includes(userId);
   }
 
@@ -934,9 +948,16 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     }))
   };
 
+  const tsMs = (s: string | null | undefined) => {
+    if (!s) return 0;
+    const str = String(s);
+    const norm = str.includes('T') ? str : str.replace(' ', 'T');
+    const zoned = /[zZ]|[+-]\d\d:?\d\d$/.test(norm) ? norm : `${norm}Z`;
+    return Date.parse(zoned) || 0;
+  };
+
   const liveChats = chatRows.map(row => {
     const messages = chatMessages[row.slug as string] || [];
-    const lastMessage = messages.length > 0 ? messages[messages.length - 1][1] : '';
     return {
       id: row.id,
       slug: row.slug as string,
@@ -944,9 +965,11 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
       avatar: ((row.name as string) || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
       gradient: 'cyan',
       messages,
-      lastActiveAt: row.last_active_at as string || null
+      lastActiveAt: row.last_active_at as string || null,
+      lastMessageAt: lastMessageAtBySlug[row.slug as string] || null,
+      unreadCount: unreadBySlug[row.slug as string] || 0
     };
-  });
+  }).sort((a, b) => tsMs(b.lastMessageAt) - tsMs(a.lastMessageAt)); // most recent first
 
   const { results: outingRows } = await db.prepare(`
     SELECT mo.id, mo.status, mo.updated_at,
