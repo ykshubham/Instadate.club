@@ -59,8 +59,11 @@
   },
   "migrations": [
     {
+      // SQLite-backed DO (required on the Workers free plan). ChatRoom keeps only
+      // in-memory WebSocket sessions; chat messages persist to D1, so there is no
+      // DO-storage data to migrate.
       "tag": "v1",
-      "new_classes": ["ChatRoom"]
+      "new_sqlite_classes": ["ChatRoom"]
     }
   ]
 }
