@@ -693,7 +693,7 @@ async function ensureDefaultChats(db: D1Database, userId: string) {
 
 async function getState(db: D1Database, userId: string): Promise<AppState> {
   await ensureUser(db, userId);
-  await ensureDefaultChats(db, userId);
+  // Beta: no fake demo chats injected into real users' inboxes.
   const profile = await getProfile(db, userId);
 
   const user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first<Record<string, unknown>>();
@@ -1870,7 +1870,7 @@ async function routeApi(request: Request, env: Env) {
 
   if (url.pathname === '/api/events' && request.method === 'POST') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
-    const ver = await requireVerified(env, userId); if (ver) return ver;
+    // Beta: event hosting does NOT require identity verification (no verify flow live).
     const body = await readJson<{ event?: Record<string, unknown> }>(request);
     const eventId = await createEvent(env.DB, userId, body.event || {});
     await logEvent(env.DB, {

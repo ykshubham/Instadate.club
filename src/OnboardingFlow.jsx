@@ -214,11 +214,8 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
       setError('Please sign in or continue as guest to advance.');
       return false;
     }
-    // Step 5: Phone OTP
-    if (index === 4 && (!draft.phone || cloudProfile?.phone_verified !== 1)) {
-      setError('Phone verification is required to build a verified pass.');
-      return false;
-    }
+    // Step 5: Phone OTP — OPTIONAL for friends beta (no SMS provider configured).
+    // Relaxed so Google users can finish onboarding; phone step is skippable.
     // Step 6: Basics (fullName, age, gender)
     if (index === 5) {
       if (!draft.fullName?.trim()) {
@@ -450,51 +447,8 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
               <Crown className="h-4 w-4 text-cyan-200" /> Continue with Google
             </button>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '5px 0', color: 'var(--muted)', fontSize: '0.75rem' }}>
-              <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} /> OR <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
-            </div>
-
-            {/* In-flow Phone Code Trigger */}
-            <div className="grid gap-2">
-              <span className="text-xs text-white/50 uppercase font-black tracking-wider">Option A: Direct Phone SMS</span>
-              {phoneStage === 'phone' ? (
-                <div className="flex gap-2">
-                  <select value={countryCode} onChange={e => setCountryCode(e.target.value)} className="rounded-xl border border-white/10 bg-black/40 px-2 text-sm text-white">
-                    {COUNTRY_CODES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <input type="tel" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white" />
-                  <button onClick={sendCode} className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">Send</button>
-                </div>
-              ) : (
-                <div className="grid gap-2">
-                  <div className="flex gap-2">
-                    <input type="text" maxLength={6} placeholder="6-digit code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white text-center tracking-widest" />
-                    <button onClick={submitCode} className="rounded-xl bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-4 py-2 text-xs font-bold text-white">Verify</button>
-                  </div>
-                  <button onClick={() => setPhoneStage('phone')} className="text-left text-xs text-white/40 underline">Change Number</button>
-                </div>
-              )}
-            </div>
-
-            {/* In-flow Email Magic Link */}
-            <div className="grid gap-2 mt-2">
-              <span className="text-xs text-white/50 uppercase font-black tracking-wider">Option B: Passwordless Magic Link</span>
-              {emailStage === 'input' ? (
-                <div className="flex gap-2">
-                  <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white" />
-                  <button onClick={handleMagicLink} className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">Link</button>
-                </div>
-              ) : (
-                <div className="grid gap-2 text-center p-3 rounded-2xl border border-white/10 bg-black/20">
-                  <Mail className="mx-auto h-8 w-8 text-fuchsia-200" />
-                  <p className="text-xs text-white/60">Sent login code link to {email}.</p>
-                  {magicLinkUrl && (
-                    <a href={magicLinkUrl} className="text-xs text-cyan-200 underline font-bold mt-1">Dev: Quick Confirm Link</a>
-                  )}
-                  <button onClick={() => setEmailStage('input')} className="text-xs text-white/40 underline mt-1">Try another email</button>
-                </div>
-              )}
-            </div>
+            {/* Beta: Google-only login. Phone OTP & email magic link are hidden
+                (no SMS/email provider configured — they would silently fail). */}
           </GlassCard>
         );
 
@@ -758,7 +712,7 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
     return <SlideHeader slide={slides[index]} />;
   };
 
-  const isSkippable = index === 7 || index === 9 || index === 11;
+  const isSkippable = index === 4 || index === 7 || index === 9 || index === 11;
 
   return (
     <div ref={shellRef} className="relative h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#050507] text-white">

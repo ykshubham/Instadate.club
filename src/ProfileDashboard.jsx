@@ -3444,14 +3444,8 @@ function GatekeeperAdmissions({ onApply, onDemoLogin, authUser, onGoogleLogin })
 
       {/* 4. FOOTER */}
       <footer className="mt-4 border-t border-white/5 pt-6 pb-2 text-center text-[9px] text-white/25 space-y-3">
-        <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 font-bold uppercase tracking-wider">
-          <a href="#" className="hover:text-white transition">About</a>
-          <a href="#" className="hover:text-white transition">Safety</a>
-          <a href="#" className="hover:text-white transition">Privacy</a>
-          <a href="#" className="hover:text-white transition">Terms</a>
-          <a href="#" className="hover:text-white transition">Guidelines</a>
-        </div>
-        <p>© 2026 Instadate Speakeasy. Manually Reviewed Offline Outing Club.</p>
+        {/* Beta: removed dead href="#" footer links (About/Safety/Privacy/Terms/Guidelines). */}
+        <p>© 2026 Instadate • Friends &amp; Family Beta</p>
       </footer>
 
     </div>

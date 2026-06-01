@@ -1556,13 +1556,7 @@ function SideDrawer({ route, navigate, onClose, appState }) {
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--soft)', padding: '0 4px' }}>
-            <span>v1.2.0 • Aadhaar Protected</span>
-            <button 
-              onClick={() => window.open('https://wa.me/919999999999', '_blank')}
-              style={{ background: 'transparent', border: 0, color: 'var(--cyan)', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              Concierge Desk
-            </button>
+            <span>v1.2.0 • Friends &amp; Family Beta</span>
           </div>
         </div>
       </motion.div>
@@ -3228,7 +3222,7 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
   }
 
   const profile = getChatProfile(active, resolvedMembers);
-  const isVerified = Boolean(appState.verifiedChats[active.slug]);
+  const isVerified = true; // Beta: chat unlocked (voice-verify gate disabled for friends testing)
   
   const [draft, setDraft] = React.useState('');
   const [liveMessages, setLiveMessages] = React.useState(() => appState.chatMessages[active.slug] || active.messages || []);
@@ -5017,43 +5011,9 @@ function ProfilePage({ initialProfile, appState, onSave, onToggleRsvp, navigate 
 
           {activeTab === 'settings' && (
             <div className="settings-list">
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>👤 Identity Verification Locker</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Aadhaar & Photo face scan verified</span>
-                </div>
-                <div style={{ background: 'rgba(37, 211, 102, 0.1)', padding: '6px 12px', borderRadius: '99px', color: '#9af7bb', fontSize: '0.76rem', fontWeight: 'bold' }}>
-                  100% Secure
-                </div>
-              </div>
-
+              {/* Beta: removed fake billing/refund, Aadhaar "100% Secure", Safety Shield,
+                  and VIP Concierge rows. Only the real block-management feature remains. */}
               <BlockedMembersSection />
-
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>💳 Payment Methods & Refund Center</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Manage saved UPI addresses / refund tracks</span>
-                </div>
-                <ChevronRight style={{ color: 'var(--soft)' }} />
-              </div>
-
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>🛡️ Safety Shield Guards</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Anti-harassment triggers, slow mode settings</span>
-                </div>
-                <ChevronRight style={{ color: 'var(--soft)' }} />
-              </div>
-
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>📞 VIP Concierge Support</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Chat directly with our coffee mixer hosts</span>
-                </div>
-                <button className="btn-quiet" style={{ minHeight: '36px', borderRadius: '10px', fontSize: '0.8rem', padding: '0 12px' }} onClick={() => window.open('https://wa.me/919999999999', '_blank')}>
-                  Help
-                </button>
-              </div>
             </div>
           )}
 
