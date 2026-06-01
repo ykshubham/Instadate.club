@@ -7,7 +7,13 @@ async function readJsonResponse(response, fallbackMessage) {
     throw new Error(fallbackMessage);
   }
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || fallbackMessage);
+  if (!response.ok) {
+    // Carry the structured error so callers can surface code/attemptsLeft/retryAfterSec.
+    const err = new Error(payload.error || fallbackMessage);
+    err.code = payload.error;
+    err.payload = payload;
+    throw err;
+  }
   return payload;
 }
 
@@ -53,29 +59,58 @@ export function AuthProvider({ children }) {
     return payload;
   }, []);
 
+  // Phone OTP (Sprint 2 Task 1). startPhoneOtp sends a code; verifyPhoneOtp signs in.
+  const startPhoneOtp = React.useCallback(async (phone, countryCode = '+91') => {
+    const response = await fetch('/api/auth/otp/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ phone, countryCode })
+    });
+    return readJsonResponse(response, 'Could not send code');
+  }, []);
+
+  const verifyPhoneOtp = React.useCallback(async (phone, code, countryCode = '+91') => {
+    const response = await fetch('/api/auth/otp/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ phone, code, countryCode })
+    });
+    const payload = await readJsonResponse(response, 'Verification failed');
+    setUser(payload.user || null);
+    return payload;
+  }, []);
+
   const signOut = React.useCallback(async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
     } finally {
       sessionStorage.removeItem('instadate_profile_cache');
-      sessionStorage.removeItem('instadate_guest_mode');
-      window.history.replaceState({}, '', '/login');
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      // Land on the login screen, NOT guest-browse. Removing the key would default
+      // guestMode back to true (getItem !== 'false'), which re-enables the auth-only
+      // /api/state poll → 401 → api-unauthorized → signOut → reload → loop (flicker).
+      sessionStorage.setItem('instadate_guest_mode', 'false');
       setUser(null);
-      window.location.replace('/login');
+      window.location.replace('/login'); // single full reload yields clean logged-out state
     }
   }, []);
 
   const value = React.useMemo(() => ({
     user,
     isAuthenticated: Boolean(user),
+    accountStatus: user?.status || (user ? 'active' : null),
     isLoading,
     authError,
     signIn,
     signInWithGoogleToken,
+    startPhoneOtp,
+    verifyPhoneOtp,
     signOut,
     refreshAuth: checkSession
-  }), [user, isLoading, authError, signIn, signInWithGoogleToken, signOut, checkSession]);
+  }), [user, isLoading, authError, signIn, signInWithGoogleToken, startPhoneOtp, verifyPhoneOtp, signOut, checkSession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

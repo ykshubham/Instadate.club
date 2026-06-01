@@ -15,6 +15,7 @@ import { ProfileProvider, useProfile } from './contexts/ProfileContext.jsx';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
 import AdminAnalyticsPage from './AdminAnalyticsPage.jsx';
 import AdminHealthPage from './AdminHealthPage.jsx';
+import AdminModerationPage from './AdminModerationPage.jsx';
 
 // Redirect non-canonical Pages URLs to canonical Worker URL
 if (typeof window !== 'undefined' && window.location && window.location.hostname && window.location.hostname.endsWith('instadate-club.pages.dev')) {
@@ -340,17 +341,231 @@ function SplashScreen() {
   );
 }
 
-function LoginPage({ onGoogleLogin, authError }) {
+function LoginPage({ onGoogleLogin, authError, navigate }) {
+  const { startPhoneOtp, verifyPhoneOtp } = useAuth();
+  const COUNTRY_CODES = ['+91', '+1', '+44', '+61', '+971', '+65'];
+
+  const [stage, setStage] = React.useState('phone'); // 'phone' | 'code'
+  const [countryCode, setCountryCode] = React.useState('+91');
+  const [phone, setPhone] = React.useState('');
+  const [code, setCode] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [info, setInfo] = React.useState('');
+  const [attemptsLeft, setAttemptsLeft] = React.useState(null);
+  const [locked, setLocked] = React.useState(false);
+  const [cooldown, setCooldown] = React.useState(0);
+
+  // Resend cooldown ticker.
+  React.useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const friendly = (errCode, retryAfterSec) => ({
+    invalid_phone: 'Enter a valid phone number.',
+    resend_cooldown: `Please wait ${retryAfterSec || 30}s before requesting another code.`,
+    too_many_requests: 'Too many codes requested. Try again later.',
+    ip_rate_limited: 'Too many attempts from this network. Try again later.',
+    sms_send_failed: 'Could not send the code. Try again.',
+    invalid_code: 'Incorrect code.',
+    expired: 'That code expired. Request a new one.',
+    locked: 'Too many wrong attempts. Try again in 15 minutes.',
+    no_code: 'Request a code first.',
+    invalid_input: 'Enter the 6-digit code.'
+  }[errCode] || 'Something went wrong. Try again.');
+
+  const sendCode = async () => {
+    setError(''); setInfo(''); setBusy(true);
+    try {
+      const res = await startPhoneOtp(phone, countryCode);
+      setStage('code');
+      setAttemptsLeft(null);
+      setLocked(false);
+      setCooldown(30);
+      setInfo(res?.devCode ? `Dev code: ${res.devCode}` : 'Code sent. Check your messages.');
+    } catch (e) {
+      const m = /:(\w+)/.exec(e.message);
+      setError(friendly(e.code || m?.[1]) || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitCode = async () => {
+    setError(''); setBusy(true);
+    try {
+      await verifyPhoneOtp(phone, code, countryCode);
+      navigate?.('/profile'); // session set; guard renders the app
+    } catch (e) {
+      // verify endpoint returns {error, attemptsLeft}; surface both.
+      const payload = e.payload || {};
+      if (payload.attemptsLeft != null) setAttemptsLeft(payload.attemptsLeft);
+      if (payload.error === 'locked') setLocked(true);
+      setError(friendly(payload.error) || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="login-page">
       <div className="login-panel">
         <span className="eyebrow">Member Access</span>
         <h1>Sign in to Instadate</h1>
-        <p>Use Google to unlock your hosted events, RSVPs, matches, and chats across devices.</p>
+        <p>Verify your phone to unlock events, RSVPs, matches, and chats across devices.</p>
         {authError && <div className="login-alert">Session check failed. You can still try signing in again.</div>}
+
         <button className="login-google-btn" onClick={() => onGoogleLogin('/profile')}>
           <User /> Continue with Google
         </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0', color: 'var(--muted)', fontSize: '0.75rem' }}>
+          <span style={{ flex: 1, height: 1, background: 'var(--line)' }} /> OR <span style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        </div>
+
+        {stage === 'phone' && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select
+                value={countryCode}
+                onChange={e => setCountryCode(e.target.value)}
+                className="login-input"
+                style={{ width: 92, flexShrink: 0 }}
+              >
+                {COUNTRY_CODES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <input
+                className="login-input"
+                style={{ flex: 1 }}
+                type="tel"
+                inputMode="numeric"
+                placeholder="Phone number"
+                value={phone}
+                onChange={e => setPhone(e.target.value.replace(/[^\d]/g, ''))}
+              />
+            </div>
+            <button className="login-google-btn" disabled={busy || phone.length < 6} onClick={sendCode}>
+              {busy ? 'Sending…' : 'Send code'}
+            </button>
+          </div>
+        )}
+
+        {stage === 'code' && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <p style={{ fontSize: '0.82rem', color: 'var(--muted)', margin: 0 }}>
+              Code sent to {countryCode} {phone}.{' '}
+              <button onClick={() => { setStage('phone'); setCode(''); setError(''); setInfo(''); }} style={{ background: 'none', border: 0, color: 'var(--pink)', cursor: 'pointer', fontWeight: 700, padding: 0 }}>Change</button>
+            </p>
+            <input
+              className="login-input"
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="6-digit code"
+              value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+              style={{ letterSpacing: '0.4em', textAlign: 'center', fontSize: '1.1rem' }}
+            />
+            <button className="login-google-btn" disabled={busy || locked || code.length !== 6} onClick={submitCode}>
+              {busy ? 'Verifying…' : 'Verify & sign in'}
+            </button>
+            <button
+              disabled={cooldown > 0 || busy}
+              onClick={sendCode}
+              style={{ background: 'none', border: 0, color: cooldown > 0 ? 'var(--muted)' : 'var(--pink)', cursor: cooldown > 0 ? 'default' : 'pointer', fontWeight: 700, fontSize: '0.8rem' }}
+            >
+              {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
+            </button>
+            {attemptsLeft != null && attemptsLeft > 0 && !locked && (
+              <p style={{ color: '#fbbf24', fontSize: '0.78rem', margin: 0, textAlign: 'center' }}>{attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left</p>
+            )}
+          </div>
+        )}
+
+        {info && <p style={{ color: 'var(--cyan)', fontSize: '0.78rem', marginTop: 10, textAlign: 'center' }}>{info}</p>}
+        {error && <p style={{ color: '#ff8aa8', fontSize: '0.8rem', marginTop: 10, textAlign: 'center' }}>{error}</p>}
+      </div>
+    </section>
+  );
+}
+
+function AccountStatusScreen({ status, reason, until, onLogout }) {
+  const [reactivating, setReactivating] = React.useState(false);
+  const [reactError, setReactError] = React.useState(null);
+
+  const reactivate = async () => {
+    setReactivating(true);
+    setReactError(null);
+    try {
+      const res = await fetch('/api/account/reactivate', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) throw new Error('Could not reactivate.');
+      window.location.replace('/profile');
+    } catch (e) {
+      setReactError(e.message || 'Reactivation failed.');
+      setReactivating(false);
+    }
+  };
+
+  const config = {
+    banned: {
+      badge: 'Account removed',
+      title: 'Your account has been permanently removed',
+      body: 'This account violated the Instadate community guidelines and no longer has access to the club.',
+      tone: '#ff2e93'
+    },
+    suspended: {
+      badge: 'Account suspended',
+      title: 'Your account is temporarily suspended',
+      body: until
+        ? `Access is restricted until ${new Date(until).toLocaleString()}. You can read but not send messages, RSVP, or host during this period.`
+        : 'Access is temporarily restricted. You can read but not send messages, RSVP, or host during this period.',
+      tone: '#fbbf24'
+    },
+    deactivated: {
+      badge: 'Account deactivated',
+      title: 'This account is deactivated',
+      body: 'Your profile is hidden and chats are paused. If you requested deletion, your data is permanently erased after the grace period — reactivate now to cancel.',
+      tone: '#9b30ff'
+    }
+  }[status] || {
+    badge: 'Account notice',
+    title: 'Your account needs attention',
+    body: 'Please contact support.',
+    tone: '#ff2e93'
+  };
+
+  return (
+    <section className="login-page" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: '2rem' }}>
+      <div className="login-panel" style={{ maxWidth: '460px', textAlign: 'center', border: `1px solid ${config.tone}40` }}>
+        <span className="eyebrow" style={{ color: config.tone }}>{config.badge}</span>
+        <ShieldCheck style={{ width: 56, height: 56, color: config.tone, margin: '0.75rem auto' }} />
+        <h1 style={{ fontSize: '1.5rem' }}>{config.title}</h1>
+        <p style={{ color: 'var(--muted)' }}>{config.body}</p>
+        {reason && (
+          <p style={{ marginTop: '0.75rem', padding: '0.75rem 1rem', borderRadius: 12, background: 'rgba(255,255,255,0.04)', fontSize: '0.85rem' }}>
+            <strong>Reason:</strong> {reason}
+          </p>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '1.25rem' }}>
+          {status === 'deactivated' && (
+            <button className="login-google-btn" onClick={reactivate} disabled={reactivating} style={{ justifyContent: 'center', border: 0 }}>
+              {reactivating ? 'Reactivating…' : 'Reactivate my account'}
+            </button>
+          )}
+          {reactError && <p style={{ color: '#ff8aa8', fontSize: '0.8rem', margin: 0 }}>{reactError}</p>}
+          {status !== 'deactivated' && (
+            <a
+              className="login-google-btn"
+              href={`mailto:support@instadate.club?subject=${encodeURIComponent(`Account ${status} appeal`)}`}
+              style={{ textDecoration: 'none', justifyContent: 'center' }}
+            >
+              Appeal to support
+            </a>
+          )}
+          <button className="btn-quiet" onClick={onLogout}>Log out</button>
+        </div>
       </div>
     </section>
   );
@@ -368,11 +583,14 @@ function App() {
 
   React.useEffect(() => {
     const handleUnauthorized = () => {
-      signOut();
+      // Only force a sign-out for a genuinely authenticated user whose session expired.
+      // Guests legitimately receive 401 from auth-gated endpoints (e.g. /api/state) and
+      // must NOT be bounced through signOut → reload → poll → 401 (flicker loop).
+      if (isAuthenticated) signOut();
     };
     window.addEventListener('api-unauthorized', handleUnauthorized);
     return () => window.removeEventListener('api-unauthorized', handleUnauthorized);
-  }, [signOut]);
+  }, [signOut, isAuthenticated]);
 
   const [appState, , cloudStateStatus, , mutateState] = useApiState(createInitialAppState, canBrowseApp);
   const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos } = useProfile();
@@ -516,9 +734,9 @@ function App() {
 
   const sendVibe = async (member, note) => {
     try {
-      await mutateState('/api/matches', {
+      await mutateState('/api/connections/request', {
         method: 'POST',
-        body: JSON.stringify({ memberId: member.id, memberName: member.name, note })
+        body: JSON.stringify({ toUserId: member.id, note })
       }, current => ({
         ...current,
         vibeRequests: {
@@ -528,9 +746,9 @@ function App() {
         lastUpdated: new Date().toISOString()
       }));
       setSelectedMember(null);
-      notify(`Vibe Check sent to ${member.name}`);
+      notify(`Connection request sent to ${member.name}`);
     } catch {
-      notify('Vibe request cached offline');
+      notify('Connection request cached offline');
     }
   };
 
@@ -641,11 +859,23 @@ function App() {
     return <SplashScreen />;
   }
 
+  const accountStatus = authUser?.status;
+  if (accountStatus && accountStatus !== 'active') {
+    return (
+      <AccountStatusScreen
+        status={accountStatus}
+        reason={authUser?.statusReason}
+        until={authUser?.statusUntil}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     <>
       <div className="app-bg" />
-      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health') && (
-        <Header 
+      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && (
+        <Header
           route={guardedRoute} 
           navigate={navigate} 
           menuOpen={menuOpen} 
@@ -654,22 +884,24 @@ function App() {
           onGoogleLogin={startGoogleLogin}
         />
       )}
-      <main className={(isConversationRoute || guardedRoute === '/onboarding' || guardedRoute === '/admin/analytics' || guardedRoute === '/admin/health') ? 'fullscreen-main' : ''}>
+      <main className={(isConversationRoute || guardedRoute === '/onboarding' || guardedRoute === '/admin/analytics' || guardedRoute === '/admin/health' || guardedRoute === '/admin/moderation') ? 'fullscreen-main' : ''}>
         <RouteErrorBoundary key={guardedRoute}>
           {guardedRoute === '/admin/analytics' && <AdminAnalyticsPage navigate={navigate} />}
           {guardedRoute === '/admin/health' && <AdminHealthPage navigate={navigate} />}
+          {guardedRoute === '/admin/moderation' && <AdminModerationPage navigate={navigate} />}
            {guardedRoute === '/members' && <MembersPage appState={currentAppState} resolvedMembers={resolvedMembers} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
           {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} navigate={navigate} onProfileClick={setProfileMember} />}
+          {guardedRoute === '/requests' && <ConnectionRequestsPage navigate={navigate} />}
           {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
           {guardedRoute === '/profile' && <ProfileDashboard initialProfile={currentAppState.profile} appState={currentAppState} onSave={saveProfile} onUploadPhotos={uploadProfilePhotos} onLogout={handleLogout} navigate={navigate} onOpenDrawer={() => setMenuOpen(true)} authUser={authUser} onGoogleLogin={startGoogleLogin} onReviewClick={setReviewEvent} onMeetupFeedbackClick={setFeedbackMeetup} />}
-          {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} />}
+          {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} navigate={navigate} />}
           {guardedRoute === '/onboarding' && <OnboardingFlow onExplore={exploreAsGuest} onComplete={() => navigate('/login')} />}
           {guardedRoute === '/' && <HomePage appState={currentAppState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} onMeetSomeoneClick={() => setMeetSomeoneOpen(true)} />}
         </RouteErrorBoundary>
       </main>
-      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health') && <BottomNav route={guardedRoute} navigate={navigate} />}
+      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && <BottomNav route={guardedRoute} navigate={navigate} />}
       {installPrompt && <InstallBanner prompt={installPrompt} onDone={() => setInstallPrompt(null)} />}
       {selectedMember && <VibeRequestModal member={selectedMember} requested={Boolean(currentAppState.vibeRequests[selectedMember.id])} onClose={() => setSelectedMember(null)} onSend={sendVibe} navigate={navigate} />}
       {profileMember && <MemberProfileModal member={profileMember} requested={Boolean(currentAppState.vibeRequests[profileMember.id])} onClose={() => setProfileMember(null)} onVibeClick={member => { setProfileMember(null); setSelectedMember(member); }} navigate={navigate} />}
@@ -719,11 +951,13 @@ function getRoute() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   if (path === '/admin/analytics') return '/admin/analytics';
   if (path === '/admin/health') return '/admin/health';
+  if (path === '/admin/moderation') return '/admin/moderation';
   if (path.endsWith('/active-users.html') || path === '/members') return '/members';
   if (path.endsWith('/chat.html') || path === '/chat') return '/chat';
   if (path.startsWith('/chat/')) return path;
   if (path.endsWith('/events.html') || path === '/events') return '/events';
   if (path === '/host') return '/host';
+  if (path === '/requests') return '/requests';
   if (path === '/profile') return '/profile';
   if (path === '/onboarding') return '/onboarding';
   if (path === '/login') return '/login';
@@ -795,7 +1029,8 @@ function SideDrawer({ route, navigate, onClose, appState }) {
     { path: '/profile', label: 'My Club Profile', subtitle: 'Aadhaar safety & tier locker', icon: User },
     { path: '/onboarding', label: 'Onboarding 🚀', subtitle: 'Vibe check & Speakeasy Tour', icon: Sparkles },
     { path: '/admin/analytics', label: 'Admin Analytics 📊', subtitle: 'Telemetry & conversions', icon: BarChart2 },
-    { path: '/admin/health', label: 'Company Health 💓', subtitle: 'Funnel & North Star', icon: Heart }
+    { path: '/admin/health', label: 'Company Health 💓', subtitle: 'Funnel & North Star', icon: Heart },
+    { path: '/admin/moderation', label: 'Moderation Queue 🚩', subtitle: 'Abuse reports & safety', icon: ShieldCheck }
   ];
 
   const profile = appState.profile;
@@ -2321,9 +2556,40 @@ function MemberCard({ member, onVibeClick, onProfileClick, compact = false, requ
 function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate }) {
   const [closing, setClosing] = React.useState(false);
   const [photoIndex, setPhotoIndex] = React.useState(0);
+  const [moderating, setModerating] = React.useState(false);
+  const [reportOpen, setReportOpen] = React.useState(false);
   const dragControls = useDragControls();
   const photoSwipe = React.useRef(null);
   const photos = member.photos?.length ? member.photos : [];
+
+  const blockMember = async () => {
+    if (moderating) return;
+    setModerating(true);
+    try {
+      await fetch('/api/blocks', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ targetId: member.id })
+      });
+    } finally {
+      setModerating(false);
+      onClose?.();
+    }
+  };
+
+  const submitReport = async reason => {
+    if (!reason) { setReportOpen(false); return; }
+    try {
+      await fetch('/api/reports', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ targetType: 'user', targetId: member.id, reason })
+      });
+    } finally {
+      setReportOpen(false);
+      onClose?.();
+    }
+  };
 
   const trustMetrics = member.trustMetrics || member.profile?.trustMetrics || {
     attendanceScore: 94,
@@ -2582,9 +2848,112 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
               <MessageCircle /> Inbox
             </button>
           </div>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 10 }}>
+            <button onClick={() => setReportOpen(true)} style={{ background: 'none', border: 0, color: 'var(--soft)', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>
+              Report
+            </button>
+            <span style={{ color: 'var(--soft)' }}>·</span>
+            <button onClick={blockMember} disabled={moderating} style={{ background: 'none', border: 0, color: 'var(--pink)', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>
+              {moderating ? 'Blocking…' : 'Block'}
+            </button>
+          </div>
+          {reportOpen && (
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: 'var(--muted)', textAlign: 'center' }}>Why are you reporting {member.name?.split(',')[0]}?</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+                {['Inappropriate photos', 'Harassment', 'Fake profile', 'Spam', 'Other'].map(reason => (
+                  <button key={reason} className="btn-quiet" style={{ minHeight: 32, borderRadius: 10, fontSize: '0.74rem', padding: '0 12px' }} onClick={() => submitReport(reason)}>
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setReportOpen(false)} style={{ display: 'block', margin: '10px auto 0', background: 'none', border: 0, color: 'var(--soft)', fontSize: '0.74rem', cursor: 'pointer' }}>Cancel</button>
+            </div>
+          )}
         </div>
       </motion.div>
     </div>
+  );
+}
+
+function ConnectionRequestsPage({ navigate }) {
+  const [requests, setRequests] = React.useState(null);
+  const [busyId, setBusyId] = React.useState(null);
+
+  const load = React.useCallback(() => {
+    fetch('/api/connections/requests', { credentials: 'same-origin', cache: 'no-store' })
+      .then(res => res.json())
+      .then(data => setRequests(Array.isArray(data.requests) ? data.requests : []))
+      .catch(() => setRequests([]));
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const act = async (id, action) => {
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/connections/${id}/${action}`, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'content-type': 'application/json' }
+      });
+      if (res.ok) {
+        setRequests(prev => (prev || []).filter(r => r.id !== id));
+        if (action === 'accept') navigate('/chat');
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <section className="page-shell inbox-page">
+      <PageTitle eyebrow="Requests" title="Connection Requests" text="People who want to connect with you. Accept to start a chat, or decline." />
+      {requests === null ? (
+        <div className="inbox-list">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="inbox-card" style={{ opacity: 0.5 }}>
+              <div className="avatar pink" style={{ width: 48, height: 48 }} />
+              <div className="inbox-copy"><div className="inbox-row"><strong>Loading…</strong></div></div>
+            </div>
+          ))}
+        </div>
+      ) : requests.length === 0 ? (
+        <div style={{
+          textAlign: 'center', padding: '4rem 2rem', background: 'rgba(255,255,255,0.01)',
+          border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '24px', color: 'var(--muted)', marginTop: '2rem'
+        }}>
+          <Users style={{ width: 40, height: 40, color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
+          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No pending requests</h3>
+          <p style={{ margin: 0, fontSize: '0.86rem' }}>When someone sends you a connection request, it will show up here.</p>
+          <button className="btn-main" style={{ marginTop: '1.25rem' }} onClick={() => navigate('/members')}>Discover people</button>
+        </div>
+      ) : (
+        <div className="inbox-list">
+          {requests.map(req => (
+            <div key={req.id} className="inbox-card" style={{ alignItems: 'flex-start', cursor: 'default' }}>
+              <Avatar member={req.from} />
+              <div className="inbox-copy" style={{ flex: 1, minWidth: 0 }}>
+                <div className="inbox-row">
+                  <strong>{req.from.name}{req.from.age ? `, ${req.from.age}` : ''}</strong>
+                  <span>{req.from.city || ''}</span>
+                </div>
+                {req.note && <small style={{ display: 'block', color: 'var(--muted)', margin: '2px 0 8px' }}>“{req.note}”</small>}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn-main" style={{ minHeight: 34, borderRadius: 10, fontSize: '0.8rem', padding: '0 14px' }}
+                    disabled={busyId === req.id} onClick={() => act(req.id, 'accept')}>
+                    {busyId === req.id ? '…' : 'Accept'}
+                  </button>
+                  <button className="btn-quiet" style={{ minHeight: 34, borderRadius: 10, fontSize: '0.8rem', padding: '0 14px' }}
+                    disabled={busyId === req.id} onClick={() => act(req.id, 'reject')}>
+                    Decline
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2594,6 +2963,9 @@ function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], nav
   return (
     <section className="page-shell inbox-page">
       <PageTitle eyebrow="Inbox" title="Chat Inbox" text="Pick a connection to open a dedicated chat page. No cramped split layout." />
+      <button className="btn-quiet" style={{ alignSelf: 'flex-start', marginBottom: '1rem', minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/requests')}>
+        <Users style={{ width: 16, height: 16 }} /> View connection requests
+      </button>
       {hasNoChats ? (
         <div style={{
           textAlign: 'center',
@@ -3940,6 +4312,8 @@ function ProfilePage({ initialProfile, appState, onSave, onToggleRsvp, navigate 
                 </div>
               </div>
 
+              <BlockedMembersSection />
+
               <div className="settings-row">
                 <div>
                   <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>💳 Payment Methods & Refund Center</strong>
@@ -4190,6 +4564,72 @@ function Feature({ icon, title, text }) {
 function PageTitle({ eyebrow, title, text }) {
   return <div className="page-title"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>;
 }
+
+// SET-FE-05 (Sprint 1 Task 7): blocked-members list with unblock.
+// Reads GET /api/blocks; unblock via DELETE /api/blocks/:id.
+function BlockedMembersSection() {
+  const [blocks, setBlocks] = React.useState(null); // null = loading
+  const [busyId, setBusyId] = React.useState(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/blocks', { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) throw new Error('load_failed');
+      const json = await res.json();
+      setBlocks(json.blocks || []);
+    } catch {
+      setBlocks([]);
+    }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const unblock = async id => {
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/blocks/${id}`, { method: 'DELETE', credentials: 'same-origin', cache: 'no-store' });
+      if (res.ok) setBlocks(current => (current || []).filter(b => b.id !== id));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.75rem' }}>
+      <div>
+        <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>🚫 Blocked Members</strong>
+        <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
+          Blocked members can’t see you, message you, or appear in your feeds.
+        </span>
+      </div>
+
+      {blocks === null && (
+        <span style={{ fontSize: '0.82rem', color: 'var(--soft)' }}>Loading…</span>
+      )}
+      {blocks !== null && blocks.length === 0 && (
+        <span style={{ fontSize: '0.82rem', color: 'var(--soft)' }}>You haven’t blocked anyone.</span>
+      )}
+
+      {(blocks || []).map(b => (
+        <div key={b.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+          <span style={{ fontWeight: 700, fontSize: '0.9rem', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            {b.name || 'Member'}
+          </span>
+          <button
+            className="btn-quiet"
+            disabled={busyId === b.id}
+            style={{ minHeight: '34px', borderRadius: '10px', fontSize: '0.78rem', padding: '0 14px', flexShrink: 0 }}
+            onClick={() => unblock(b.id)}
+          >
+            {busyId === b.id ? 'Unblocking…' : 'Unblock'}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 function Avatar({ member }) {
   const photo = member.photo || member.photos?.[0];
