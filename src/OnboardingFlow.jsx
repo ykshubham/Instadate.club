@@ -220,10 +220,13 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
         authProvider: authUser.authProvider,
         hasCloudProfile: Boolean(cloudProfile)
       });
-      // If server has progressed further than local slide index, resume from there
-      if (serverStep > index) {
-        onbLog('resume:advance', { from: index, to: serverStep });
-        setIndex(serverStep);
+      // If server has progressed further than local slide index, resume from there.
+      // Clamp to LAST_STEP: a completed account stores the sentinel 13, which would
+      // otherwise index past stepHeaders[] and crash the view (reading 'eyebrow').
+      const target = Math.min(serverStep, LAST_STEP);
+      if (target > index) {
+        onbLog('resume:advance', { from: index, to: target, rawServerStep: serverStep });
+        setIndex(target);
       }
       
       // Seed default draft from cloud profile if available
@@ -762,9 +765,11 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
         { eyebrow: 'Step 12 of 12: Permissions', title: 'Stay Connected', text: 'Allow just-in-time notification permissions so you never miss a match or plan update.' },
         { eyebrow: 'Verification Complete', title: 'Instadate Pass Ready!', text: 'Your application is approved. Review your pass before entering the lounge.' }
       ];
-      return <SlideHeader slide={stepHeaders[index - 3]} />;
+      // Fall back to the last header rather than crashing if index ever runs
+      // past the table (e.g. an out-of-range resume value).
+      return <SlideHeader slide={stepHeaders[index - 3] ?? stepHeaders[stepHeaders.length - 1]} />;
     }
-    return <SlideHeader slide={slides[index]} />;
+    return <SlideHeader slide={slides[index] ?? slides[0]} />;
   };
 
   const isSkippable = index === 4 || index === 7 || index === 9 || index === 11;
