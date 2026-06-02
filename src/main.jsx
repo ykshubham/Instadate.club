@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import gsap from 'gsap';
 import {
-  ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Gem, Heart, Home, MapPin, Menu,
-  MessageCircle, MessageSquare, Mic, Moon, Play, Search, Send, ShieldCheck, Sparkles, Square, Star, Sun, Ticket, User, Users, X, Zap, Mail, Paperclip
+  AlertTriangle, ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Download, Fingerprint, Gem, Heart, HelpCircle, Home, LogOut, MapPin, Menu,
+  MessageCircle, MessageSquare, Mic, Moon, PauseCircle, Play, Search, Send, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Square, Star, Sun, Ticket, Trash2, User, Users, X, Zap, Mail, Paperclip
 } from 'lucide-react';
 import './styles.css';
 import ProfileDashboard from './ProfileDashboard.jsx';
@@ -1172,7 +1172,7 @@ function App() {
   return (
     <>
       <div className="app-bg" />
-      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && (
+      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/concierge' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && (
         <Header
           route={guardedRoute} 
           navigate={navigate} 
@@ -1192,6 +1192,7 @@ function App() {
           {guardedRoute === '/requests' && <ConnectionRequestsPage navigate={navigate} />}
           {guardedRoute === '/vibe-checks' && <VibeCheckInboxPage appState={currentAppState} navigate={navigate} />}
           {guardedRoute.startsWith('/vibe-check/send/') && <VibeCheckSendPage route={guardedRoute} navigate={navigate} appState={currentAppState} />}
+          {guardedRoute === '/concierge' && <ConciergePage appState={currentAppState} navigate={navigate} onLogout={handleLogout} />}
           {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} currentUserId={authUser?.id} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
@@ -1211,7 +1212,7 @@ function App() {
           {guardedRoute === '/' && <HomePage appState={currentAppState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} onMeetSomeoneClick={() => setMeetSomeoneOpen(true)} />}
         </RouteErrorBoundary>
       </main>
-      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && <BottomNav route={guardedRoute} navigate={navigate} />}
+      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/concierge' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && <BottomNav route={guardedRoute} navigate={navigate} />}
       {installPrompt && <InstallBanner prompt={installPrompt} onDone={() => setInstallPrompt(null)} />}
       {selectedMember && <VibeRequestModal member={selectedMember} requested={Boolean(currentAppState.vibeRequests[selectedMember.id])} onClose={() => setSelectedMember(null)} onSend={sendVibe} navigate={navigate} />}
       {profileMember && <MemberProfileModal member={profileMember} requested={Boolean(currentAppState.vibeRequests[profileMember.id])} onClose={() => setProfileMember(null)} onVibeClick={member => { setProfileMember(null); setSelectedMember(member); }} navigate={navigate} />}
@@ -1302,6 +1303,7 @@ function getRoute() {
   if (path === '/requests') return '/requests';
   if (path === '/vibe-checks') return '/vibe-checks';
   if (path.startsWith('/vibe-check/send/')) return path;
+  if (path === '/concierge') return '/concierge';
   if (path === '/profile') return '/profile';
   if (path === '/onboarding') return '/onboarding';
   if (path === '/login') return '/login';
@@ -1370,6 +1372,7 @@ function SideDrawer({ route, navigate, onClose, appState }) {
     { path: '/members', label: 'Verified Members', subtitle: 'Browse active profiles', icon: Users },
     { path: '/chat', label: 'Inbox Chats', subtitle: 'Open locked voice connections', icon: MessageCircle },
     { path: '/events', label: 'mixers Calendar', subtitle: 'RSVP scheduled offline mixer', icon: Calendar },
+    { path: '/concierge', label: 'Concierge Controls', subtitle: 'Security, billing & account settings', icon: Shield },
     { path: '/profile', label: 'My Club Profile', subtitle: 'Aadhaar safety & tier locker', icon: User },
     { path: '/onboarding', label: 'Onboarding 🚀', subtitle: 'Vibe check & Speakeasy Tour', icon: Sparkles },
     { path: '/admin/analytics', label: 'Admin Analytics 📊', subtitle: 'Telemetry & conversions', icon: BarChart2, admin: true },
@@ -3278,6 +3281,269 @@ function formatInboxTime(ts) {
   const d = Math.floor(h / 24);
   if (d < 7) return `${d}d`;
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+// ============ CONCIERGE CONTROLS PAGE ============
+// Settings & account management with glassmorphic luxury design.
+function ConciergePage({ appState, navigate, onLogout }) {
+  const profile = appState?.profile || {};
+  const trustMetrics = appState?.trustMetrics || {};
+  const [busyAction, setBusyAction] = React.useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+
+  const handleExport = async () => {
+    setBusyAction('export');
+    try {
+      const res = await fetch('/api/account/export', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `instadate-export-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Data exported successfully' }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Export failed. Try again.' }));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    setBusyAction('deactivate');
+    try {
+      const res = await fetch('/api/account/deactivate', { method: 'POST', credentials: 'same-origin' });
+      if (!res.ok) throw new Error();
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Account deactivated. You can reactivate within 30 days.' }));
+      navigate('/profile');
+    } catch {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Failed to deactivate. Try again.' }));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    setBusyAction('delete');
+    try {
+      const res = await fetch('/api/account', { method: 'DELETE', credentials: 'same-origin' });
+      if (!res.ok) throw new Error();
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Account deletion requested. 30-day grace period started.' }));
+      if (onLogout) onLogout();
+    } catch {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Failed to request deletion.' }));
+    } finally {
+      setBusyAction(null);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const verificationLevel = profile.verification_level || trustMetrics.verification_level || 'none';
+  const isElite = profile.completed && (verificationLevel !== 'none');
+  const isVerified = verificationLevel === 'full' || verificationLevel === 'basic';
+
+  return (
+    <div className="concierge-shell">
+      {/* Ambient Blobs */}
+      <div className="concierge-bg" aria-hidden="true">
+        <div className="concierge-blob blob-a" />
+        <div className="concierge-blob blob-b" />
+        <div className="concierge-blob blob-c" />
+      </div>
+
+      <div className="concierge-page">
+        {/* Top Bar */}
+        <header className="concierge-header">
+          <button className="concierge-back" onClick={() => navigate('/profile')} aria-label="Back to profile">
+            <ArrowLeft style={{ width: 20, height: 20 }} />
+          </button>
+          <h1 className="concierge-title">Concierge Controls</h1>
+          <span style={{ width: 36 }} />
+        </header>
+
+        <main className="concierge-main">
+          {/* Section Label */}
+          <p className="concierge-eyebrow">Vetting &amp; Security</p>
+          <h2 className="concierge-section-title">Concierge Controls</h2>
+
+          {/* Settings Cards */}
+          <div className="concierge-stack">
+            {/* Google Account */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(196,192,255,0.2), rgba(255,45,85,0.2))' }}>
+                <Mail style={{ width: 20, height: 20, color: 'var(--primary)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Google Account</h3>
+                <p>Manage linked sync &amp; calendar</p>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+            </button>
+
+            {/* Identity Verification */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(228,242,34,0.2), rgba(196,192,255,0.2))' }}>
+                <Fingerprint style={{ width: 20, height: 20, color: 'var(--premium-gold)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Identity Verification</h3>
+                <p>{isVerified ? 'Biometric &amp; ID verified' : 'Complete verification'}</p>
+              </div>
+              {isVerified ? (
+                <ShieldCheck style={{ width: 18, height: 18, color: '#4ade80' }} />
+              ) : (
+                <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+              )}
+            </button>
+
+            {/* Billing & Concierge */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(196,192,255,0.2), rgba(162,231,255,0.2))' }}>
+                <Gem style={{ width: 20, height: 20, color: 'var(--secondary)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Billing &amp; Concierge</h3>
+                <p>{isElite ? 'Elite membership' : 'Payment methods &amp; receipts'}</p>
+              </div>
+              {isElite ? (
+                <span className="concierge-elite-badge">ELITE</span>
+              ) : (
+                <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+              )}
+            </button>
+
+            {/* Concierge Filters */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(255,45,85,0.2), rgba(196,192,255,0.2))' }}>
+                <SlidersHorizontal style={{ width: 20, height: 20, color: 'var(--accent-magenta)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Concierge Filters</h3>
+                <p>Global matching preferences</p>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+            </button>
+
+            {/* Emergency Contact */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(255,180,171,0.2), rgba(255,45,85,0.2))' }}>
+                <AlertTriangle style={{ width: 20, height: 20, color: 'var(--error)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Emergency Contact</h3>
+                <p>Safety protocols &amp; alerts</p>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+            </button>
+          </div>
+
+          {/* Primary Action */}
+          <button className="concierge-primary-btn" onClick={() => navigate('/profile')}>
+            <span className="concierge-primary-bg" />
+            <span className="concierge-primary-inner">
+              <Shield style={{ width: 20, height: 20 }} />
+              <span>Settings &amp; Verification</span>
+            </span>
+          </button>
+
+          {/* Secondary Row */}
+          <div className="concierge-secondary-row">
+            <button className="glass-card concierge-sec-btn" onClick={() => window.open('mailto:support@instadate.club', '_blank')}>
+              <HelpCircle style={{ width: 16, height: 16 }} />
+              Help Center
+            </button>
+            <button className="concierge-signout-btn" onClick={onLogout}>
+              <LogOut style={{ width: 16, height: 16 }} />
+              Sign Out
+            </button>
+          </div>
+
+          {/* Account & Data */}
+          <section className="neon-section">
+            <h3 className="neon-section-title">Account &amp; Data</h3>
+            <p className="neon-section-desc">Manage your data, privacy, account access, and lifecycle.</p>
+            <div className="neon-section-links">
+              <button className="neon-link" onClick={handleExport} disabled={busyAction === 'export'}>
+                <Download style={{ width: 18, height: 18, color: 'var(--primary)' }} />
+                <span>{busyAction === 'export' ? 'Exporting…' : 'Export Data Archive'}</span>
+                {busyAction !== 'export' && <ArrowLeft style={{ width: 14, height: 14, transform: 'rotate(180deg)', color: 'var(--text-muted)' }} />}
+              </button>
+              <div className="neon-divider" />
+              <button className="neon-link" onClick={handleDeactivate} disabled={busyAction === 'deactivate'}>
+                <PauseCircle style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+                <span>{busyAction === 'deactivate' ? 'Deactivating…' : 'Deactivate Account'}</span>
+                {busyAction !== 'deactivate' && <ArrowLeft style={{ width: 14, height: 14, transform: 'rotate(180deg)', color: 'var(--text-muted)' }} />}
+              </button>
+              <div className="neon-divider" />
+              <button className="neon-link neon-link-danger" onClick={() => setShowDeleteConfirm(true)} disabled={busyAction === 'delete'}>
+                <Trash2 style={{ width: 18, height: 18, color: 'var(--error)' }} />
+                <span className="neon-link-danger-text">{busyAction === 'delete' ? 'Deleting…' : 'Delete Account Permanently'}</span>
+                {busyAction !== 'delete' && <ArrowLeft style={{ width: 14, height: 14, transform: 'rotate(180deg)', color: 'var(--error)', opacity: 0.5 }} />}
+              </button>
+            </div>
+          </section>
+
+          {/* Delete Confirmation Modal */}
+          {showDeleteConfirm && (
+            <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setShowDeleteConfirm(false)}>
+              <motion.div
+                className="concierge-confirm-dialog glass-card"
+                initial={{ opacity: 0, scale: 0.92, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.92, y: 20 }}
+                onClick={e => e.stopPropagation()}
+                style={{ padding: '2rem', borderRadius: 24, maxWidth: 360, width: '90%', textAlign: 'center' }}
+              >
+                <AlertTriangle style={{ width: 40, height: 40, color: 'var(--error)', marginBottom: '1rem' }} />
+                <h3 style={{ color: '#fff', font: '800 1.2rem Outfit, sans-serif', margin: '0 0 0.5rem' }}>Delete Account?</h3>
+                <p style={{ color: 'var(--muted)', fontSize: '0.88rem', lineHeight: 1.5, margin: '0 0 1.5rem' }}>
+                  This starts a 30-day grace period. After that, your data will be permanently deleted. This cannot be undone.
+                </p>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button className="btn-quiet" style={{ flex: 1, minHeight: 42, borderRadius: 12 }} onClick={() => setShowDeleteConfirm(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn-main"
+                    style={{ flex: 1, minHeight: 42, borderRadius: 12, background: 'linear-gradient(135deg, #ff3366, #93000a)', border: 'none' }}
+                    onClick={handleDelete}
+                    disabled={busyAction === 'delete'}
+                  >
+                    {busyAction === 'delete' ? 'Deleting…' : 'Yes, Delete'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Elite Status Card */}
+          <div className="concierge-status-card">
+            <div className="concierge-status-img" />
+            <div className="concierge-status-overlay" />
+            <div className="concierge-status-content">
+              <span className="concierge-status-badge">Your Status</span>
+              <h4>{isElite ? 'Elite Membership Active' : 'Member'}</h4>
+              <p>
+                {isElite
+                  ? `Verified ${verificationLevel === 'full' ? 'with full biometric ID' : 'with phone verification'}`
+                  : 'Complete verification to unlock Elite status'}
+              </p>
+            </div>
+          </div>
+        </main>
+
+        {/* Bottom Navigation */}
+        <nav className="concierge-bottom-nav" aria-label="Quick navigation">
+          <button onClick={() => navigate('/members')}><Users style={{ width: 20, height: 20 }} /><span>Discover</span></button>
+          <button className="concierge-nav-active" onClick={() => {}}><Shield style={{ width: 20, height: 20 }} /><span>Concierge</span></button>
+          <button onClick={() => navigate('/chat')}><MessageCircle style={{ width: 20, height: 20 }} /><span>Messages</span></button>
+          <button onClick={() => navigate('/profile')}><User style={{ width: 20, height: 20 }} /><span>Profile</span></button>
+        </nav>
+      </div>
+    </div>
+  );
 }
 
 function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], navigate }) {
