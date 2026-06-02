@@ -123,3 +123,19 @@ Format: **#. Scenario → Expected UX → Backend handling.**
 
 ## Acceptance criteria
 Each case has a deterministic, user-visible response and a safe backend outcome; none leaves a half-written state or leaks another user's data.
+
+## Fix log
+
+### 2026-06-02 — Event host saw "Join Plan Tonight" on their own event
+**Symptom:** A host viewing their own event (e.g. "Sip and Talk") was shown the Join/RSVP button and could RSVP to themselves.
+
+**Root cause:** `EventCard` (and the MeetSomeone modal) rendered the Join/RSVP control unconditionally — the current user was never compared to the event host. The server already returns `hostUserId` per event (`creatorId` for instant plans); the client just never used it.
+
+**Fix:** added `isEventHost(event, currentUserId)` (`main.jsx`) — `hostUserId ?? hostId ?? creatorId` vs the authenticated `authUser.id`. When the viewer is the host:
+- **Event feed + card detail (`EventCard`):** hide Join, show a "Hosted by You" badge, and a "Manage Event" button → `/profile`.
+- **Recommended events/plans (MeetSomeone modal):** Join/RSVP replaced with a "Hosted by You" / "Hosting" badge.
+- **Hosted events section (`ActiveOutingsSection`)** has no Join control; **the profile plans list** already had an `isCreator` check.
+- `createHostedEvent` stamps `hostUserId` on the optimistic event so the creator sees host UI immediately, before the server refetch.
+- Logs (`[events] host-check`): `currentUserId`, `hostId`, `isHost`, `eventId` (gated by the `onboarding_debug` switch).
+
+*Note:* `RecommendedEventsSection` in the dashboard is currently dead (`recommendedEvents` is always `[]`), so it needed no change.

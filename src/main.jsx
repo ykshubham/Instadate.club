@@ -811,6 +811,22 @@ function routeLog(event, data) {
   console.info(`[routing] ${event}`, data === undefined ? '' : data);
 }
 
+// --- Event host detection --------------------------------------------------
+// The server sends each event's host as `hostUserId` (instant plans use
+// `creatorId`). A host must never see a Join/RSVP action on their own event.
+function getEventHostId(event) {
+  return event?.hostUserId ?? event?.hostId ?? event?.creatorId ?? null;
+}
+function isEventHost(event, currentUserId) {
+  const hostId = getEventHostId(event);
+  return Boolean(hostId && currentUserId && hostId === currentUserId);
+}
+function eventLog(name, data) {
+  if (!ROUTE_DEBUG) return; // shares the onboarding_debug switch
+  // eslint-disable-next-line no-console
+  console.info(`[events] ${name}`, data === undefined ? '' : data);
+}
+
 function App() {
   const [route, setRoute] = React.useState(getRoute);
   const [guestMode, setGuestMode] = React.useState(() => sessionStorage.getItem('instadate_guest_mode') !== 'false');
@@ -1060,6 +1076,7 @@ function App() {
       price: form.entry === 'Paid' ? form.price : '',
       approval: form.approval,
       hostName: currentAppState.profile?.fullName || 'Club host',
+      hostUserId: authUser?.id || null,
       createdAt: new Date().toISOString(),
       source: 'hosted'
     };
@@ -1165,7 +1182,7 @@ function App() {
           {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} navigate={navigate} onProfileClick={setProfileMember} />}
           {guardedRoute === '/requests' && <ConnectionRequestsPage navigate={navigate} />}
           {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
-          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} />}
+          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} currentUserId={authUser?.id} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
           {guardedRoute === '/profile' && <ProfileDashboard initialProfile={currentAppState.profile} appState={currentAppState} onSave={saveProfile} onUploadPhotos={uploadProfilePhotos} onLogout={handleLogout} navigate={navigate} onOpenDrawer={() => setMenuOpen(true)} authUser={authUser} onGoogleLogin={startGoogleLogin} onReviewClick={setReviewEvent} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} navigate={navigate} />}
@@ -1211,6 +1228,7 @@ function App() {
           onToggleRsvp={toggleRsvp}
           onJoinPlan={handleJoinPlan}
           navigate={navigate}
+          currentUserId={authUser?.id}
         />
       )}
       {cloudStateStatus === 'offline' && (
@@ -1914,7 +1932,7 @@ function ActivityPartnerModal({ activity, resolvedMembers = [], onClose, onVibeC
   );
 }
 
-function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onVibeClick, onProfileClick, onToggleRsvp, onJoinPlan, navigate }) {
+function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onVibeClick, onProfileClick, onToggleRsvp, onJoinPlan, navigate, currentUserId }) {
   const [selectedActivity, setSelectedActivity] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState('members');
 
@@ -2092,6 +2110,7 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                 ) : (
                   matchingEvents.map(event => {
                     const isJoined = Boolean(appState.rsvps[event.id]);
+                    const isHost = isEventHost(event, currentUserId);
                     return (
                       <div key={event.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '18px', gap: '10px' }}>
                         <img src={event.image} alt="" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }} />
@@ -2101,21 +2120,27 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                             {event.date} • {event.place}
                           </span>
                         </div>
-                        <button 
-                          className="btn-main" 
-                          style={{
-                            minHeight: '34px', 
-                            borderRadius: '10px', 
-                            fontSize: '0.78rem', 
-                            padding: '0 12px',
-                            background: isJoined ? 'rgba(255, 46, 147, 0.15)' : '#fff',
-                            color: isJoined ? 'var(--pink)' : '#000',
-                            border: isJoined ? '1px solid rgba(255, 46, 147, 0.3)' : 'none'
-                          }}
-                          onClick={() => onToggleRsvp(event)}
-                        >
-                          {isJoined ? "RSVP'd ✓" : 'RSVP 🎟'}
-                        </button>
+                        {isHost ? (
+                          <span style={{ minHeight: '34px', display: 'inline-flex', alignItems: 'center', padding: '0 12px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--cyan)', background: 'rgba(0, 215, 245, 0.12)', border: '1px solid rgba(0, 215, 245, 0.3)', whiteSpace: 'nowrap' }}>
+                            Hosted by You
+                          </span>
+                        ) : (
+                          <button
+                            className="btn-main"
+                            style={{
+                              minHeight: '34px',
+                              borderRadius: '10px',
+                              fontSize: '0.78rem',
+                              padding: '0 12px',
+                              background: isJoined ? 'rgba(255, 46, 147, 0.15)' : '#fff',
+                              color: isJoined ? 'var(--pink)' : '#000',
+                              border: isJoined ? '1px solid rgba(255, 46, 147, 0.3)' : 'none'
+                            }}
+                            onClick={() => onToggleRsvp(event)}
+                          >
+                            {isJoined ? "RSVP'd ✓" : 'RSVP 🎟'}
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -2132,6 +2157,7 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                 ) : (
                   matchingPlans.map(plan => {
                     const hasJoined = plan.members.some(m => m.id === appState.profile.id);
+                    const isHost = isEventHost(plan, currentUserId);
                     return (
                       <div key={plan.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '18px', gap: '10px' }}>
                         <div style={{ minWidth: 0 }}>
@@ -2140,21 +2166,27 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                             Activity: {plan.activity} • {plan.time} • Host: {plan.creatorName} ({plan.creatorTrustScore}% Trust)
                           </span>
                         </div>
-                        <button 
-                          className="btn-main" 
-                          style={{
-                            minHeight: '34px', 
-                            borderRadius: '10px', 
-                            fontSize: '0.78rem', 
-                            padding: '0 12px',
-                            background: hasJoined ? 'rgba(0, 215, 245, 0.15)' : '#fff',
-                            color: hasJoined ? 'var(--cyan)' : '#000',
-                            border: hasJoined ? '1px solid rgba(0, 215, 245, 0.3)' : 'none'
-                          }}
-                          onClick={() => onJoinPlan(plan.id, hasJoined)}
-                        >
-                          {hasJoined ? 'Joined ✓' : 'Join ⚡'}
-                        </button>
+                        {isHost ? (
+                          <span style={{ minHeight: '34px', display: 'inline-flex', alignItems: 'center', padding: '0 12px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--cyan)', background: 'rgba(0, 215, 245, 0.12)', border: '1px solid rgba(0, 215, 245, 0.3)', whiteSpace: 'nowrap' }}>
+                            Hosting
+                          </span>
+                        ) : (
+                          <button
+                            className="btn-main"
+                            style={{
+                              minHeight: '34px',
+                              borderRadius: '10px',
+                              fontSize: '0.78rem',
+                              padding: '0 12px',
+                              background: hasJoined ? 'rgba(0, 215, 245, 0.15)' : '#fff',
+                              color: hasJoined ? 'var(--cyan)' : '#000',
+                              border: hasJoined ? '1px solid rgba(0, 215, 245, 0.3)' : 'none'
+                            }}
+                            onClick={() => onJoinPlan(plan.id, hasJoined)}
+                          >
+                            {hasJoined ? 'Joined ✓' : 'Join ⚡'}
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -4090,7 +4122,7 @@ function HostEventPage({ navigate, onCreateEvent }) {
   );
 }
 
-function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick, navigate }) {
+function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick, navigate, currentUserId }) {
   const [filter, setFilter] = React.useState('all'); // 'all', 'plans', 'mixers', 'invite'
   const [query, setQuery] = React.useState('');
   const [threeLoaded, setThreeLoaded] = React.useState(false);
@@ -4567,11 +4599,13 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
       <div className="event-grid" style={{ minHeight: '300px' }}>
         {filteredEvents.map(event => (
           <div key={event.id} className="gsap-event-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <EventCard 
-              event={event} 
-              isRsvped={Boolean(appState.rsvps[event.id])} 
-              onToggleRsvp={onToggleRsvp} 
+            <EventCard
+              event={event}
+              isRsvped={Boolean(appState.rsvps[event.id])}
+              onToggleRsvp={onToggleRsvp}
               onReviewClick={onReviewClick}
+              currentUserId={currentUserId}
+              navigate={navigate}
             />
           </div>
         ))}
@@ -4590,7 +4624,7 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
   );
 }
 
-function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
+function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick, currentUserId, navigate }) {
   const cardRef = React.useRef(null);
 
   // Aceternity spotlight mouse position tracking
@@ -4605,6 +4639,11 @@ function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
 
   const isExclusive = event.type.toLowerCase().includes("exclusive") || event.type.toLowerCase().includes("vip") || event.type.toLowerCase().includes("invite");
   const isHostedPlan = event.source === 'hosted';
+  const isHost = isEventHost(event, currentUserId);
+
+  React.useEffect(() => {
+    eventLog('host-check', { currentUserId: currentUserId ?? null, hostId: getEventHostId(event), isHost, eventId: event.id });
+  }, [currentUserId, event.id, isHost]);
 
   return (
     <article 
@@ -4762,7 +4801,7 @@ function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong style={{ color: '#9af7bb', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Hosted by {event.hostName || 'Club host'}
+                {isHost ? 'Hosted by You' : `Hosted by ${event.hostName || 'Club host'}`}
               </strong>
               <span style={{
                 background: 'rgba(155, 48, 255, 0.18)',
@@ -4876,25 +4915,46 @@ function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
           </button>
         )}
 
-        <button 
-          className={isRsvped ? 'btn-quiet full' : 'btn-main full'} 
-          onClick={() => onToggleRsvp(event)}
-          style={{
-            marginTop: 'auto',
-            minHeight: '42px',
-            borderRadius: '12px',
-            fontWeight: 'bold',
-            fontSize: '0.86rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            boxShadow: isRsvped ? 'none' : '0 4px 15px rgba(255, 46, 147, 0.2)'
-          }}
-        >
-          {isRsvped ? 'Leave Plan' : isHostedPlan ? 'Join Plan Tonight' : 'Reserve Spot Securely'}
-          <Ticket style={{ width: '16px', height: '16px' }} />
-        </button>
+        {isHost ? (
+          // Host of this event: no Join/RSVP — manage it instead.
+          <button
+            className="btn-quiet full"
+            onClick={() => navigate?.('/profile')}
+            style={{
+              marginTop: 'auto',
+              minHeight: '42px',
+              borderRadius: '12px',
+              fontWeight: 'bold',
+              fontSize: '0.86rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+          >
+            Manage Event <ChevronRight style={{ width: '16px', height: '16px' }} />
+          </button>
+        ) : (
+          <button
+            className={isRsvped ? 'btn-quiet full' : 'btn-main full'}
+            onClick={() => onToggleRsvp(event)}
+            style={{
+              marginTop: 'auto',
+              minHeight: '42px',
+              borderRadius: '12px',
+              fontWeight: 'bold',
+              fontSize: '0.86rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              boxShadow: isRsvped ? 'none' : '0 4px 15px rgba(255, 46, 147, 0.2)'
+            }}
+          >
+            {isRsvped ? 'Leave Plan' : isHostedPlan ? 'Join Plan Tonight' : 'Reserve Spot Securely'}
+            <Ticket style={{ width: '16px', height: '16px' }} />
+          </button>
+        )}
       </div>
     </article>
   );

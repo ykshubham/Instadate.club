@@ -148,6 +148,7 @@ type EventDto = {
   price: string;
   approval: string;
   hostName: string;
+  hostUserId?: string;
   createdAt: string;
   source: string;
   attendeeCount: number;
