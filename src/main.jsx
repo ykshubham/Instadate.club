@@ -4,7 +4,7 @@ import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import gsap from 'gsap';
 import {
   ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Gem, Heart, Home, MapPin, Menu,
-  MessageCircle, MessageSquare, Mic, Moon, Search, Send, ShieldCheck, Sparkles, Star, Sun, Ticket, User, Users, X, Zap, Mail, Paperclip
+  MessageCircle, MessageSquare, Mic, Moon, Play, Search, Send, ShieldCheck, Sparkles, Square, Star, Sun, Ticket, User, Users, X, Zap, Mail, Paperclip
 } from 'lucide-react';
 import './styles.css';
 import ProfileDashboard from './ProfileDashboard.jsx';
@@ -1190,6 +1190,8 @@ function App() {
            {guardedRoute === '/members' && <MembersPage appState={currentAppState} resolvedMembers={resolvedMembers} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
           {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} navigate={navigate} onProfileClick={setProfileMember} />}
           {guardedRoute === '/requests' && <ConnectionRequestsPage navigate={navigate} />}
+          {guardedRoute === '/vibe-checks' && <VibeCheckInboxPage appState={currentAppState} navigate={navigate} />}
+          {guardedRoute.startsWith('/vibe-check/send/') && <VibeCheckSendPage route={guardedRoute} navigate={navigate} appState={currentAppState} />}
           {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} currentUserId={authUser?.id} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
@@ -1298,6 +1300,8 @@ function getRoute() {
   if (path.endsWith('/events.html') || path === '/events') return '/events';
   if (path === '/host') return '/host';
   if (path === '/requests') return '/requests';
+  if (path === '/vibe-checks') return '/vibe-checks';
+  if (path.startsWith('/vibe-check/send/')) return path;
   if (path === '/profile') return '/profile';
   if (path === '/onboarding') return '/onboarding';
   if (path === '/login') return '/login';
@@ -3189,6 +3193,17 @@ function ConnectionRequestsPage({ navigate }) {
   return (
     <section className="page-shell inbox-page">
       <PageTitle eyebrow="Requests" title="Connection Requests" text="People who want to connect with you. Accept to start a chat, or decline." />
+      <div style={{ marginBottom: '1rem' }}>
+        <div className="vc-upgrade-notice" style={{
+          padding: '0.75rem 1rem', borderRadius: 14, fontSize: '0.85rem',
+          background: 'linear-gradient(135deg, rgba(255,46,147,0.08), rgba(155,48,255,0.08))',
+          border: '1px solid rgba(255,46,147,0.15)',
+          display: 'flex', alignItems: 'center', gap: 10
+        }}>
+          <Mic style={{ width: 18, height: 18, color: 'var(--pink)', flexShrink: 0 }} />
+          <span><strong>Vibe Checks</strong> are the new way to connect! Send a voice intro and unlock chat when they accept. <a href="/vibe-checks" style={{ color: 'var(--pink)', textDecoration: 'underline' }} onClick={e => { e.preventDefault(); navigate('/vibe-checks'); }}>View Vibe Check inbox →</a></span>
+        </div>
+      </div>
       {requests === null ? (
         <div className="inbox-list">
           <Skeleton type="list" count={3} />
@@ -3267,13 +3282,20 @@ function formatInboxTime(ts) {
 
 function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], navigate }) {
   const hasNoChats = resolvedChats.length === 0;
+  const vibeCheckCount = appState?.vibeChecks?.inbox?.length || 0;
+  const requestCount = appState?.notifications?.filter(n => n.type === 'connection_request' && !n.readAt)?.length || 0;
 
   return (
     <section className="page-shell inbox-page">
       <PageTitle eyebrow="Inbox" title="Chat Inbox" text="Pick a connection to open a dedicated chat page. No cramped split layout." />
-      <button className="btn-quiet" style={{ alignSelf: 'flex-start', marginBottom: '1rem', minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/requests')}>
-        <Users style={{ width: 16, height: 16 }} /> View connection requests
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/vibe-checks')}>
+          <Mic style={{ width: 16, height: 16 }} /> Vibe Checks{vibeCheckCount > 0 ? ` (${vibeCheckCount})` : ''}
+        </button>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/requests')}>
+          <Users style={{ width: 16, height: 16 }} /> Connection requests{requestCount > 0 ? ` (${requestCount})` : ''}
+        </button>
+      </div>
       {hasNoChats ? (
         <EmptyState
           type="chat"
@@ -5441,6 +5463,366 @@ function Field({ label, error, children }) {
   );
 }
 
+// ============ VIBE CHECK SEND PAGE ============
+// Voice recording screen for sending a vibe check to a specific user.
+function VibeCheckSendPage({ route, navigate, appState }) {
+  const userId = route.split('/').pop();
+  const member = React.useMemo(() => {
+    const allMembers = appState?.discovery?.members || appState?.discovery || [];
+    const fromInbox = (appState?.vibeChecks?.inbox || []).find(vc => vc.from?.id === userId)?.from;
+    if (fromInbox) return { id: userId, name: fromInbox.name, age: fromInbox.age, city: fromInbox.city, avatar: fromInbox.avatar, photos: fromInbox.photos, gradient: fromInbox.gradient };
+    const fromMembers = allMembers.find(m => m.id === userId);
+    if (fromMembers) return fromMembers;
+    return { id: userId, name: 'Someone', avatar: 'S', gradient: 'pink' };
+  }, [userId, appState]);
+
+  const [recordingState, setRecordingState] = React.useState('idle'); // idle | recording | preview | sending
+  const [duration, setDuration] = React.useState(0);
+  const [audioBlob, setAudioBlob] = React.useState(null);
+  const [audioUrl, setAudioUrl] = React.useState(null);
+  const [error, setError] = React.useState('');
+  const [dailyQuota, setDailyQuota] = React.useState(null);
+
+  const mediaRecorderRef = React.useRef(null);
+  const chunksRef = React.useRef([]);
+  const timerRef = React.useRef(null);
+  const audioPreviewRef = React.useRef(null);
+
+  // Fetch daily quota on mount
+  React.useEffect(() => {
+    fetch('/api/vibe-checks/daily-quota', { credentials: 'same-origin' })
+      .then(r => r.json()).then(d => setDailyQuota(d)).catch(() => {});
+  }, []);
+
+  // Cleanup on unmount
+  React.useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+  }, [audioUrl]);
+
+  const startRecording = async () => {
+    try {
+      setError('');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg' });
+      mediaRecorderRef.current = mr;
+      chunksRef.current = [];
+
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        if (blob.size > 0) {
+          setAudioBlob(blob);
+          setAudioUrl(URL.createObjectURL(blob));
+          setRecordingState('preview');
+        } else {
+          setRecordingState('idle');
+        }
+      };
+      mr.start();
+      setRecordingState('recording');
+      setDuration(0);
+      timerRef.current = setInterval(() => {
+        setDuration(prev => {
+          if (prev >= 29) { stopRecording(); return 30; }
+          return prev + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setError('Microphone access denied. Please allow mic access in your browser settings.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    } else {
+      setRecordingState('idle');
+    }
+  };
+
+  const cancelPreview = () => {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setDuration(0);
+    setRecordingState('idle');
+  };
+
+  const sendVibeCheck = async () => {
+    if (!audioBlob) return;
+    setRecordingState('sending');
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'vibe-check.webm');
+      formData.append('toUserId', userId);
+      formData.append('duration', String(duration));
+
+      const res = await fetch('/api/vibe-checks', { method: 'POST', body: formData, credentials: 'same-origin' });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'daily_quota_exceeded') setError('You\'ve used all 10 vibe checks for today. Try again tomorrow.');
+        else if (data.error === 'already_pending') setError('You already have a pending vibe check with this person.');
+        else if (data.error === 'cooldown_active') setError('You cannot send a vibe check to this person yet. Cooldown active.');
+        else if (data.error === 'not_available') setError('This person is not available for vibe checks.');
+        else setError(data.error || 'Failed to send vibe check.');
+        setRecordingState('preview');
+        return;
+      }
+      // Navigate to confirmation / members
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Vibe Check sent! 🎤' }));
+      navigate('/members');
+    } catch {
+      setError('Network error. Please try again.');
+      setRecordingState('preview');
+    }
+  };
+
+  const formatTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+  const photoUrl = member.photos?.[0] || member.photo;
+
+  return (
+    <section className="page-shell vc-send-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '3rem' }}>
+      <button className="vibe-secondary" style={{ alignSelf: 'flex-start', marginBottom: '1rem' }} onClick={() => { window.history.back(); window.setTimeout(() => navigate('/members'), 100); }}>
+        ← Back
+      </button>
+
+      <div className="vc-send-avatar">
+        {photoUrl ? <img src={photoUrl} alt="" /> : <div className="vc-send-avatar-fallback">{member.avatar || 'S'}</div>}
+      </div>
+      <h2 className="vc-send-name">{member.name}{member.age ? `, ${member.age}` : ''}</h2>
+      <p className="vc-send-city">{member.city || ''}</p>
+
+      <div className="vc-recorder-card">
+        {recordingState === 'idle' && (
+          <div className="vc-idle-state">
+            <div className="vc-mic-icon-wrap">
+              <Mic style={{ width: 40, height: 40 }} />
+            </div>
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', textAlign: 'center', margin: '1rem 0' }}>
+              Record a voice message (max 30 seconds)<br/>to introduce yourself and break the ice!
+            </p>
+            {dailyQuota && (
+              <small style={{ color: 'var(--soft)', display: 'block', textAlign: 'center', marginBottom: '1rem' }}>
+                {dailyQuota.remaining} of {dailyQuota.total} vibe checks remaining today
+              </small>
+            )}
+            <button className="vc-record-btn" onClick={startRecording} disabled={dailyQuota?.remaining === 0}>
+              <div className="vc-record-btn-inner">
+                <Mic style={{ width: 28, height: 28 }} />
+              </div>
+              <span>Tap to Record</span>
+            </button>
+          </div>
+        )}
+
+        {recordingState === 'recording' && (
+          <div className="vc-recording-state">
+            <div className="vc-pulse-dot" />
+            <span className="vc-timer">{formatTime(duration)} / 00:30</span>
+            <div className="vc-waveform-bar">
+              <div className="vc-waveform-fill" style={{ width: `${(duration / 30) * 100}%` }} />
+            </div>
+            <button className="vc-stop-btn" onClick={stopRecording}>
+              <Square style={{ width: 20, height: 20 }} /> Stop Recording
+            </button>
+          </div>
+        )}
+
+        {recordingState === 'preview' && (
+          <div className="vc-preview-state">
+            <p style={{ textAlign: 'center', color: 'var(--muted)', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
+              Preview your recording ({formatTime(duration)})
+            </p>
+            <audio ref={audioPreviewRef} src={audioUrl} controls style={{ width: '100%', borderRadius: 12, marginBottom: '1rem' }} />
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button className="vibe-secondary" onClick={cancelPreview}>Record Again</button>
+              <button className="vc-send-btn" onClick={sendVibeCheck}>
+                <Send style={{ width: 18, height: 18 }} /> Send Vibe Check
+              </button>
+            </div>
+          </div>
+        )}
+
+        {recordingState === 'sending' && (
+          <div className="vc-sending-state">
+            <div className="vc-spinner" />
+            <p>Sending your Vibe Check...</p>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="vc-error" style={{ color: 'var(--pink)', fontSize: '0.85rem', marginTop: '1rem', textAlign: 'center', maxWidth: 360 }}>
+          {error}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============ VIBE CHECK INBOX PAGE ============
+// Lists incoming pending vibe checks for the current user.
+function VibeCheckInboxPage({ appState, navigate }) {
+  const [vibeChecks, setVibeChecks] = React.useState(() => appState?.vibeChecks?.inbox || null);
+  const [busyId, setBusyId] = React.useState(null);
+  const [listenedIds, setListenedIds] = React.useState(new Set());
+  const [audioPlayerId, setAudioPlayerId] = React.useState(null);
+  const audioRef = React.useRef(null);
+
+  const load = React.useCallback(() => {
+    fetch('/api/vibe-checks/inbox', { credentials: 'same-origin', cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => setVibeChecks(data.vibeChecks || []))
+      .catch(() => setVibeChecks([]));
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const markListened = async (vcId) => {
+    if (listenedIds.has(vcId)) return;
+    try {
+      await fetch(`/api/vibe-checks/${vcId}/listen`, { method: 'POST', credentials: 'same-origin' });
+      setListenedIds(prev => new Set([...prev, vcId]));
+    } catch {}
+  };
+
+  const handlePlay = (vcId) => {
+    setAudioPlayerId(vcId);
+    markListened(vcId);
+  };
+
+  const act = async (vcId, action) => {
+    setBusyId(vcId);
+    try {
+      const res = await fetch(`/api/vibe-checks/${vcId}/${action}`, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'content-type': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVibeChecks(prev => (prev || []).filter(vc => vc.id !== vcId));
+        if (action === 'accept' && data.chatId) {
+          navigate('/chat');
+        }
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const getVoiceUrl = (vc) => {
+    if (vc.voiceUrl && vc.voiceUrl.startsWith('/api/')) return vc.voiceUrl;
+    return `/api/vibe-checks/${vc.id}/voice`;
+  };
+
+  return (
+    <section className="page-shell inbox-page">
+      <PageTitle eyebrow="Vibe Checks" title="Your Vibe Check Inbox" text="Listen to voice intros. Accept to start chatting, or pass." />
+      <div style={{ display: 'flex', gap: 8, marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/chat')}>
+          <MessageCircle style={{ width: 16, height: 16 }} /> Chat Inbox
+        </button>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/members')}>
+          <Users style={{ width: 16, height: 16 }} /> Discover People
+        </button>
+      </div>
+
+      {vibeChecks === null ? (
+        <div className="inbox-list"><Skeleton type="list" count={3} /></div>
+      ) : vibeChecks.length === 0 ? (
+        <EmptyState
+          type="connections"
+          title="No pending Vibe Checks"
+          description="When someone sends you a voice intro, it will appear here. Listen, then accept or pass."
+          actionText="Discover People"
+          onAction={() => navigate('/members')}
+        />
+      ) : (
+        <div className="inbox-list">
+          {vibeChecks.map(vc => {
+            const isPlaying = audioPlayerId === vc.id;
+            const hasListened = listenedIds.has(vc.id) || vc.status === 'listened' || !!vc.listenedAt;
+            return (
+              <div
+                key={vc.id}
+                className="inbox-card vc-inbox-card"
+                style={{ flexDirection: 'column', alignItems: 'stretch', cursor: 'default', gap: '0.75rem' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <Avatar member={vc.from} />
+                  <div className="inbox-copy" style={{ flex: 1, minWidth: 0 }}>
+                    <div className="inbox-row">
+                      <strong>{vc.from.name}{vc.from.age ? `, ${vc.from.age}` : ''}</strong>
+                      <span>{vc.from.city || ''}</span>
+                    </div>
+                    <small style={{ color: 'var(--muted)' }}>
+                      {vc.voiceDuration ? `${vc.voiceDuration}s voice intro` : 'Voice intro'} · {formatInboxTime(vc.createdAt)}
+                    </small>
+                  </div>
+                </div>
+
+                {/* Audio player area */}
+                <div className="vc-audio-area">
+                  {isPlaying ? (
+                    <audio
+                      ref={audioRef}
+                      src={getVoiceUrl(vc)}
+                      controls
+                      autoPlay
+                      onEnded={() => setAudioPlayerId(null)}
+                      style={{ width: '100%', borderRadius: 12, height: 40 }}
+                    />
+                  ) : (
+                    <button
+                      className="vc-listen-btn"
+                      onClick={() => handlePlay(vc.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px',
+                        borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)',
+                        background: hasListened ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg, rgba(255,46,147,0.12), rgba(155,48,255,0.12))',
+                        color: '#fff', cursor: 'pointer', width: '100%', justifyContent: 'center'
+                      }}
+                    >
+                      <Play style={{ width: 16, height: 16, color: hasListened ? 'var(--muted)' : 'var(--pink)' }} />
+                      <span>{hasListened ? 'Listen Again' : 'Listen to Voice Intro'}</span>
+                      {!hasListened && <span className="vc-new-badge">NEW</span>}
+                    </button>
+                  )}
+                </div>
+
+                {/* Actions after listening */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn-main"
+                    style={{ flex: 1, minHeight: 38, borderRadius: 10, fontSize: '0.85rem' }}
+                    disabled={busyId === vc.id}
+                    onClick={() => act(vc.id, 'accept')}
+                  >
+                    {busyId === vc.id ? '…' : 'Accept Chat 💬'}
+                  </button>
+                  <button
+                    className="btn-quiet"
+                    style={{ minHeight: 38, borderRadius: 10, fontSize: '0.85rem', padding: '0 18px' }}
+                    disabled={busyId === vc.id}
+                    onClick={() => act(vc.id, 'decline')}
+                  >
+                    Pass
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
   const [note, setNote] = React.useState('');
 
@@ -5472,12 +5854,15 @@ function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
         </label>
 
         <div className="vibe-mini-grid">
-          <div><MessageCircle /><strong>Direct request</strong><span>Saved as a pending intro.</span></div>
-          <div><ShieldCheck /><strong>Safer unlock</strong><span>Chat opens after voice verify.</span></div>
+          <div><Mic /><strong>Voice-first intro</strong><span>Record a 30s voice message.</span></div>
+          <div><ShieldCheck /><strong>Safer unlock</strong><span>Chat opens after they accept.</span></div>
         </div>
 
-        <button className="vibe-primary" disabled={requested} onClick={() => onSend(member, note)}>
-          {requested ? 'Already Sent' : 'Send Vibe Check'} <Send />
+        <button className="vibe-primary" disabled={requested} onClick={() => { onClose(); navigate(`/vibe-check/send/${member.id}`); }}>
+          <Mic style={{ width: 18, height: 18 }} /> Record Voice Message
+        </button>
+        <button className="vibe-secondary" style={{ marginTop: 8 }} disabled={requested} onClick={() => onSend(member, note)}>
+          {requested ? 'Already Sent' : 'Send Text Instead'} <Send style={{ width: 16, height: 16 }} />
         </button>
         <button className="vibe-secondary" onClick={() => { onClose(); navigate('/profile'); }}>Edit My Profile</button>
       </motion.div>

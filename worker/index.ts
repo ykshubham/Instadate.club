@@ -119,6 +119,18 @@ import {
 import { assertCanSend } from './services/chat';
 import { getNotifications, createNotification, markNotificationsRead } from './services/notifications';
 import { getSettings, updateSettings, verifyAction } from './services/settings';
+import {
+  sendVibeCheck,
+  getIncomingVibeChecks,
+  getOutgoingVibeChecks,
+  checkDailyQuota,
+  markVibeCheckListened,
+  acceptVibeCheck,
+  declineVibeCheck,
+  getVibeCheckVoice,
+  expireStaleVibeChecks,
+  cleanupExpiredCooldowns
+} from './services/vibe-checks';
 
 type AppState = {
   profile: Record<string, unknown>;
@@ -138,6 +150,7 @@ type AppState = {
   outcomes?: any[];
   notifications?: any[];
   settings?: any;
+  vibeChecks?: { inbox: any[]; outbox: any[] };
 };
 
 type EventDto = {
@@ -1055,6 +1068,10 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     pendingReviews,
     notifications: await getNotifications(db, userId),
     settings: await getSettings(db, userId),
+    vibeChecks: {
+      inbox: await getIncomingVibeChecks(db, userId),
+      outbox: await getOutgoingVibeChecks(db, userId)
+    },
     lastUpdated: new Date().toISOString()
   };
 }
@@ -2299,6 +2316,101 @@ async function routeApi(request: Request, env: Env) {
     return json({ ok: true, state: await getState(env.DB, userId) });
   }
 
+  // --- VIBE CHECK SYSTEM ---
+  // POST /api/vibe-checks — send a vibe check (multipart: voice file + toUserId + duration)
+  if (url.pathname === '/api/vibe-checks' && request.method === 'POST') {
+    const pub = await requirePublished(env, userId); if (pub) return pub;
+    const quota = await checkDailyQuota(env.DB, userId);
+    if (quota.remaining <= 0) return json({ error: 'daily_quota_exceeded', ...quota }, { status: 429 });
+
+    const formData = await request.formData();
+    const file = formData.get('file');
+    const toUserId = (formData.get('toUserId') as string) || '';
+    const duration = parseInt((formData.get('duration') as string) || '0', 10);
+
+    if (!(file instanceof File)) return json({ error: 'Voice recording is required' }, { status: 400 });
+    if (!toUserId) return json({ error: 'Recipient is required' }, { status: 400 });
+    if (duration <= 0 || duration > 30) return json({ error: 'Duration must be 1-30 seconds' }, { status: 400 });
+
+    const ALLOWED_AUDIO = new Set([
+      'audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'application/octet-stream'
+    ]);
+    if (!ALLOWED_AUDIO.has(file.type) && !file.name.endsWith('.webm')) {
+      return json({ error: 'Unsupported audio format' }, { status: 415 });
+    }
+
+    const buffer = await file.arrayBuffer();
+    const result = await sendVibeCheck(env.DB, env.PROFILE_IMAGES, userId, toUserId, buffer, file.type || 'audio/webm', duration);
+    if (!result.ok) {
+      const status = result.error === 'daily_quota_exceeded' ? 429
+        : result.error === 'already_pending' ? 409
+        : result.error === 'cooldown_active' ? 403
+        : 400;
+      return json({ error: result.error, vibeCheckId: result.vibeCheckId }, { status });
+    }
+    await logEvent(env.DB, {
+      user_id: userId, session_id: sessionId,
+      event_name: 'vibe_check_sent', entity_type: 'vibe_check', entity_id: result.vibeCheckId || null
+    });
+    return json({ ok: true, status: result.status, vibeCheckId: result.vibeCheckId, voiceUrl: result.voiceUrl, state: await getState(env.DB, userId) }, { status: 201 });
+  }
+
+  // GET /api/vibe-checks/daily-quota
+  if (url.pathname === '/api/vibe-checks/daily-quota' && request.method === 'GET') {
+    const quota = await checkDailyQuota(env.DB, userId);
+    return json(quota);
+  }
+
+  // GET /api/vibe-checks/inbox
+  if (url.pathname === '/api/vibe-checks/inbox' && request.method === 'GET') {
+    return json({ vibeChecks: await getIncomingVibeChecks(env.DB, userId) });
+  }
+
+  // GET /api/vibe-checks/outbox
+  if (url.pathname === '/api/vibe-checks/outbox' && request.method === 'GET') {
+    return json({ vibeChecks: await getOutgoingVibeChecks(env.DB, userId) });
+  }
+
+  // Serve vibe check voice file
+  const vcVoiceMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/voice$/);
+  if (vcVoiceMatch && request.method === 'GET') {
+    const voice = await getVibeCheckVoice(env.DB, env.PROFILE_IMAGES, userId, vcVoiceMatch[1]);
+    if (!voice.ok) return json({ error: voice.error }, { status: voice.status || 404 });
+    const headers = new Headers();
+    headers.set('content-type', voice.contentType || 'audio/webm');
+    headers.set('cache-control', 'private, max-age=3600');
+    return new Response(voice.body, { headers });
+  }
+
+  // POST /api/vibe-checks/:id/listen
+  const vcListenMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/listen$/);
+  if (vcListenMatch && request.method === 'POST') {
+    const result = await markVibeCheckListened(env.DB, userId, vcListenMatch[1]);
+    if (!result.ok) return json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 });
+    return json({ ok: true, state: await getState(env.DB, userId) });
+  }
+
+  // POST /api/vibe-checks/:id/accept
+  const vcAcceptMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/accept$/);
+  if (vcAcceptMatch && request.method === 'POST') {
+    const pub = await requirePublished(env, userId); if (pub) return pub;
+    const result = await acceptVibeCheck(env.DB, userId, vcAcceptMatch[1]);
+    if (!result.ok) return json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 });
+    await logEvent(env.DB, {
+      user_id: userId, session_id: sessionId,
+      event_name: 'vibe_check_accepted', entity_type: 'vibe_check', entity_id: vcAcceptMatch[1]
+    });
+    return json({ ok: true, status: 'connected', chatId: result.chatId, state: await getState(env.DB, userId) });
+  }
+
+  // POST /api/vibe-checks/:id/decline
+  const vcDeclineMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/decline$/);
+  if (vcDeclineMatch && request.method === 'POST') {
+    const result = await declineVibeCheck(env.DB, userId, vcDeclineMatch[1]);
+    if (!result.ok) return json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 });
+    return json({ ok: true, state: await getState(env.DB, userId) });
+  }
+
   const chatVerifyMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/verification$/);
   if (chatVerifyMatch && request.method === 'PATCH') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
@@ -3155,6 +3267,17 @@ export default {
       runScheduledPurge(env.DB, env.PROFILE_IMAGES)
         .then(r => { if (r.purged) console.log(`[purge] removed ${r.purged} account(s):`, r.ids); })
         .catch(err => console.error('[purge] failed', err))
+    );
+    // Expire stale vibe checks and clean up expired cooldowns.
+    ctx.waitUntil(
+      expireStaleVibeChecks(env.DB)
+        .then(n => { if (n) console.log(`[vibe-check] expired ${n} stale vibe check(s)`); })
+        .catch(err => console.error('[vibe-check] expire failed', err))
+    );
+    ctx.waitUntil(
+      cleanupExpiredCooldowns(env.DB)
+        .then(n => { if (n) console.log(`[vibe-check] cleaned up ${n} expired cooldown(s)`); })
+        .catch(err => console.error('[vibe-check] cooldown cleanup failed', err))
     );
   }
 };

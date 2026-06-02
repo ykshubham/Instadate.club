@@ -3368,3 +3368,273 @@ body:has(.fullscreen-main) .app-toast {
   justify-content: center;
   margin-bottom: 0.5rem;
 }
+
+/* ============================= */
+/*  VIBE CHECK SYSTEM STYLES     */
+/* ============================= */
+
+/* Send Page */
+.vc-send-page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.vc-send-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 auto 0.75rem;
+  border: 2px solid rgba(255, 46, 147, 0.3);
+}
+.vc-send-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.vc-send-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--pink), #9b30ff);
+  color: #fff;
+  font: 800 1.8rem Outfit, sans-serif;
+}
+.vc-send-name {
+  font: 800 1.5rem Outfit, sans-serif;
+  color: #fff;
+  margin: 0 0 0.25rem;
+  text-align: center;
+}
+.vc-send-city {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0 0 2rem;
+  text-align: center;
+}
+
+/* Recorder Card */
+.vc-recorder-card {
+  width: 100%;
+  max-width: 380px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.vc-idle-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.vc-mic-icon-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(255, 46, 147, 0.1);
+  border: 1px solid rgba(255, 46, 147, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pink);
+}
+
+.vc-record-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  font: 700 0.9rem Outfit, sans-serif;
+  margin-top: 0.5rem;
+}
+.vc-record-btn-inner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--pink), #9b30ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 0 24px rgba(255, 46, 147, 0.35);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.vc-record-btn:hover .vc-record-btn-inner {
+  transform: scale(1.06);
+  box-shadow: 0 0 36px rgba(255, 46, 147, 0.5);
+}
+.vc-record-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Recording State */
+.vc-recording-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  gap: 1rem;
+}
+
+.vc-pulse-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ff3366;
+  box-shadow: 0 0 12px rgba(255, 51, 102, 0.6);
+  animation: vc-pulse 1s infinite;
+}
+@keyframes vc-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.5); opacity: 0.4; }
+}
+
+.vc-timer {
+  font: 800 1.8rem 'JetBrains Mono', monospace;
+  color: #fff;
+}
+
+.vc-waveform-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.vc-waveform-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--pink), #9b30ff);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.vc-stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 51, 102, 0.3);
+  background: rgba(255, 51, 102, 0.08);
+  color: #ff3366;
+  font: 700 0.9rem Outfit, sans-serif;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.vc-stop-btn:hover {
+  background: rgba(255, 51, 102, 0.15);
+}
+
+/* Preview State */
+.vc-preview-state {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.vc-send-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, var(--pink), #9b30ff);
+  color: #fff;
+  font: 800 0.9rem Outfit, sans-serif;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.vc-send-btn:hover {
+  transform: scale(1.03);
+  box-shadow: 0 0 20px rgba(255, 46, 147, 0.4);
+}
+.vc-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sending State */
+.vc-sending-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: var(--muted);
+}
+
+.vc-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--pink);
+  border-radius: 50%;
+  animation: vc-spin 0.7s linear infinite;
+}
+@keyframes vc-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Inbox Cards */
+.vc-inbox-card {
+  padding: 1.25rem;
+}
+
+.vc-audio-area {
+  width: 100%;
+}
+
+.vc-listen-btn {
+  transition: background 0.15s, border-color 0.15s;
+}
+.vc-listen-btn:hover {
+  border-color: var(--pink);
+}
+
+.vc-new-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: linear-gradient(135deg, var(--pink), #9b30ff);
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.vc-upgrade-notice a {
+  color: var(--pink);
+  text-decoration: underline;
+}
+
+/* Bottom nav Vibe Checks badge */
+.bottom-nav .vc-badge {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--pink);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
