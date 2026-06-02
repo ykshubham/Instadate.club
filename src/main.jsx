@@ -800,6 +800,17 @@ function AccountStatusScreen({ status, reason, until, onLogout }) {
   );
 }
 
+// Routing/onboarding diagnostics. Shares the onboarding debug switch:
+// localStorage.setItem('onboarding_debug','0') silences these too.
+const ROUTE_DEBUG = (() => {
+  try { return localStorage.getItem('onboarding_debug') !== '0'; } catch { return false; }
+})();
+function routeLog(event, data) {
+  if (!ROUTE_DEBUG) return;
+  // eslint-disable-next-line no-console
+  console.info(`[routing] ${event}`, data === undefined ? '' : data);
+}
+
 function App() {
   const [route, setRoute] = React.useState(getRoute);
   const [guestMode, setGuestMode] = React.useState(() => sessionStorage.getItem('instadate_guest_mode') !== 'false');
@@ -809,7 +820,12 @@ function App() {
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const { user: authUser, isAuthenticated, isLoading, authError, signIn, signOut } = useAuth();
   const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos, refreshProfile } = useProfile();
-  const canBrowseApp = (isAuthenticated && profile?.completed) || guestMode;
+  // Onboarding completion drives routing. authUser.onboardingCompleted (from
+  // /api/auth/me, resolves first) is the primary signal; profile.completed is a
+  // fallback once the profile fetch lands. Existing users who finished onboarding
+  // must skip it entirely and land in the app.
+  const onboardingCompleted = Boolean(authUser?.onboardingCompleted) || Boolean(profile?.completed);
+  const canBrowseApp = (isAuthenticated && onboardingCompleted) || guestMode;
 
   React.useEffect(() => {
     const handleUnauthorized = () => {
@@ -860,9 +876,13 @@ function App() {
     return Array.isArray(appState.chats) ? appState.chats : [];
   }, [appState.chats]);
   const publicRoutes = ['/onboarding', '/login'];
-  const guardedRoute = canBrowseApp
-    ? route === '/login' ? '/' : route
-    : publicRoutes.includes(route) ? route : '/onboarding';
+  const guardedRoute = (() => {
+    // Completed users never see onboarding again — bounce them to home even
+    // though /onboarding is otherwise a public route.
+    if (route === '/onboarding' && isAuthenticated && onboardingCompleted) return '/';
+    if (canBrowseApp) return route === '/login' ? '/' : route;
+    return publicRoutes.includes(route) ? route : '/onboarding';
+  })();
   const isConversationRoute = guardedRoute.startsWith('/chat/');
 
   React.useEffect(() => {
@@ -871,6 +891,21 @@ function App() {
     setRoute(getRoute());
     setMenuOpen(false);
   }, [guardedRoute, isLoading, route]);
+
+  // Routing diagnostics: explains the navigation decision on startup and after
+  // Google login (user id, profile status, completion flag, where we land).
+  React.useEffect(() => {
+    if (isLoading) return;
+    routeLog('decision', {
+      userId: authUser?.id ?? null,
+      profileFound: profileStatus === 'cloud',
+      profileStatus,
+      profileCompleted: Boolean(profile?.completed),
+      onboardingCompleted,
+      route,
+      navigateTo: guardedRoute
+    });
+  }, [isLoading, authUser?.id, profileStatus, profile?.completed, onboardingCompleted, route, guardedRoute]);
 
   React.useEffect(() => {
     const onPop = () => setRoute(getRoute());

@@ -32,6 +32,22 @@ describe('GET /api/auth/me', () => {
     expect(body.user?.onboardingStep).toBe(7);
   });
 
+  it('onboardingCompleted=false for an incomplete account (must resume onboarding)', async () => {
+    await seedUser({ id: 'me-incomplete-1', completed: false });
+    const sid = await createSession('me-incomplete-1');
+    const res = await api('/api/auth/me', { cookie: cookieFor(sid) });
+    const body = await res.json<{ user: { onboardingCompleted: boolean } | null }>();
+    expect(body.user?.onboardingCompleted).toBe(false);
+  });
+
+  it('onboardingCompleted=true for a finished account (must skip onboarding)', async () => {
+    await seedUser({ id: 'me-complete-1', completed: true });
+    const sid = await createSession('me-complete-1');
+    const res = await api('/api/auth/me', { cookie: cookieFor(sid) });
+    const body = await res.json<{ user: { onboardingCompleted: boolean } | null }>();
+    expect(body.user?.onboardingCompleted).toBe(true);
+  });
+
   it('garbage cookie → 200 { user: null }', async () => {
     const res = await api('/api/auth/me', { cookie: cookieFor('not-a-real-session') });
     expect(res.status).toBe(200);

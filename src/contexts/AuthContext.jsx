@@ -45,6 +45,7 @@ export function AuthProvider({ children }) {
         userId: payload.user?.id ?? null,
         provider: payload.user?.authProvider ?? null,
         onboardingStep: payload.user?.onboardingStep ?? null,
+        onboardingCompleted: payload.user?.onboardingCompleted ?? null,
         onboardingCompletedAt: payload.user?.onboardingCompletedAt ?? null
       });
       return payload.user || null;

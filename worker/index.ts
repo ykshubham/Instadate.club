@@ -171,6 +171,7 @@ type UserDto = {
   statusUntil: string | null;
   role?: string;
   onboardingStep?: number;
+  onboardingCompleted?: boolean;
   onboardingCompletedAt?: string | null;
 };
 
@@ -308,6 +309,10 @@ function userDto(row: Record<string, unknown>): UserDto {
     statusUntil: (row.status_until as string) ?? null,
     role: (row.role as string) || 'member',
     onboardingStep: row.onboarding_step !== undefined ? Number(row.onboarding_step) : undefined,
+    // Derived completion flag the client routes on. Sourced from the dedicated
+    // onboarding marker (migration 0012), falling back to users.completed for
+    // accounts that finished before that column existed.
+    onboardingCompleted: Boolean(row.onboarding_completed_at) || Number(row.completed) === 1,
     onboardingCompletedAt: (row.onboarding_completed_at as string) ?? null
   };
 }
@@ -1407,7 +1412,7 @@ async function tokenLogin(request: Request, env: Env) {
     ).bind(sessionId, userId, '+30 days').run();
 
     const user = await env.DB.prepare(
-      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at FROM users WHERE id = ?'
+      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at, completed FROM users WHERE id = ?'
     ).bind(userId).first<Record<string, unknown>>();
 
     return json({ user: user ? userDto(user) : null, profile: await getProfile(env.DB, userId) }, {
@@ -1481,7 +1486,7 @@ async function currentAuth(request: Request, env: Env) {
   }
 
   const user = await env.DB.prepare(
-    `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.status, u.status_reason, u.status_until, u.role, u.onboarding_step, u.onboarding_completed_at
+    `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.status, u.status_reason, u.status_until, u.role, u.onboarding_step, u.onboarding_completed_at, u.completed
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.id = ? AND s.expires_at > CURRENT_TIMESTAMP`
@@ -1741,7 +1746,7 @@ async function routeApi(request: Request, env: Env) {
       user_id: result.userId || null, event_name: 'otp_verified', entity_type: 'user', entity_id: result.userId || null
     });
     const user = await env.DB.prepare(
-      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at FROM users WHERE id = ?'
+      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at, completed FROM users WHERE id = ?'
     ).bind(result.userId).first<Record<string, unknown>>();
     return json({ user: user ? userDto(user) : null }, { headers: { 'set-cookie': result.setCookie! } });
   }
