@@ -16,6 +16,13 @@ export interface Env {
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM?: string;
+  // Foursquare Places API (venue autocomplete). Secret; unset => feature degrades
+  // to manual location entry. Base/version/category overrides are optional.
+  FOURSQUARE_API_KEY?: string;
+  FOURSQUARE_API_BASE?: string;       // default https://places-api.foursquare.com
+  FOURSQUARE_API_VERSION?: string;    // default 2025-06-17 (X-Places-Api-Version)
+  FOURSQUARE_CATEGORIES?: string;     // optional fsq_category_ids filter
+  FOURSQUARE_FIELDS?: string;         // optional explicit response field mask
 }
 
 import {
@@ -65,6 +72,7 @@ import {
   rateLimitResponse,
   pruneRateLimits
 } from './services/ratelimit';
+import { isPlacesConfigured, searchPlaces } from './services/places';
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -149,6 +157,12 @@ type EventDto = {
   approval: string;
   hostName: string;
   hostUserId?: string;
+  venueName?: string | null;
+  formattedAddress?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  placeId?: string | null;
+  placeProvider?: string | null;
   createdAt: string;
   source: string;
   attendeeCount: number;
@@ -810,6 +824,12 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
       approval: row.approval_type as string,
       hostName: (row.host_name as string) || 'Club host',
       hostUserId,
+      venueName: (row.venue_name as string) ?? null,
+      formattedAddress: (row.formatted_address as string) ?? null,
+      latitude: row.latitude != null ? Number(row.latitude) : null,
+      longitude: row.longitude != null ? Number(row.longitude) : null,
+      placeId: (row.place_id as string) ?? null,
+      placeProvider: (row.place_provider as string) ?? null,
       createdAt: row.created_at as string,
       source: row.source as string,
       attendeeCount: Number(row.attendee_count || 0),
@@ -1181,19 +1201,22 @@ async function createEvent(db: D1Database, userId: string, event: Record<string,
   await ensureUser(db, userId);
   const eventId = (event.id as string) || id('event');
 
+  const lat = Number(event.latitude);
+  const lng = Number(event.longitude);
   await db.prepare(
     `INSERT INTO events (
       id, host_user_id, type, title, description, location, display_date, raw_date, display_time,
       image, status, capacity, entry_type, price, approval_type, source,
-      category, activity_type, approval_required, gender_ratio_preference, visibility
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      category, activity_type, approval_required, gender_ratio_preference, visibility,
+      venue_name, formatted_address, latitude, longitude, place_id, place_provider
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     eventId,
     userId,
     event.type || 'Host Party Plan',
     event.title || 'Untitled plan',
     event.description || '',
-    event.place || event.location || '',
+    event.place || event.location || event.venueName || '',
     event.date || 'Tonight',
     event.rawDate || null,
     event.time || 'Tonight',
@@ -1208,7 +1231,13 @@ async function createEvent(db: D1Database, userId: string, event: Record<string,
     event.activityType || 'Social Outing',
     event.approvalRequired ? 1 : 0,
     event.genderRatioPreference || 'None',
-    event.visibility || 'Public'
+    event.visibility || 'Public',
+    event.venueName || event.place || event.location || null,
+    event.formattedAddress || null,
+    Number.isFinite(lat) ? lat : null,
+    Number.isFinite(lng) ? lng : null,
+    event.placeId || null,
+    event.placeId ? (event.placeProvider || 'foursquare') : null
   ).run();
 
   return eventId;
@@ -1904,6 +1933,29 @@ async function routeApi(request: Request, env: Env) {
     await saveProfile(env.DB, userId, body.profile || {});
     await recomputeTrustMetrics(env.DB, userId);
     return json({ state: await getState(env.DB, userId) });
+  }
+
+  // Venue autocomplete proxy (Foursquare). Key stays server-side. Degrades to
+  // { configured:false } when unconfigured and to { error:true } on upstream
+  // failure so the client always allows manual location entry.
+  if (url.pathname === '/api/places/search' && request.method === 'GET') {
+    const limitResult = await checkRateLimit(env.DB, `places:${userId}`, 60, 60); // 60 searches/min
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
+
+    if (!isPlacesConfigured(env)) return json({ configured: false, results: [] });
+
+    const q = (url.searchParams.get('q') || '').trim();
+    if (q.length < 2) return json({ configured: true, results: [] });
+
+    const lat = Number(url.searchParams.get('lat'));
+    const lng = Number(url.searchParams.get('lng'));
+    const { ok, results } = await searchPlaces(env, {
+      query: q,
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
+      limit: 5
+    });
+    return json({ configured: true, error: !ok, results });
   }
 
   if (url.pathname === '/api/events' && request.method === 'POST') {

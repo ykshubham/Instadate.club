@@ -1,2 +1,5 @@
 GOOGLE_CLIENT_ID="your-google-oauth-client-id.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET="your-google-oauth-client-secret"
+# Foursquare Places API (venue autocomplete). Service API key — unset disables
+# autocomplete and the host form falls back to manual location entry.
+FOURSQUARE_API_KEY="your-foursquare-service-key"

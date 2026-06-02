@@ -1060,6 +1060,8 @@ function App() {
   const createHostedEvent = async form => {
     const eventId = `hosted-${Date.now()}`;
     const joinTonight = isTodayDateValue(form.date) || form.type === 'House Party';
+    const venue = form.venue || {};
+    const venueName = venue.venueName || form.location.trim();
     const hostedEvent = {
       id: eventId,
       title: form.title.trim(),
@@ -1067,7 +1069,7 @@ function App() {
       date: formatHostEventDate(form.date),
       rawDate: form.date,
       time: formatHostEventTime(form.time),
-      place: form.location.trim(),
+      place: venueName,
       image: form.photo || '/assets/social_mixer.png',
       status: joinTonight ? 'Join Tonight' : 'Open Plan',
       description: form.description.trim(),
@@ -1077,6 +1079,13 @@ function App() {
       approval: form.approval,
       hostName: currentAppState.profile?.fullName || 'Club host',
       hostUserId: authUser?.id || null,
+      // Structured venue (Foursquare). Null coords/placeId for custom/manual entry.
+      venueName,
+      formattedAddress: venue.formattedAddress || '',
+      latitude: venue.latitude ?? null,
+      longitude: venue.longitude ?? null,
+      placeId: venue.placeId ?? null,
+      placeProvider: venue.placeId ? (venue.provider || 'foursquare') : null,
       createdAt: new Date().toISOString(),
       source: 'hosted'
     };
@@ -3958,6 +3967,158 @@ const hostEventTypes = [
   'Road Trip', 'Trek', 'Jamming Session', 'Networking', 'Singles Meetup', 'Gaming', 'Study Group', 'Other'
 ];
 
+// --- Venue autocomplete (Foursquare via /api/places/search) ---------------
+function placesLog(name, data) {
+  if (!ROUTE_DEBUG) return; // shares the onboarding_debug switch
+  // eslint-disable-next-line no-console
+  console.info(`[places] ${name}`, data === undefined ? '' : data);
+}
+
+function formatDistance(meters) {
+  if (!Number.isFinite(meters)) return '';
+  return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
+}
+
+const venueRowStyle = { display: 'flex', alignItems: 'center', gap: '10px', padding: '0.7rem 0.85rem' };
+const venueItemStyle = { ...venueRowStyle, width: '100%', background: 'transparent', border: 0, cursor: 'pointer' };
+
+/**
+ * Replaces the plain Location input with live venue suggestions. Calls the Worker
+ * proxy (key stays server-side), debounced 300ms. Degrades to a plain text field
+ * if the API is unconfigured/unavailable, so event creation always works.
+ */
+function VenueAutocomplete({ value, venue, onChange, onSelect }) {
+  const [suggestions, setSuggestions] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [unavailable, setUnavailable] = React.useState(false);
+  const coordsRef = React.useRef(null);
+  const debounceRef = React.useRef(null);
+  const reqIdRef = React.useRef(0);
+  const blurRef = React.useRef(null);
+
+  // Request precise location once (non-blocking) to power the distance column.
+  const ensureCoords = React.useCallback(() => {
+    if (coordsRef.current || !('geolocation' in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => { coordsRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      () => { /* denied — distance simply omitted */ },
+      { maximumAge: 300000, timeout: 8000 }
+    );
+  }, []);
+
+  // Debounced search (300ms). Skips when a selected venue's name still matches.
+  React.useEffect(() => {
+    if (venue && venue.venueName === value) return undefined;
+    const q = (value || '').trim();
+    if (q.length < 2) { setSuggestions([]); setLoading(false); return undefined; }
+
+    setLoading(true);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const reqId = ++reqIdRef.current;
+      const params = new URLSearchParams({ q });
+      const c = coordsRef.current;
+      if (c) { params.set('lat', String(c.lat)); params.set('lng', String(c.lng)); }
+      try {
+        const res = await fetch(`/api/places/search?${params}`, { credentials: 'same-origin', cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (reqId !== reqIdRef.current) return; // a newer keystroke superseded this
+        if (data.configured === false || data.error) {
+          setUnavailable(true);
+          setSuggestions([]);
+          placesLog('unavailable', { configured: data.configured, error: Boolean(data.error) });
+        } else {
+          setUnavailable(false);
+          const results = Array.isArray(data.results) ? data.results : [];
+          setSuggestions(results);
+          placesLog('search', { q, count: results.length });
+        }
+      } catch (err) {
+        if (reqId !== reqIdRef.current) return;
+        setUnavailable(true);
+        setSuggestions([]);
+        placesLog('error', { message: err?.message });
+      } finally {
+        if (reqId === reqIdRef.current) setLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [value, venue]);
+
+  const choose = (s) => {
+    onChange(s.name);
+    onSelect({
+      placeId: s.placeId,
+      venueName: s.name,
+      formattedAddress: s.address || s.locality || '',
+      latitude: s.latitude,
+      longitude: s.longitude,
+      provider: 'foursquare'
+    });
+    placesLog('select', { placeId: s.placeId, name: s.name });
+    setOpen(false);
+    setSuggestions([]);
+  };
+
+  const chooseCustom = () => {
+    const text = (value || '').trim();
+    onSelect(text
+      ? { placeId: null, venueName: text, formattedAddress: '', latitude: null, longitude: null, provider: null }
+      : null);
+    placesLog('custom', { text });
+    setOpen(false);
+    setSuggestions([]);
+  };
+
+  const showDropdown = open && (value || '').trim().length >= 2 && !unavailable;
+
+  return (
+    <div className="host-field" style={{ position: 'relative' }}>
+      <span>Location</span>
+      <input
+        value={value}
+        autoComplete="off"
+        placeholder="Search a venue — cafe, bar, restaurant, park…"
+        onFocus={() => { ensureCoords(); setOpen(true); }}
+        onChange={event => { onChange(event.target.value); onSelect(null); setOpen(true); }}
+        onBlur={() => { clearTimeout(blurRef.current); blurRef.current = setTimeout(() => setOpen(false), 160); }}
+      />
+      {showDropdown && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, marginTop: '6px', background: '#120f18', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 18px 50px rgba(0,0,0,0.55)', maxHeight: '320px', overflowY: 'auto' }}>
+          {loading && (
+            <div style={venueRowStyle}><span style={{ opacity: 0.6, fontSize: '0.82rem' }}>Searching venues…</span></div>
+          )}
+          {!loading && suggestions.map(s => (
+            <button type="button" key={s.placeId} onMouseDown={event => { event.preventDefault(); choose(s); }} style={venueItemStyle}>
+              <span style={{ flexShrink: 0 }}>📍</span>
+              <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+                <span style={{ display: 'block', color: '#fff', fontWeight: 700, fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
+                {(s.locality || s.address) && (
+                  <span style={{ display: 'block', color: 'rgba(255,255,255,0.45)', fontSize: '0.74rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.locality || s.address}</span>
+                )}
+              </span>
+              {Number.isFinite(s.distanceMeters) && (
+                <span style={{ flexShrink: 0, color: 'var(--cyan)', fontSize: '0.72rem', fontWeight: 700 }}>{formatDistance(s.distanceMeters)}</span>
+              )}
+            </button>
+          ))}
+          {!loading && suggestions.length === 0 && (
+            <div style={venueRowStyle}><span style={{ opacity: 0.55, fontSize: '0.82rem' }}>No venues found</span></div>
+          )}
+          <button type="button" onMouseDown={event => { event.preventDefault(); chooseCustom(); }} style={{ ...venueItemStyle, borderTop: '1px solid rgba(255,255,255,0.08)', color: 'var(--pink)', fontSize: '0.82rem', fontWeight: 700 }}>
+            <span style={{ flexShrink: 0 }}>✎</span>
+            <span style={{ minWidth: 0, flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Use “{(value || '').trim() || 'custom location'}” as custom location
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HostEventPage({ navigate, onCreateEvent }) {
   const [form, setForm] = React.useState({
     type: 'House Party',
@@ -3965,6 +4126,7 @@ function HostEventPage({ navigate, onCreateEvent }) {
     photo: '',
     description: '',
     location: '',
+    venue: null, // { placeId, venueName, formattedAddress, latitude, longitude, provider } | null
     date: '',
     time: '',
     capacity: '10',
@@ -4048,10 +4210,12 @@ function HostEventPage({ navigate, onCreateEvent }) {
           <textarea value={form.description} onChange={event => update('description', event.target.value)} rows="4" placeholder="What are you doing, who should join, and why will it be fun?" />
         </label>
 
-        <label className="host-field">
-          <span>Location</span>
-          <input value={form.location} onChange={event => update('location', event.target.value)} placeholder="Venue name or Google Maps location" />
-        </label>
+        <VenueAutocomplete
+          value={form.location}
+          venue={form.venue}
+          onChange={text => update('location', text)}
+          onSelect={venue => update('venue', venue)}
+        />
 
         <div className="host-two-col">
           <label className="host-field">
