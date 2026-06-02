@@ -1407,7 +1407,7 @@ async function tokenLogin(request: Request, env: Env) {
     ).bind(sessionId, userId, '+30 days').run();
 
     const user = await env.DB.prepare(
-      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role FROM users WHERE id = ?'
+      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at FROM users WHERE id = ?'
     ).bind(userId).first<Record<string, unknown>>();
 
     return json({ user: user ? userDto(user) : null, profile: await getProfile(env.DB, userId) }, {
@@ -1481,7 +1481,7 @@ async function currentAuth(request: Request, env: Env) {
   }
 
   const user = await env.DB.prepare(
-    `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.status, u.status_reason, u.status_until, u.role
+    `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.status, u.status_reason, u.status_until, u.role, u.onboarding_step, u.onboarding_completed_at
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.id = ? AND s.expires_at > CURRENT_TIMESTAMP`
@@ -1741,7 +1741,7 @@ async function routeApi(request: Request, env: Env) {
       user_id: result.userId || null, event_name: 'otp_verified', entity_type: 'user', entity_id: result.userId || null
     });
     const user = await env.DB.prepare(
-      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role FROM users WHERE id = ?'
+      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at FROM users WHERE id = ?'
     ).bind(result.userId).first<Record<string, unknown>>();
     return json({ user: user ? userDto(user) : null }, { headers: { 'set-cookie': result.setCookie! } });
   }

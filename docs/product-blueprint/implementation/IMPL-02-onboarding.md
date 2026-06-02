@@ -40,3 +40,17 @@
 - Cannot reach main app without account+name+age(18+)+gender+≥1 photo+intent+city.
 - Every permission requested with rationale, degrades on denial.
 - Interrupt at any step resumes correctly.
+
+## Fix log
+
+### 2026-06-02 — Onboarding restarts at step 1 after Google sign-in
+**Symptom:** At the auth step (step 4) the user connects Google, sees "Successfully logged in", then is bounced to step 1.
+
+**Root cause (two compounding bugs):**
+1. *Client* — only the form *draft* (`onboarding_draft`) was mirrored to `localStorage`; the current **step index was not**. `signIn()` does a full-page `window.location` redirect to Google and back, which re-mounts the React app and reset `index` to `0`.
+2. *Server* — the intended `ONB-FE-04` resume fallback was dead: `/api/auth/me` (`currentAuth`) never `SELECT`ed `onboarding_step`, so `authUser.onboardingStep` was always `undefined` → `serverStep` always `0`. At the auth gate the step was never written server-side anyway (`updateDraft` only syncs when already authenticated).
+
+**Fix:**
+- `OnboardingFlow.jsx` — mirror `index` to `localStorage` (`onboarding_step`) on every change; restore it synchronously in the `useState` initializer; clear it on completion. The step now survives reloads and the OAuth redirect independently of the server.
+- `worker/index.ts` — add `onboarding_step` + `onboarding_completed_at` to the `/api/auth/me`, login, and OTP-verify `SELECT`s so the server resume path (cross-device) actually works. Regression test: `tests/api/auth-me.test.ts`.
+- Added filterable diagnostics (`[onboarding]` / `[auth]` console logs, on by default in beta; silence with `localStorage.setItem('onboarding_debug','0')`): step before OAuth, step after return, auth-state changes, navigation decisions, profile-fetch results.

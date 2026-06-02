@@ -20,6 +20,18 @@ describe('GET /api/auth/me', () => {
     expect(body.user?.id).toBe('me-valid-1');
   });
 
+  it('valid session → returns persisted onboardingStep (cross-device resume)', async () => {
+    // Regression: /api/auth/me must SELECT onboarding_step, otherwise the
+    // onboarding resume path is dead and Google sign-in restarts at step 1.
+    await seedUser({ id: 'me-step-1' });
+    await env.DB.prepare('UPDATE users SET onboarding_step = ? WHERE id = ?').bind(7, 'me-step-1').run();
+    const sid = await createSession('me-step-1');
+    const res = await api('/api/auth/me', { cookie: cookieFor(sid) });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ user: { onboardingStep: number } | null }>();
+    expect(body.user?.onboardingStep).toBe(7);
+  });
+
   it('garbage cookie → 200 { user: null }', async () => {
     const res = await api('/api/auth/me', { cookie: cookieFor('not-a-real-session') });
     expect(res.status).toBe(200);

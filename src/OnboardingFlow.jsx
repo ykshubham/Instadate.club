@@ -11,6 +11,25 @@ import { useProfile } from './contexts/ProfileContext.jsx';
 
 const COUNTRY_CODES = ['+91', '+1', '+44', '+61', '+971', '+65'];
 
+// --- Onboarding persistence keys -------------------------------------------
+// The draft (form fields) AND the current step index are mirrored to
+// localStorage so progress survives full-page reloads and, critically, the
+// Google OAuth redirect — which tears down and re-mounts the whole React app.
+const DRAFT_KEY = 'onboarding_draft';
+const STEP_KEY = 'onboarding_step';
+const LAST_STEP = 12; // highest valid slide index (0-based; 13 slides total)
+
+// Lightweight, filterable diagnostics. ON by default during the friends-beta;
+// silence with localStorage.setItem('onboarding_debug', '0').
+const ONB_DEBUG = (() => {
+  try { return localStorage.getItem('onboarding_debug') !== '0'; } catch { return false; }
+})();
+function onbLog(event, data) {
+  if (!ONB_DEBUG) return;
+  // eslint-disable-next-line no-console
+  console.info(`[onboarding] ${event}`, data === undefined ? '' : data);
+}
+
 const slides = [
   {
     eyebrow: 'Social life on demand',
@@ -86,11 +105,19 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
     deleteProfilePhoto
   } = useProfile();
 
-  const [index, setIndex] = React.useState(0);
+  // Restore the saved step synchronously on first render so an OAuth return (or
+  // any reload) lands on the step the user left from — never a flash of step 1.
+  const [index, setIndex] = React.useState(() => {
+    try {
+      const saved = parseInt(localStorage.getItem(STEP_KEY) ?? '', 10);
+      if (Number.isInteger(saved) && saved >= 0 && saved <= LAST_STEP) return saved;
+    } catch { /* ignore */ }
+    return 0;
+  });
   const [direction, setDirection] = React.useState(1);
   const [draft, setDraft] = React.useState(() => {
     try {
-      const local = localStorage.getItem('onboarding_draft');
+      const local = localStorage.getItem(DRAFT_KEY);
       return local ? JSON.parse(local) : {};
     } catch {
       return {};
@@ -122,6 +149,13 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
     return () => clearTimeout(t);
   }, [cooldown]);
 
+  // Mirror the current step to localStorage on every change so a reload or the
+  // Google OAuth redirect resumes exactly here. Also our primary diagnostic.
+  React.useEffect(() => {
+    try { localStorage.setItem(STEP_KEY, String(index)); } catch { /* ignore */ }
+    onbLog('step', { index });
+  }, [index]);
+
   // GSAP animation for background decorative lines
   React.useEffect(() => {
     if (!shellRef.current) return undefined;
@@ -144,7 +178,7 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
   const updateDraft = React.useCallback(async (updatedFields) => {
     const nextDraft = { ...draft, ...updatedFields };
     setDraft(nextDraft);
-    localStorage.setItem('onboarding_draft', JSON.stringify(nextDraft));
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(nextDraft));
 
     if (isAuthenticated) {
       try {
@@ -174,12 +208,21 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
     }
   }, [draft, isAuthenticated, index, saveCloudProfile]);
 
-  // Server Resume Logic (ONB-FE-04)
+  // Server Resume Logic (ONB-FE-04). The locally-restored `index` already
+  // reflects this device's progress; the server step lets a *different* device
+  // resume too. We only ever move forward (max of the two), never backward.
   React.useEffect(() => {
     if (isAuthenticated && authUser) {
-      const serverStep = authUser.onboardingStep ?? 0;
+      const serverStep = Number.isInteger(authUser.onboardingStep) ? authUser.onboardingStep : 0;
+      onbLog('resume', {
+        localStep: index,
+        serverStep,
+        authProvider: authUser.authProvider,
+        hasCloudProfile: Boolean(cloudProfile)
+      });
       // If server has progressed further than local slide index, resume from there
       if (serverStep > index) {
+        onbLog('resume:advance', { from: index, to: serverStep });
         setIndex(serverStep);
       }
       
@@ -255,15 +298,19 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
   };
 
   const goTo = (nextIndex) => {
-    if (nextIndex < 0 || nextIndex > 12 || nextIndex === index) return;
-    
+    if (nextIndex < 0 || nextIndex > LAST_STEP || nextIndex === index) return;
+
     // Validate forward navigation
     if (nextIndex > index) {
       for (let i = index; i < nextIndex; i++) {
-        if (!validationGate()) return;
+        if (!validationGate()) {
+          onbLog('nav:blocked', { from: index, to: nextIndex, atGate: i });
+          return;
+        }
       }
     }
 
+    onbLog('nav', { from: index, to: nextIndex });
     setDirection(nextIndex > index ? 1 : -1);
     setIndex(nextIndex);
     setError('');
@@ -273,7 +320,7 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
   const next = async () => {
     if (!validationGate()) return;
 
-    if (index === 12) {
+    if (index === LAST_STEP) {
       // Complete flow
       setBusy(true);
       try {
@@ -297,7 +344,9 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
             onboarding_step: 13
           });
         }
-        localStorage.removeItem('onboarding_draft');
+        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(STEP_KEY);
+        onbLog('complete', { finalStep: index });
         onComplete?.();
       } catch (err) {
         setError(err.message || 'Verification save failed.');
@@ -443,7 +492,13 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
           <GlassCard className="p-4 grid gap-4">
             <p className="text-sm text-white/70 text-center">Create a pass to unlock matches, speakeasy circles, and events.</p>
             
-            <button className="w-full flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 py-3.5 text-sm font-bold text-white hover:bg-white/10" onClick={() => signIn('/onboarding')}>
+            <button className="w-full flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 py-3.5 text-sm font-bold text-white hover:bg-white/10" onClick={() => {
+              // Persist the step synchronously right before handing off to Google:
+              // the app fully unloads here and re-mounts on the OAuth return.
+              try { localStorage.setItem(STEP_KEY, String(index)); } catch { /* ignore */ }
+              onbLog('oauth:redirect', { stepBeforeRedirect: index });
+              signIn('/onboarding');
+            }}>
               <Crown className="h-4 w-4 text-cyan-200" /> Continue with Google
             </button>
             

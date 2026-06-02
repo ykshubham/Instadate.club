@@ -2,6 +2,17 @@ import React from 'react';
 
 const AuthContext = React.createContext(null);
 
+// Shares the onboarding debug switch: localStorage.setItem('onboarding_debug','0')
+// silences these too. ON by default during the friends-beta.
+const AUTH_DEBUG = (() => {
+  try { return localStorage.getItem('onboarding_debug') !== '0'; } catch { return false; }
+})();
+function authLog(event, data) {
+  if (!AUTH_DEBUG) return;
+  // eslint-disable-next-line no-console
+  console.info(`[auth] ${event}`, data === undefined ? '' : data);
+}
+
 async function readJsonResponse(response, fallbackMessage) {
   if (!response.headers.get('content-type')?.includes('application/json')) {
     throw new Error(fallbackMessage);
@@ -29,10 +40,18 @@ export function AuthProvider({ children }) {
       const response = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' });
       const payload = await readJsonResponse(response, 'Auth status unavailable');
       setUser(payload.user || null);
+      authLog('me', {
+        authenticated: Boolean(payload.user),
+        userId: payload.user?.id ?? null,
+        provider: payload.user?.authProvider ?? null,
+        onboardingStep: payload.user?.onboardingStep ?? null,
+        onboardingCompletedAt: payload.user?.onboardingCompletedAt ?? null
+      });
       return payload.user || null;
     } catch (error) {
       setUser(null);
       setAuthError(error);
+      authLog('me:error', { message: error?.message });
       return null;
     } finally {
       setIsLoading(false);
