@@ -2,7 +2,7 @@
 
 ## Current State
 - `ChatInboxPage`/`ChatConversationPage` `src/main.jsx:2502-2739`. Names fixed via JOIN (`worker/index.ts:821-897`).
-- Send `POST /api/chats/:slug/messages` `:1715-1737` — checks chat exists, **not membership/connection/block**. "Voice verification" gate client-side only (`main.jsx:2660`). Updates via 3s full-state poll (`:43`).
+- Send `POST /api/chats/:slug/messages` `:1715-1737` — checks chat exists, **not membership/connection/block**. "Voice verification" gate client-side only. Beta always-unlocked stub removed: `isVerified` now reads `appState.verifiedChats[slug]` so the composer stays locked until the peer accepts a voice intro; locked state records a voice note (no manual "Verify Voice" button). Updates via 3s full-state poll (`:43`).
 - No typing/read/online/images/voice/delete/report.
 
 ## Problems

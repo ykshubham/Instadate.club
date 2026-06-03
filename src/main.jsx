@@ -3534,13 +3534,7 @@ function ConciergePage({ appState, navigate, onLogout }) {
           </div>
         </main>
 
-        {/* Bottom Navigation */}
-        <nav className="concierge-bottom-nav" aria-label="Quick navigation">
-          <button onClick={() => navigate('/members')}><Users style={{ width: 20, height: 20 }} /><span>Discover</span></button>
-          <button className="concierge-nav-active" onClick={() => {}}><Shield style={{ width: 20, height: 20 }} /><span>Concierge</span></button>
-          <button onClick={() => navigate('/chat')}><MessageCircle style={{ width: 20, height: 20 }} /><span>Messages</span></button>
-          <button onClick={() => navigate('/profile')}><User style={{ width: 20, height: 20 }} /><span>Profile</span></button>
-        </nav>
+        {/* Bottom Navigation removed — Concierge Controls is a focused settings page */}
       </div>
     </div>
   );
@@ -3647,7 +3641,7 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
   }
 
   const profile = getChatProfile(active, resolvedMembers);
-  const isVerified = true; // Beta: chat unlocked (voice-verify gate disabled for friends testing)
+  const isVerified = appState?.verifiedChats?.[active.slug] || false;
   
   const [draft, setDraft] = React.useState('');
   const [liveMessages, setLiveMessages] = React.useState(() => appState.chatMessages[active.slug] || active.messages || []);
@@ -4152,8 +4146,7 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
         </div>
         <div className={`voice-lock compact-lock ${isVerified ? 'verified-lock' : ''}`}>
           <Mic />
-          <div><h3>{isVerified ? 'Voice Verified' : 'Voice Connection Locked'}</h3><p>{isVerified ? 'You can now send messages in this chat.' : 'Listen to their intro or record yours to fully unlock texting.'}</p></div>
-          {!isVerified && <button className="btn-quiet" onClick={() => onVerify(active.slug)}>Verify Voice</button>}
+          <div><h3>{isVerified ? 'Voice Verified' : 'Voice Connection Locked'}</h3><p>{isVerified ? 'You can now send messages in this chat.' : 'Record a voice note to unlock texting. Chat opens after they accept.'}</p></div>
         </div>
         {isRecording ? (
           <div className="chat-composer recording-composer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '8px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '16px' }}>
@@ -4187,15 +4180,14 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
             >
               <Paperclip style={{ width: '20px', height: '20px' }} />
             </button>
-            <button 
-              type="button" 
-              disabled={!isVerified} 
-              onClick={startRecording} 
+            <button
+              type="button"
+              onClick={startRecording}
               style={{
                 background: 'transparent',
                 border: 0,
-                color: isVerified ? 'var(--soft)' : 'rgba(255,255,255,0.1)',
-                cursor: isVerified ? 'pointer' : 'default',
+                color: 'var(--soft)',
+                cursor: 'pointer',
                 padding: '0 8px',
                 display: 'flex',
                 alignItems: 'center',
@@ -6090,7 +6082,10 @@ function VibeCheckInboxPage({ appState, navigate }) {
 }
 
 function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
-  const [note, setNote] = React.useState('');
+  const handleSendVibeCheck = () => {
+    onClose();
+    navigate(`/vibe-check/send/${member.id}`);
+  };
 
   return (
     <div className="modal-backdrop vibe-check-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
@@ -6109,26 +6104,17 @@ function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
           <div>
             <span>{requested ? 'Request queued' : 'Verified intro'}</span>
             <h2>{requested ? 'Vibe Check Sent' : `Connect with ${member.name}`}</h2>
-            <p>{requested ? 'Your concierge intro is already pending.' : member.prompt || member.message || 'Weekend status available for verified intros.'}</p>
+            <p>{requested ? 'Your vibe check is already pending.' : 'Send a voice note to connect. Chat unlocks after they accept.'}</p>
           </div>
         </div>
-
-        <label className="vibe-note-wrap">
-          <span>Your intro note</span>
-          <textarea value={note} onChange={event => setNote(event.target.value)} placeholder="Coffee this week? I liked your music/event vibe..." disabled={requested} maxLength={140} />
-          <small>{note.length}/140</small>
-        </label>
 
         <div className="vibe-mini-grid">
           <div><Mic /><strong>Voice-first intro</strong><span>Record a 30s voice message.</span></div>
           <div><ShieldCheck /><strong>Safer unlock</strong><span>Chat opens after they accept.</span></div>
         </div>
 
-        <button className="vibe-primary" disabled={requested} onClick={() => { onClose(); navigate(`/vibe-check/send/${member.id}`); }}>
-          <Mic style={{ width: 18, height: 18 }} /> Record Voice Message
-        </button>
-        <button className="vibe-secondary" style={{ marginTop: 8 }} disabled={requested} onClick={() => onSend(member, note)}>
-          {requested ? 'Already Sent' : 'Send Text Instead'} <Send style={{ width: 16, height: 16 }} />
+        <button className="vibe-primary" disabled={requested} onClick={handleSendVibeCheck}>
+          <Send style={{ width: 18, height: 18 }} /> Send Vibe Check
         </button>
         <button className="vibe-secondary" onClick={() => { onClose(); navigate('/profile'); }}>Edit My Profile</button>
       </motion.div>
