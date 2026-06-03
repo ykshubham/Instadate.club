@@ -8,6 +8,14 @@
     "typecheck:worker": "tsc -p tsconfig.json",
     "build": "npm run typecheck:worker && vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --project unit",
+    "test:worker": "vitest run --project worker",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report tests/e2e/.report",
     "d1:migrate:local": "wrangler d1 migrations apply instadateclub --local",
     "d1:migrate:remote": "wrangler d1 migrations apply instadateclub --remote",
     "cloudflare:dev": "npm run d1:migrate:local && npm run build && wrangler dev --local --port 8787",
@@ -26,7 +34,11 @@
     "vite": "^7.0.0"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.71",
     "@cloudflare/workers-types": "^4.20260529.1",
+    "@playwright/test": "^1.60.0",
+    "@vitest/coverage-istanbul": "^3.2.4",
+    "vitest": "^3.2.4",
     "wrangler": "^4.95.0"
   }
 }

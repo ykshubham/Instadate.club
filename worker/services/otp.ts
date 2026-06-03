@@ -17,6 +17,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { Env } from '../index';
 import { hashToken, randomToken, sessionCookie } from '../auth';
 import { getSmsProvider } from './sms';
+import { recomputeTrustMetrics } from './trust';
 
 const CODE_TTL_MS = 5 * 60 * 1000;        // 5 minutes
 const RESEND_COOLDOWN_MS = 30 * 1000;     // 30 seconds
@@ -222,8 +223,6 @@ async function markPhoneVerified(db: D1Database, userId: string, phoneE164: stri
       WHERE user_id = ?`
   ).bind(phoneE164, userId).run();
 
-  // Keep trust_metrics in sync (verification_score/is_verified recompute on next read).
-  await db.prepare(
-    "UPDATE trust_metrics SET is_verified = 1, verification_score = MAX(verification_score, 50.0), updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
-  ).bind(userId).run();
+  // Keep trust_metrics in sync via authoritative recalculation
+  await recomputeTrustMetrics(db, userId);
 }

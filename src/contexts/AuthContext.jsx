@@ -2,6 +2,17 @@ import React from 'react';
 
 const AuthContext = React.createContext(null);
 
+// Shares the onboarding debug switch: localStorage.setItem('onboarding_debug','0')
+// silences these too. ON by default during the friends-beta.
+const AUTH_DEBUG = (() => {
+  try { return localStorage.getItem('onboarding_debug') !== '0'; } catch { return false; }
+})();
+function authLog(event, data) {
+  if (!AUTH_DEBUG) return;
+  // eslint-disable-next-line no-console
+  console.info(`[auth] ${event}`, data === undefined ? '' : data);
+}
+
 async function readJsonResponse(response, fallbackMessage) {
   if (!response.headers.get('content-type')?.includes('application/json')) {
     throw new Error(fallbackMessage);
@@ -29,10 +40,19 @@ export function AuthProvider({ children }) {
       const response = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' });
       const payload = await readJsonResponse(response, 'Auth status unavailable');
       setUser(payload.user || null);
+      authLog('me', {
+        authenticated: Boolean(payload.user),
+        userId: payload.user?.id ?? null,
+        provider: payload.user?.authProvider ?? null,
+        onboardingStep: payload.user?.onboardingStep ?? null,
+        onboardingCompleted: payload.user?.onboardingCompleted ?? null,
+        onboardingCompletedAt: payload.user?.onboardingCompletedAt ?? null
+      });
       return payload.user || null;
     } catch (error) {
       setUser(null);
       setAuthError(error);
+      authLog('me:error', { message: error?.message });
       return null;
     } finally {
       setIsLoading(false);
@@ -84,6 +104,18 @@ export function AuthProvider({ children }) {
     return payload;
   }, []);
 
+  // Email Magic Link (Sprint 2 Task 2). startEmailMagicLink requests magic link token email.
+  const startEmailMagicLink = React.useCallback(async (email) => {
+    const response = await fetch('/api/auth/magic/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ email })
+    });
+    return readJsonResponse(response, 'Could not request magic link');
+  }, []);
+
   const signOut = React.useCallback(async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
@@ -102,15 +134,19 @@ export function AuthProvider({ children }) {
     user,
     isAuthenticated: Boolean(user),
     accountStatus: user?.status || (user ? 'active' : null),
+    role: user?.role || 'member',
+    isModerator: user?.role === 'moderator' || user?.role === 'admin',
+    isAdmin: user?.role === 'admin',
     isLoading,
     authError,
     signIn,
     signInWithGoogleToken,
     startPhoneOtp,
     verifyPhoneOtp,
+    startEmailMagicLink,
     signOut,
     refreshAuth: checkSession
-  }), [user, isLoading, authError, signIn, signInWithGoogleToken, startPhoneOtp, verifyPhoneOtp, signOut, checkSession]);
+  }), [user, isLoading, authError, signIn, signInWithGoogleToken, startPhoneOtp, verifyPhoneOtp, startEmailMagicLink, signOut, checkSession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

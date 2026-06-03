@@ -4,6 +4,7 @@
 
 import type { D1Database } from '@cloudflare/workers-types';
 import { visibleTo } from '../visibility';
+import { createNotification } from './notifications';
 
 const REQUEST_TTL_DAYS = 14;
 
@@ -82,6 +83,26 @@ export async function sendConnectionRequest(
   if (reverse) {
     await db.prepare("UPDATE connection_requests SET status = 'accepted' WHERE id = ?").bind(reverse.id).run();
     const chatId = await createConnection(db, fromUserId, toUserId);
+    
+    // Notify both users of the mutual connection
+    const senderProfile = await db.prepare('SELECT full_name FROM profiles WHERE user_id = ?').bind(fromUserId).first<{ full_name: string }>();
+    const senderName = senderProfile?.full_name || 'Someone';
+    await createNotification(db, toUserId, 'connection_accept', {
+      message: `You and ${senderName} are now connected!`,
+      senderId: fromUserId,
+      senderName: senderName,
+      chatId
+    });
+
+    const targetProfile = await db.prepare('SELECT full_name FROM profiles WHERE user_id = ?').bind(toUserId).first<{ full_name: string }>();
+    const targetName = targetProfile?.full_name || 'Someone';
+    await createNotification(db, fromUserId, 'connection_accept', {
+      message: `You and ${targetName} are now connected!`,
+      senderId: toUserId,
+      senderName: targetName,
+      chatId
+    });
+
     return { ok: true, status: 'connected', chatId };
   }
 
@@ -96,12 +117,22 @@ export async function sendConnectionRequest(
     await db.prepare(
       "UPDATE connection_requests SET status = 'pending', note = ?, created_at = CURRENT_TIMESTAMP, expires_at = ? WHERE id = ?"
     ).bind(note || null, expiresAt, mine.id).run();
-    return { ok: true, status: 'pending' };
+  } else {
+    await db.prepare(
+      "INSERT INTO connection_requests (id, from_user_id, to_user_id, note, status, expires_at) VALUES (?, ?, ?, ?, 'pending', ?)"
+    ).bind(`cr-${crypto.randomUUID()}`, fromUserId, toUserId, note || null, expiresAt).run();
   }
 
-  await db.prepare(
-    "INSERT INTO connection_requests (id, from_user_id, to_user_id, note, status, expires_at) VALUES (?, ?, ?, ?, 'pending', ?)"
-  ).bind(`cr-${crypto.randomUUID()}`, fromUserId, toUserId, note || null, expiresAt).run();
+  // Trigger connection request notification to the target user
+  const senderProfile = await db.prepare('SELECT full_name FROM profiles WHERE user_id = ?').bind(fromUserId).first<{ full_name: string }>();
+  const senderName = senderProfile?.full_name || 'Someone';
+  await createNotification(db, toUserId, 'connection_request', {
+    message: `${senderName} sent you a connection request.`,
+    senderId: fromUserId,
+    senderName: senderName,
+    note: note || ''
+  });
+
   return { ok: true, status: 'pending' };
 }
 
@@ -114,6 +145,17 @@ export async function acceptConnectionRequest(db: D1Database, userId: string, re
 
   await db.prepare("UPDATE connection_requests SET status = 'accepted' WHERE id = ?").bind(requestId).run();
   const chatId = await createConnection(db, req.from_user_id, req.to_user_id);
+
+  // Trigger acceptance notification to the requester
+  const accepterProfile = await db.prepare('SELECT full_name FROM profiles WHERE user_id = ?').bind(userId).first<{ full_name: string }>();
+  const accepterName = accepterProfile?.full_name || 'Someone';
+  await createNotification(db, req.from_user_id, 'connection_accept', {
+    message: `${accepterName} accepted your connection request!`,
+    senderId: userId,
+    senderName: accepterName,
+    chatId: chatId
+  });
+
   return { ok: true, status: 'connected', chatId };
 }
 

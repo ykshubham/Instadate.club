@@ -59,6 +59,19 @@ export async function hashToken(value: string) {
   return base64UrlEncode(await sha256(value));
 }
 
+/**
+ * Validate a post-login redirect target against an open-redirect.
+ * Only same-origin absolute PATHS are allowed: must start with a single '/'
+ * and NOT with '//' or '/\' (protocol-relative → external host). Anything
+ * else (absolute URL, backslash trick, empty) falls back to '/profile'.
+ */
+export function safeRedirect(target: string | null | undefined, fallback = '/profile'): string {
+  if (!target || typeof target !== 'string') return fallback;
+  if (target[0] !== '/') return fallback;            // must be an absolute path
+  if (target[1] === '/' || target[1] === '\\') return fallback; // //evil.com or /\evil.com
+  return target;
+}
+
 // --- Principal resolution (replaces authenticatedUserIdFrom backdoor) ---
 //
 // A request with no valid session is a GUEST: userId is ALWAYS null.

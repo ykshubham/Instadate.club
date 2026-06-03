@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import gsap from 'gsap';
 import {
-  ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Gem, Heart, Home, MapPin, Menu,
-  MessageCircle, MessageSquare, Mic, Moon, Search, Send, ShieldCheck, Sparkles, Star, Sun, Ticket, User, Users, X, Zap
+  AlertTriangle, ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Download, Fingerprint, Gem, Heart, HelpCircle, Home, LogOut, MapPin, Menu,
+  MessageCircle, MessageSquare, Mic, Moon, PauseCircle, Play, Search, Send, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Square, Star, Sun, Ticket, Trash2, User, Users, X, Zap, Mail, Paperclip
 } from 'lucide-react';
 import './styles.css';
 import ProfileDashboard from './ProfileDashboard.jsx';
@@ -16,6 +16,7 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
 import AdminAnalyticsPage from './AdminAnalyticsPage.jsx';
 import AdminHealthPage from './AdminHealthPage.jsx';
 import AdminModerationPage from './AdminModerationPage.jsx';
+import { EmptyState, Skeleton, ErrorState } from './components/FeedbackState.jsx';
 
 // Redirect non-canonical Pages URLs to canonical Worker URL
 if (typeof window !== 'undefined' && window.location && window.location.hostname && window.location.hostname.endsWith('instadate-club.pages.dev')) {
@@ -248,29 +249,57 @@ function useApiState(fallbackFactory, enabled) {
   const fallback = React.useMemo(() => fallbackFactory(), [fallbackFactory]);
   const fallbackRef = React.useRef(fallback);
   const loadedRef = React.useRef(false);
-  const [value, setValue] = React.useState(fallback);
+  const [value, setValue] = React.useState(() => {
+    const cached = localStorage.getItem('instadate_cached_state');
+    return cached ? JSON.parse(cached) : fallback;
+  });
   const [status, setStatus] = React.useState('connecting');
+  const [isOnline, setIsOnline] = React.useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Persistence of active state inside local storage
+  React.useEffect(() => {
+    if (value && value !== fallback) {
+      localStorage.setItem('instadate_cached_state', JSON.stringify(value));
+    }
+  }, [value, fallback]);
+
+  // Exponential backoff retry utility
+  const fetchWithRetry = async (path, options, retries = 3, delay = 500) => {
+    try {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          'content-type': 'application/json',
+          ...(options.headers || {})
+        },
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.dispatchEvent(new CustomEvent('api-unauthorized'));
+        }
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `API request failed: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (retries > 0) {
+        console.warn(`API request failed. Retrying in ${delay}ms... (${retries} retries left)`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return fetchWithRetry(path, options, retries - 1, delay * 2.5); // Exponential backoff
+      }
+      throw error;
+    }
+  };
 
   const apiRequest = React.useCallback(async (path, options = {}) => {
-    const response = await fetch(path, {
-      ...options,
-      headers: {
-        'content-type': 'application/json',
-        ...(options.headers || {})
-      },
-      credentials: 'same-origin',
-      cache: 'no-store'
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        window.dispatchEvent(new CustomEvent('api-unauthorized'));
-      }
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || `API request failed: ${response.status}`);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('browser_offline');
     }
-
-    return response.json();
+    return fetchWithRetry(path, options);
   }, []);
 
   const applyApiState = React.useCallback(payload => {
@@ -283,13 +312,54 @@ function useApiState(fallbackFactory, enabled) {
 
   const refreshState = React.useCallback(async ({ quiet = false } = {}) => {
     try {
-      return applyApiState(await apiRequest(CLOUD_STATE_ENDPOINT));
+      const state = await apiRequest(CLOUD_STATE_ENDPOINT);
+      return applyApiState(state);
     } catch (error) {
-      if (!quiet) console.warn(error);
-      setStatus('offline');
+      if (!quiet) console.warn('Failed to refresh state:', error);
+      // Only flag offline when the browser is genuinely offline — a transient server
+      // error must not latch the whole app into "offline mode".
+      if (typeof navigator !== 'undefined' && !navigator.onLine) setStatus('offline');
       return null;
     }
   }, [apiRequest, applyApiState]);
+
+  // Queue runner to execute pending mutations sequentially once back online
+  const flushPendingQueue = React.useCallback(async () => {
+    const queueStr = localStorage.getItem('instadate_pending_actions');
+    if (!queueStr) return;
+    
+    let queue = [];
+    try {
+      queue = JSON.parse(queueStr);
+    } catch (e) {
+      console.error('Failed to parse pending actions:', e);
+    }
+
+    if (queue.length === 0) return;
+
+    console.log(`Connection restored. Flushing ${queue.length} pending actions sequentially...`);
+    localStorage.removeItem('instadate_pending_actions'); // Lock the queue
+
+    for (const action of queue) {
+      try {
+        console.log(`Executing queued action: ${action.path}`);
+        await fetchWithRetry(action.path, action.options, 2, 300);
+      } catch (err) {
+        console.error(`Failed to execute queued action: ${action.path}`, err);
+        if (err.message !== 'browser_offline' && !err.message.includes('failed')) {
+          continue;
+        }
+        const currentQueue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
+        localStorage.setItem('instadate_pending_actions', JSON.stringify([action, ...currentQueue]));
+        setStatus('offline');
+        return;
+      }
+    }
+
+    console.log('Pending actions queue flushed successfully!');
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Connection restored. Cached actions synced!' }));
+    await refreshState();
+  }, [refreshState]);
 
   const mutateState = React.useCallback(async (path, options = {}, optimisticUpdater) => {
     if (optimisticUpdater) {
@@ -299,14 +369,68 @@ function useApiState(fallbackFactory, enabled) {
       });
     }
 
+    const isCurrentlyOffline = (typeof navigator !== 'undefined' && !navigator.onLine);
+
+    if (isCurrentlyOffline) {
+      const queue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
+      const actionId = `act-${crypto.randomUUID()}`;
+      queue.push({ id: actionId, path, options });
+      localStorage.setItem('instadate_pending_actions', JSON.stringify(queue));
+
+      console.log(`Offline: Action queued successfully (${path})`);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'You are offline. Action queued for sync.' }));
+      setStatus('offline');
+      return fallbackRef.current;
+    }
+
     try {
       return applyApiState(await apiRequest(path, options));
     } catch (error) {
-      console.warn(error);
-      setStatus('offline');
-      throw error;
+      console.warn('Mutation failed:', error);
+      // Only queue + flag offline when the browser is genuinely offline. A transient
+      // server error while online must NOT latch the app into "offline mode"; keep the
+      // optimistic state and let the next poll reconcile.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const queue = JSON.parse(localStorage.getItem('instadate_pending_actions') || '[]');
+        const actionId = `act-${crypto.randomUUID()}`;
+        queue.push({ id: actionId, path, options });
+        localStorage.setItem('instadate_pending_actions', JSON.stringify(queue));
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: 'You are offline. Action queued for sync.' }));
+        setStatus('offline');
+      }
+      return fallbackRef.current;
     }
-  }, [apiRequest, applyApiState]);
+  }, [apiRequest, applyApiState, status]);
+
+  // Online / Offline Listeners for reconnect handling
+  React.useEffect(() => {
+    const handleOnline = () => {
+      console.log('Browser online event received.');
+      setIsOnline(true);
+      setStatus('connecting');
+      flushPendingQueue();
+    };
+
+    const handleOffline = () => {
+      console.log('Browser offline event received.');
+      setIsOnline(false);
+      setStatus('offline');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    if (navigator.onLine) {
+      flushPendingQueue();
+    } else {
+      setStatus('offline');
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [flushPendingQueue]);
 
   React.useEffect(() => {
     if (!enabled) {
@@ -315,9 +439,18 @@ function useApiState(fallbackFactory, enabled) {
       return undefined;
     }
 
-    refreshState();
+    if (navigator.onLine) {
+      refreshState();
+    } else {
+      setStatus('offline');
+    }
+
     const intervalId = window.setInterval(() => {
-      refreshState({ quiet: true });
+      if (navigator.onLine) {
+        refreshState({ quiet: true });
+      } else {
+        setStatus('offline');
+      }
     }, CLOUD_STATE_POLL_MS);
 
     return () => {
@@ -342,19 +475,36 @@ function SplashScreen() {
 }
 
 function LoginPage({ onGoogleLogin, authError, navigate }) {
-  const { startPhoneOtp, verifyPhoneOtp } = useAuth();
+  const { startPhoneOtp, verifyPhoneOtp, startEmailMagicLink } = useAuth();
   const COUNTRY_CODES = ['+91', '+1', '+44', '+61', '+971', '+65'];
 
-  const [stage, setStage] = React.useState('phone'); // 'phone' | 'code'
+  const [stage, setStage] = React.useState('phone'); // 'phone' | 'code' | 'email' | 'emailSent'
   const [countryCode, setCountryCode] = React.useState('+91');
   const [phone, setPhone] = React.useState('');
   const [code, setCode] = React.useState('');
+  const [email, setEmail] = React.useState('');
+  const [magicLinkUrl, setMagicLinkUrl] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [info, setInfo] = React.useState('');
   const [attemptsLeft, setAttemptsLeft] = React.useState(null);
   const [locked, setLocked] = React.useState(false);
   const [cooldown, setCooldown] = React.useState(0);
+
+  // Parse error parameters on load (e.g. from magic callback redirects)
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const errParam = urlParams.get('error');
+    if (errParam) {
+      const errorMap = {
+        invalid_token: 'The magic link is invalid or already used.',
+        consumed: 'This magic link has already been consumed.',
+        expired: 'This magic link has expired. Please request a new one.',
+        invalid_magic_link: 'Could not verify magic link.'
+      };
+      setError(errorMap[errParam] || 'Magic link verification failed.');
+    }
+  }, []);
 
   // Resend cooldown ticker.
   React.useEffect(() => {
@@ -373,7 +523,8 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
     expired: 'That code expired. Request a new one.',
     locked: 'Too many wrong attempts. Try again in 15 minutes.',
     no_code: 'Request a code first.',
-    invalid_input: 'Enter the 6-digit code.'
+    invalid_input: 'Enter the 6-digit code.',
+    invalid_email: 'Please enter a valid email address.'
   }[errCode] || 'Something went wrong. Try again.');
 
   const sendCode = async () => {
@@ -409,12 +560,31 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
     }
   };
 
+  const handleSendMagicLink = async () => {
+    setError(''); setInfo(''); setBusy(true);
+    try {
+      const res = await startEmailMagicLink(email);
+      setStage('emailSent');
+      setMagicLinkUrl(res?.devLink || '');
+      setInfo(res?.devLink ? 'Magic link generated successfully!' : 'Magic link sent. Please check your inbox.');
+    } catch (e) {
+      const m = /:(\w+)/.exec(e.message);
+      setError(friendly(e.code || m?.[1]) || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="login-page">
       <div className="login-panel">
         <span className="eyebrow">Member Access</span>
         <h1>Sign in to Instadate</h1>
-        <p>Verify your phone to unlock events, RSVPs, matches, and chats across devices.</p>
+        <p>
+          {stage === 'email' || stage === 'emailSent'
+            ? 'Enter your email to receive a passwordless magic link to access your account.'
+            : 'Verify your phone to unlock events, RSVPs, matches, and chats across devices.'}
+        </p>
         {authError && <div className="login-alert">Session check failed. You can still try signing in again.</div>}
 
         <button className="login-google-btn" onClick={() => onGoogleLogin('/profile')}>
@@ -449,6 +619,13 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
             <button className="login-google-btn" disabled={busy || phone.length < 6} onClick={sendCode}>
               {busy ? 'Sending…' : 'Send code'}
             </button>
+            
+            <button
+              onClick={() => { setStage('email'); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 0, color: 'var(--pink)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', marginTop: 8 }}
+            >
+              Sign in with Email Magic Link
+            </button>
           </div>
         )}
 
@@ -481,6 +658,58 @@ function LoginPage({ onGoogleLogin, authError, navigate }) {
             {attemptsLeft != null && attemptsLeft > 0 && !locked && (
               <p style={{ color: '#fbbf24', fontSize: '0.78rem', margin: 0, textAlign: 'center' }}>{attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left</p>
             )}
+          </div>
+        )}
+
+        {stage === 'email' && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <input
+              className="login-input"
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+            <button className="login-google-btn" disabled={busy || !email.includes('@')} onClick={handleSendMagicLink}>
+              {busy ? 'Generating Link…' : 'Send Magic Link'}
+            </button>
+
+            <button
+              onClick={() => { setStage('phone'); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 0, color: 'var(--pink)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', marginTop: 8 }}
+            >
+              Sign in with Phone SMS Code
+            </button>
+          </div>
+        )}
+
+        {stage === 'emailSent' && (
+          <div style={{ display: 'grid', gap: 12, textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--pink)', fontSize: '2.5rem', marginBottom: 5 }}>
+              <Mail style={{ width: 48, height: 48 }} />
+            </div>
+            <p style={{ fontSize: '0.9rem', color: 'var(--muted)', margin: 0, lineHeight: '1.4' }}>
+              We've sent a magic login link to <strong>{email}</strong>. Check your inbox (and spam folder) and click the link to log in.
+            </p>
+            
+            {magicLinkUrl && (
+              <div style={{ marginTop: 10, padding: 12, borderRadius: 8, background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.3)', display: 'grid', gap: 8 }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Development Magic Link</span>
+                <a
+                  href={magicLinkUrl}
+                  style={{ color: 'var(--cyan)', fontSize: '0.82rem', wordBreak: 'break-all', textDecoration: 'underline', fontWeight: 700 }}
+                >
+                  Click here to log in directly
+                </a>
+              </div>
+            )}
+
+            <button
+              onClick={() => { setStage('email'); setMagicLinkUrl(''); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 0, color: 'var(--pink)', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', marginTop: 8 }}
+            >
+              Try another email
+            </button>
           </div>
         )}
 
@@ -571,6 +800,33 @@ function AccountStatusScreen({ status, reason, until, onLogout }) {
   );
 }
 
+// Routing/onboarding diagnostics. Shares the onboarding debug switch:
+// localStorage.setItem('onboarding_debug','0') silences these too.
+const ROUTE_DEBUG = (() => {
+  try { return localStorage.getItem('onboarding_debug') !== '0'; } catch { return false; }
+})();
+function routeLog(event, data) {
+  if (!ROUTE_DEBUG) return;
+  // eslint-disable-next-line no-console
+  console.info(`[routing] ${event}`, data === undefined ? '' : data);
+}
+
+// --- Event host detection --------------------------------------------------
+// The server sends each event's host as `hostUserId` (instant plans use
+// `creatorId`). A host must never see a Join/RSVP action on their own event.
+function getEventHostId(event) {
+  return event?.hostUserId ?? event?.hostId ?? event?.creatorId ?? null;
+}
+function isEventHost(event, currentUserId) {
+  const hostId = getEventHostId(event);
+  return Boolean(hostId && currentUserId && hostId === currentUserId);
+}
+function eventLog(name, data) {
+  if (!ROUTE_DEBUG) return; // shares the onboarding_debug switch
+  // eslint-disable-next-line no-console
+  console.info(`[events] ${name}`, data === undefined ? '' : data);
+}
+
 function App() {
   const [route, setRoute] = React.useState(getRoute);
   const [guestMode, setGuestMode] = React.useState(() => sessionStorage.getItem('instadate_guest_mode') !== 'false');
@@ -579,7 +835,13 @@ function App() {
   const [profileMember, setProfileMember] = React.useState(null);
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const { user: authUser, isAuthenticated, isLoading, authError, signIn, signOut } = useAuth();
-  const canBrowseApp = isAuthenticated || guestMode;
+  const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos, refreshProfile } = useProfile();
+  // Onboarding completion drives routing. authUser.onboardingCompleted (from
+  // /api/auth/me, resolves first) is the primary signal; profile.completed is a
+  // fallback once the profile fetch lands. Existing users who finished onboarding
+  // must skip it entirely and land in the app.
+  const onboardingCompleted = Boolean(authUser?.onboardingCompleted) || Boolean(profile?.completed);
+  const canBrowseApp = (isAuthenticated && onboardingCompleted) || guestMode;
 
   React.useEffect(() => {
     const handleUnauthorized = () => {
@@ -593,7 +855,6 @@ function App() {
   }, [signOut, isAuthenticated]);
 
   const [appState, , cloudStateStatus, , mutateState] = useApiState(createInitialAppState, canBrowseApp);
-  const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos } = useProfile();
   const [toast, setToast] = React.useState('');
   const [reviewEvent, setReviewEvent] = React.useState(null);
   const [feedbackMeetup, setFeedbackMeetup] = React.useState(null);
@@ -631,9 +892,13 @@ function App() {
     return Array.isArray(appState.chats) ? appState.chats : [];
   }, [appState.chats]);
   const publicRoutes = ['/onboarding', '/login'];
-  const guardedRoute = canBrowseApp
-    ? route === '/login' ? '/' : route
-    : publicRoutes.includes(route) ? route : '/onboarding';
+  const guardedRoute = (() => {
+    // Completed users never see onboarding again — bounce them to home even
+    // though /onboarding is otherwise a public route.
+    if (route === '/onboarding' && isAuthenticated && onboardingCompleted) return '/';
+    if (canBrowseApp) return route === '/login' ? '/' : route;
+    return publicRoutes.includes(route) ? route : '/onboarding';
+  })();
   const isConversationRoute = guardedRoute.startsWith('/chat/');
 
   React.useEffect(() => {
@@ -642,6 +907,21 @@ function App() {
     setRoute(getRoute());
     setMenuOpen(false);
   }, [guardedRoute, isLoading, route]);
+
+  // Routing diagnostics: explains the navigation decision on startup and after
+  // Google login (user id, profile status, completion flag, where we land).
+  React.useEffect(() => {
+    if (isLoading) return;
+    routeLog('decision', {
+      userId: authUser?.id ?? null,
+      profileFound: profileStatus === 'cloud',
+      profileStatus,
+      profileCompleted: Boolean(profile?.completed),
+      onboardingCompleted,
+      route,
+      navigateTo: guardedRoute
+    });
+  }, [isLoading, authUser?.id, profileStatus, profile?.completed, onboardingCompleted, route, guardedRoute]);
 
   React.useEffect(() => {
     const onPop = () => setRoute(getRoute());
@@ -652,6 +932,14 @@ function App() {
   React.useEffect(() => {
     window.scrollTo(0, 0);
   }, [route]);
+
+  React.useEffect(() => {
+    const handleAppToast = (e) => {
+      if (e.detail) notify(e.detail);
+    };
+    window.addEventListener('app-toast', handleAppToast);
+    return () => window.removeEventListener('app-toast', handleAppToast);
+  }, []);
 
   React.useEffect(() => {
     if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
@@ -772,6 +1060,8 @@ function App() {
   const createHostedEvent = async form => {
     const eventId = `hosted-${Date.now()}`;
     const joinTonight = isTodayDateValue(form.date) || form.type === 'House Party';
+    const venue = form.venue || {};
+    const venueName = venue.venueName || form.location.trim();
     const hostedEvent = {
       id: eventId,
       title: form.title.trim(),
@@ -779,7 +1069,7 @@ function App() {
       date: formatHostEventDate(form.date),
       rawDate: form.date,
       time: formatHostEventTime(form.time),
-      place: form.location.trim(),
+      place: venueName,
       image: form.photo || '/assets/social_mixer.png',
       status: joinTonight ? 'Join Tonight' : 'Open Plan',
       description: form.description.trim(),
@@ -788,6 +1078,14 @@ function App() {
       price: form.entry === 'Paid' ? form.price : '',
       approval: form.approval,
       hostName: currentAppState.profile?.fullName || 'Club host',
+      hostUserId: authUser?.id || null,
+      // Structured venue (Foursquare). Null coords/placeId for custom/manual entry.
+      venueName,
+      formattedAddress: venue.formattedAddress || '',
+      latitude: venue.latitude ?? null,
+      longitude: venue.longitude ?? null,
+      placeId: venue.placeId ?? null,
+      placeProvider: venue.placeId ? (venue.provider || 'foursquare') : null,
       createdAt: new Date().toISOString(),
       source: 'hosted'
     };
@@ -874,7 +1172,7 @@ function App() {
   return (
     <>
       <div className="app-bg" />
-      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && (
+      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/concierge' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && (
         <Header
           route={guardedRoute} 
           navigate={navigate} 
@@ -892,16 +1190,29 @@ function App() {
            {guardedRoute === '/members' && <MembersPage appState={currentAppState} resolvedMembers={resolvedMembers} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
           {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} navigate={navigate} onProfileClick={setProfileMember} />}
           {guardedRoute === '/requests' && <ConnectionRequestsPage navigate={navigate} />}
+          {guardedRoute === '/vibe-checks' && <VibeCheckInboxPage appState={currentAppState} navigate={navigate} />}
+          {guardedRoute.startsWith('/vibe-check/send/') && <VibeCheckSendPage route={guardedRoute} navigate={navigate} appState={currentAppState} />}
+          {guardedRoute === '/concierge' && <ConciergePage appState={currentAppState} navigate={navigate} onLogout={handleLogout} />}
           {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
-          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} />}
+          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} currentUserId={authUser?.id} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
           {guardedRoute === '/profile' && <ProfileDashboard initialProfile={currentAppState.profile} appState={currentAppState} onSave={saveProfile} onUploadPhotos={uploadProfilePhotos} onLogout={handleLogout} navigate={navigate} onOpenDrawer={() => setMenuOpen(true)} authUser={authUser} onGoogleLogin={startGoogleLogin} onReviewClick={setReviewEvent} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} navigate={navigate} />}
-          {guardedRoute === '/onboarding' && <OnboardingFlow onExplore={exploreAsGuest} onComplete={() => navigate('/login')} />}
+          {guardedRoute === '/onboarding' && (
+            <OnboardingFlow
+              onExplore={exploreAsGuest}
+              onComplete={async () => {
+                sessionStorage.setItem('instadate_guest_mode', 'false');
+                setGuestMode(false);
+                await refreshProfile();
+                navigate('/profile');
+              }}
+            />
+          )}
           {guardedRoute === '/' && <HomePage appState={currentAppState} resolvedMembers={resolvedMembers} resolvedEvents={resolvedEvents} navigate={navigate} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} onMeetSomeoneClick={() => setMeetSomeoneOpen(true)} />}
         </RouteErrorBoundary>
       </main>
-      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && <BottomNav route={guardedRoute} navigate={navigate} />}
+      {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/concierge' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && <BottomNav route={guardedRoute} navigate={navigate} />}
       {installPrompt && <InstallBanner prompt={installPrompt} onDone={() => setInstallPrompt(null)} />}
       {selectedMember && <VibeRequestModal member={selectedMember} requested={Boolean(currentAppState.vibeRequests[selectedMember.id])} onClose={() => setSelectedMember(null)} onSend={sendVibe} navigate={navigate} />}
       {profileMember && <MemberProfileModal member={profileMember} requested={Boolean(currentAppState.vibeRequests[profileMember.id])} onClose={() => setProfileMember(null)} onVibeClick={member => { setProfileMember(null); setSelectedMember(member); }} navigate={navigate} />}
@@ -929,9 +1240,41 @@ function App() {
           onToggleRsvp={toggleRsvp}
           onJoinPlan={handleJoinPlan}
           navigate={navigate}
+          currentUserId={authUser?.id}
         />
       )}
-      {cloudStateStatus === 'offline' && <div className="app-toast">Cloud storage unavailable. Start Cloudflare dev or deploy the Worker.</div>}
+      {cloudStateStatus === 'offline' && (
+        <div style={{
+          position: 'fixed',
+          top: '1rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          background: 'rgba(255, 46, 147, 0.25)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 46, 147, 0.4)',
+          borderRadius: '16px',
+          padding: '0.6rem 1.2rem',
+          color: '#fff',
+          font: '800 0.82rem Outfit, sans-serif',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          boxShadow: '0 8px 30px rgba(255, 46, 147, 0.3)',
+          letterSpacing: '0.02em',
+          pointerEvents: 'none'
+        }}>
+          <span style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: '#ff2e93',
+            display: 'inline-block',
+            animation: 'shimmerPulse 1.5s infinite'
+          }} />
+          Offline Mode • Actions will sync automatically when connection restores
+        </div>
+      )}
       {toast && <div className="app-toast">{toast}</div>}
       <AnimatePresence>
         {menuOpen && (
@@ -958,6 +1301,9 @@ function getRoute() {
   if (path.endsWith('/events.html') || path === '/events') return '/events';
   if (path === '/host') return '/host';
   if (path === '/requests') return '/requests';
+  if (path === '/vibe-checks') return '/vibe-checks';
+  if (path.startsWith('/vibe-check/send/')) return path;
+  if (path === '/concierge') return '/concierge';
   if (path === '/profile') return '/profile';
   if (path === '/onboarding') return '/onboarding';
   if (path === '/login') return '/login';
@@ -992,7 +1338,7 @@ function Header({ route, navigate, menuOpen, setMenuOpen, authUser, onGoogleLogi
 }
 
 function SideDrawer({ route, navigate, onClose, appState }) {
-  const { user: authUser } = useAuth();
+  const { user: authUser, isModerator } = useAuth();
   const [gsapLoaded, setGsapLoaded] = React.useState(Boolean(window.gsap));
 
   // Load GSAP CDN if not loaded
@@ -1026,12 +1372,13 @@ function SideDrawer({ route, navigate, onClose, appState }) {
     { path: '/members', label: 'Verified Members', subtitle: 'Browse active profiles', icon: Users },
     { path: '/chat', label: 'Inbox Chats', subtitle: 'Open locked voice connections', icon: MessageCircle },
     { path: '/events', label: 'mixers Calendar', subtitle: 'RSVP scheduled offline mixer', icon: Calendar },
+    { path: '/concierge', label: 'Concierge Controls', subtitle: 'Security, billing & account settings', icon: Shield },
     { path: '/profile', label: 'My Club Profile', subtitle: 'Aadhaar safety & tier locker', icon: User },
     { path: '/onboarding', label: 'Onboarding 🚀', subtitle: 'Vibe check & Speakeasy Tour', icon: Sparkles },
-    { path: '/admin/analytics', label: 'Admin Analytics 📊', subtitle: 'Telemetry & conversions', icon: BarChart2 },
-    { path: '/admin/health', label: 'Company Health 💓', subtitle: 'Funnel & North Star', icon: Heart },
-    { path: '/admin/moderation', label: 'Moderation Queue 🚩', subtitle: 'Abuse reports & safety', icon: ShieldCheck }
-  ];
+    { path: '/admin/analytics', label: 'Admin Analytics 📊', subtitle: 'Telemetry & conversions', icon: BarChart2, admin: true },
+    { path: '/admin/health', label: 'Company Health 💓', subtitle: 'Funnel & North Star', icon: Heart, admin: true },
+    { path: '/admin/moderation', label: 'Moderation Console 🚩', subtitle: 'Reports, users, events & audit', icon: ShieldCheck, admin: true }
+  ].filter(item => !item.admin || isModerator);
 
   const profile = appState.profile;
   const isVipProfile = profile.completed || Boolean(authUser);
@@ -1284,13 +1631,7 @@ function SideDrawer({ route, navigate, onClose, appState }) {
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--soft)', padding: '0 4px' }}>
-            <span>v1.2.0 • Aadhaar Protected</span>
-            <button 
-              onClick={() => window.open('https://wa.me/919999999999', '_blank')}
-              style={{ background: 'transparent', border: 0, color: 'var(--cyan)', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              Concierge Desk
-            </button>
+            <span>v1.2.0 • Friends &amp; Family Beta</span>
           </div>
         </div>
       </motion.div>
@@ -1607,7 +1948,7 @@ function ActivityPartnerModal({ activity, resolvedMembers = [], onClose, onVibeC
   );
 }
 
-function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onVibeClick, onProfileClick, onToggleRsvp, onJoinPlan, navigate }) {
+function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onVibeClick, onProfileClick, onToggleRsvp, onJoinPlan, navigate, currentUserId }) {
   const [selectedActivity, setSelectedActivity] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState('members');
 
@@ -1785,6 +2126,7 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                 ) : (
                   matchingEvents.map(event => {
                     const isJoined = Boolean(appState.rsvps[event.id]);
+                    const isHost = isEventHost(event, currentUserId);
                     return (
                       <div key={event.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '18px', gap: '10px' }}>
                         <img src={event.image} alt="" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }} />
@@ -1794,21 +2136,27 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                             {event.date} • {event.place}
                           </span>
                         </div>
-                        <button 
-                          className="btn-main" 
-                          style={{
-                            minHeight: '34px', 
-                            borderRadius: '10px', 
-                            fontSize: '0.78rem', 
-                            padding: '0 12px',
-                            background: isJoined ? 'rgba(255, 46, 147, 0.15)' : '#fff',
-                            color: isJoined ? 'var(--pink)' : '#000',
-                            border: isJoined ? '1px solid rgba(255, 46, 147, 0.3)' : 'none'
-                          }}
-                          onClick={() => onToggleRsvp(event)}
-                        >
-                          {isJoined ? "RSVP'd ✓" : 'RSVP 🎟'}
-                        </button>
+                        {isHost ? (
+                          <span style={{ minHeight: '34px', display: 'inline-flex', alignItems: 'center', padding: '0 12px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--cyan)', background: 'rgba(0, 215, 245, 0.12)', border: '1px solid rgba(0, 215, 245, 0.3)', whiteSpace: 'nowrap' }}>
+                            Hosted by You
+                          </span>
+                        ) : (
+                          <button
+                            className="btn-main"
+                            style={{
+                              minHeight: '34px',
+                              borderRadius: '10px',
+                              fontSize: '0.78rem',
+                              padding: '0 12px',
+                              background: isJoined ? 'rgba(255, 46, 147, 0.15)' : '#fff',
+                              color: isJoined ? 'var(--pink)' : '#000',
+                              border: isJoined ? '1px solid rgba(255, 46, 147, 0.3)' : 'none'
+                            }}
+                            onClick={() => onToggleRsvp(event)}
+                          >
+                            {isJoined ? "RSVP'd ✓" : 'RSVP 🎟'}
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -1825,6 +2173,7 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                 ) : (
                   matchingPlans.map(plan => {
                     const hasJoined = plan.members.some(m => m.id === appState.profile.id);
+                    const isHost = isEventHost(plan, currentUserId);
                     return (
                       <div key={plan.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '18px', gap: '10px' }}>
                         <div style={{ minWidth: 0 }}>
@@ -1833,21 +2182,27 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
                             Activity: {plan.activity} • {plan.time} • Host: {plan.creatorName} ({plan.creatorTrustScore}% Trust)
                           </span>
                         </div>
-                        <button 
-                          className="btn-main" 
-                          style={{
-                            minHeight: '34px', 
-                            borderRadius: '10px', 
-                            fontSize: '0.78rem', 
-                            padding: '0 12px',
-                            background: hasJoined ? 'rgba(0, 215, 245, 0.15)' : '#fff',
-                            color: hasJoined ? 'var(--cyan)' : '#000',
-                            border: hasJoined ? '1px solid rgba(0, 215, 245, 0.3)' : 'none'
-                          }}
-                          onClick={() => onJoinPlan(plan.id, hasJoined)}
-                        >
-                          {hasJoined ? 'Joined ✓' : 'Join ⚡'}
-                        </button>
+                        {isHost ? (
+                          <span style={{ minHeight: '34px', display: 'inline-flex', alignItems: 'center', padding: '0 12px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--cyan)', background: 'rgba(0, 215, 245, 0.12)', border: '1px solid rgba(0, 215, 245, 0.3)', whiteSpace: 'nowrap' }}>
+                            Hosting
+                          </span>
+                        ) : (
+                          <button
+                            className="btn-main"
+                            style={{
+                              minHeight: '34px',
+                              borderRadius: '10px',
+                              fontSize: '0.78rem',
+                              padding: '0 12px',
+                              background: hasJoined ? 'rgba(0, 215, 245, 0.15)' : '#fff',
+                              color: hasJoined ? 'var(--cyan)' : '#000',
+                              border: hasJoined ? '1px solid rgba(0, 215, 245, 0.3)' : 'none'
+                            }}
+                            onClick={() => onJoinPlan(plan.id, hasJoined)}
+                          >
+                            {hasJoined ? 'Joined ✓' : 'Join ⚡'}
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -2231,85 +2586,10 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
       {/* The Member Grid */}
       <div className="member-grid" style={{ minHeight: '300px' }}>
         {isLoading ? (
-          // Shimmer loading skeleton
-          Array.from({ length: 6 }).map((_, index) => (
-            <div key={`shimmer-${index}`} className="member-card-shimmer" style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.6rem',
-              padding: '1.25rem',
-              height: '100%',
-              background: 'rgba(14, 14, 20, 0.72)',
-              backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '24px',
-              overflow: 'hidden',
-              position: 'relative'
-            }}>
-              {/* Shimmer animation overlay */}
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%)',
-                animation: 'shimmer 2s infinite',
-                transform: 'translateX(-100%)'
-              }} />
-
-              {/* Avatar shimmer */}
-              <div style={{
-                width: '80px',
-                height: '80px',
-                borderRadius: '50%',
-                background: 'rgba(255,255,255,0.05)',
-                margin: '0 auto'
-              }} />
-
-              {/* Name shimmer */}
-              <div style={{
-                height: '20px',
-                width: '60%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px',
-                margin: '0.5rem auto'
-              }} />
-
-              {/* Score shimmer */}
-              <div style={{
-                height: '16px',
-                width: '40%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px',
-                margin: '0 auto'
-              }} />
-
-              {/* Bio shimmer */}
-              <div style={{
-                height: '14px',
-                width: '90%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px',
-                marginTop: '0.5rem'
-              }} />
-              <div style={{
-                height: '14px',
-                width: '70%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '4px'
-              }} />
-
-              {/* Button shimmer */}
-              <div style={{
-                height: '40px',
-                width: '100%',
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '12px',
-                marginTop: 'auto'
-              }} />
-            </div>
-          ))
+          <Skeleton type="grid" count={6} />
         ) : (
           filtered.map(member => (
-            <div key={member.name} className="gsap-member-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div key={member.id} className="gsap-member-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
               <MemberCard
                 member={member}
                 requested={Boolean(appState.vibeRequests[member.id])}
@@ -2322,18 +2602,13 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
       </div>
 
       {filtered.length === 0 && (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 2rem',
-          background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)',
-          borderRadius: '24px',
-          color: 'var(--muted)'
-        }}>
-          <Sparkles style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No matches found</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>Try searching another city like Juhu, Bandra, Delhi, or Bangalore.</p>
-        </div>
+        <EmptyState
+          type="discovery"
+          title="No matches found"
+          description="No active members match your search criteria. Try loosening your search keyword or checking other neighborhoods like Bandra or Juhu."
+          actionText="Reset Search"
+          onAction={() => setQuery('')}
+        />
       )}
     </section>
   );
@@ -2879,6 +3154,12 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
 function ConnectionRequestsPage({ navigate }) {
   const [requests, setRequests] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
+  // Sender id passed from a "View Request" notification tap (/requests?from=<id>).
+  const highlightFrom = React.useMemo(
+    () => new URLSearchParams(window.location.search).get('from'),
+    []
+  );
+  const highlightRef = React.useRef(null);
 
   const load = React.useCallback(() => {
     fetch('/api/connections/requests', { credentials: 'same-origin', cache: 'no-store' })
@@ -2888,6 +3169,13 @@ function ConnectionRequestsPage({ navigate }) {
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
+
+  // Once the list is loaded, bring the deep-linked sender's request into view.
+  React.useEffect(() => {
+    if (requests && requests.length && highlightFrom && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [requests, highlightFrom]);
 
   const act = async (id, action) => {
     setBusyId(id);
@@ -2908,29 +3196,44 @@ function ConnectionRequestsPage({ navigate }) {
   return (
     <section className="page-shell inbox-page">
       <PageTitle eyebrow="Requests" title="Connection Requests" text="People who want to connect with you. Accept to start a chat, or decline." />
+      <div style={{ marginBottom: '1rem' }}>
+        <div className="vc-upgrade-notice" style={{
+          padding: '0.75rem 1rem', borderRadius: 14, fontSize: '0.85rem',
+          background: 'linear-gradient(135deg, rgba(255,46,147,0.08), rgba(155,48,255,0.08))',
+          border: '1px solid rgba(255,46,147,0.15)',
+          display: 'flex', alignItems: 'center', gap: 10
+        }}>
+          <Mic style={{ width: 18, height: 18, color: 'var(--pink)', flexShrink: 0 }} />
+          <span><strong>Vibe Checks</strong> are the new way to connect! Send a voice intro and unlock chat when they accept. <a href="/vibe-checks" style={{ color: 'var(--pink)', textDecoration: 'underline' }} onClick={e => { e.preventDefault(); navigate('/vibe-checks'); }}>View Vibe Check inbox →</a></span>
+        </div>
+      </div>
       {requests === null ? (
         <div className="inbox-list">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="inbox-card" style={{ opacity: 0.5 }}>
-              <div className="avatar pink" style={{ width: 48, height: 48 }} />
-              <div className="inbox-copy"><div className="inbox-row"><strong>Loading…</strong></div></div>
-            </div>
-          ))}
+          <Skeleton type="list" count={3} />
         </div>
       ) : requests.length === 0 ? (
-        <div style={{
-          textAlign: 'center', padding: '4rem 2rem', background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '24px', color: 'var(--muted)', marginTop: '2rem'
-        }}>
-          <Users style={{ width: 40, height: 40, color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No pending requests</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>When someone sends you a connection request, it will show up here.</p>
-          <button className="btn-main" style={{ marginTop: '1.25rem' }} onClick={() => navigate('/members')}>Discover people</button>
-        </div>
+        <EmptyState
+          type="connections"
+          title="No pending requests"
+          description="When someone sends you a connection request, it will show up here."
+          actionText="Discover People"
+          onAction={() => navigate('/members')}
+        />
       ) : (
         <div className="inbox-list">
-          {requests.map(req => (
-            <div key={req.id} className="inbox-card" style={{ alignItems: 'flex-start', cursor: 'default' }}>
+          {requests.map(req => {
+            const isHighlighted = highlightFrom && req.from.id === highlightFrom;
+            return (
+            <div
+              key={req.id}
+              ref={isHighlighted ? highlightRef : null}
+              className="inbox-card"
+              style={{
+                alignItems: 'flex-start',
+                cursor: 'default',
+                ...(isHighlighted ? { boxShadow: '0 0 0 2px #ff7ac2', borderRadius: 16 } : {})
+              }}
+            >
               <Avatar member={req.from} />
               <div className="inbox-copy" style={{ flex: 1, minWidth: 0 }}>
                 <div className="inbox-row">
@@ -2950,48 +3253,336 @@ function ConnectionRequestsPage({ navigate }) {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
   );
 }
 
+// Parse a chat timestamp that may be SQLite ('YYYY-MM-DD HH:MM:SS', no zone) or ISO (with Z).
+function parseChatTs(ts) {
+  if (!ts) return 0;
+  const str = String(ts);
+  const norm = str.includes('T') ? str : str.replace(' ', 'T');
+  const zoned = /[zZ]|[+-]\d\d:?\d\d$/.test(norm) ? norm : `${norm}Z`;
+  return Date.parse(zoned) || 0;
+}
+
+function formatInboxTime(ts) {
+  const t = parseChatTs(ts);
+  if (!t) return '';
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+// ============ CONCIERGE CONTROLS PAGE ============
+// Settings & account management with glassmorphic luxury design.
+function ConciergePage({ appState, navigate, onLogout }) {
+  const profile = appState?.profile || {};
+  const trustMetrics = appState?.trustMetrics || {};
+  const [busyAction, setBusyAction] = React.useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+
+  const handleExport = async () => {
+    setBusyAction('export');
+    try {
+      const res = await fetch('/api/account/export', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `instadate-export-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Data exported successfully' }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Export failed. Try again.' }));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    setBusyAction('deactivate');
+    try {
+      const res = await fetch('/api/account/deactivate', { method: 'POST', credentials: 'same-origin' });
+      if (!res.ok) throw new Error();
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Account deactivated. You can reactivate within 30 days.' }));
+      navigate('/profile');
+    } catch {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Failed to deactivate. Try again.' }));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    setBusyAction('delete');
+    try {
+      const res = await fetch('/api/account', { method: 'DELETE', credentials: 'same-origin' });
+      if (!res.ok) throw new Error();
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Account deletion requested. 30-day grace period started.' }));
+      if (onLogout) onLogout();
+    } catch {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Failed to request deletion.' }));
+    } finally {
+      setBusyAction(null);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const verificationLevel = profile.verification_level || trustMetrics.verification_level || 'none';
+  const isElite = profile.completed && (verificationLevel !== 'none');
+  const isVerified = verificationLevel === 'full' || verificationLevel === 'basic';
+
+  return (
+    <div className="concierge-shell">
+      {/* Ambient Blobs */}
+      <div className="concierge-bg" aria-hidden="true">
+        <div className="concierge-blob blob-a" />
+        <div className="concierge-blob blob-b" />
+        <div className="concierge-blob blob-c" />
+      </div>
+
+      <div className="concierge-page">
+        {/* Top Bar */}
+        <header className="concierge-header">
+          <button className="concierge-back" onClick={() => navigate('/profile')} aria-label="Back to profile">
+            <ArrowLeft style={{ width: 20, height: 20 }} />
+          </button>
+          <h1 className="concierge-title">Concierge Controls</h1>
+          <span style={{ width: 36 }} />
+        </header>
+
+        <main className="concierge-main">
+          {/* Section Label */}
+          <p className="concierge-eyebrow">Vetting &amp; Security</p>
+          <h2 className="concierge-section-title">Concierge Controls</h2>
+
+          {/* Settings Cards */}
+          <div className="concierge-stack">
+            {/* Google Account */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(196,192,255,0.2), rgba(255,45,85,0.2))' }}>
+                <Mail style={{ width: 20, height: 20, color: 'var(--primary)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Google Account</h3>
+                <p>Manage linked sync &amp; calendar</p>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+            </button>
+
+            {/* Identity Verification */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(228,242,34,0.2), rgba(196,192,255,0.2))' }}>
+                <Fingerprint style={{ width: 20, height: 20, color: 'var(--premium-gold)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Identity Verification</h3>
+                <p>{isVerified ? 'Biometric &amp; ID verified' : 'Complete verification'}</p>
+              </div>
+              {isVerified ? (
+                <ShieldCheck style={{ width: 18, height: 18, color: '#4ade80' }} />
+              ) : (
+                <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+              )}
+            </button>
+
+            {/* Billing & Concierge */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(196,192,255,0.2), rgba(162,231,255,0.2))' }}>
+                <Gem style={{ width: 20, height: 20, color: 'var(--secondary)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Billing &amp; Concierge</h3>
+                <p>{isElite ? 'Elite membership' : 'Payment methods &amp; receipts'}</p>
+              </div>
+              {isElite ? (
+                <span className="concierge-elite-badge">ELITE</span>
+              ) : (
+                <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+              )}
+            </button>
+
+            {/* Concierge Filters */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(255,45,85,0.2), rgba(196,192,255,0.2))' }}>
+                <SlidersHorizontal style={{ width: 20, height: 20, color: 'var(--accent-magenta)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Concierge Filters</h3>
+                <p>Global matching preferences</p>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+            </button>
+
+            {/* Emergency Contact */}
+            <button className="glass-card concierge-card" onClick={() => navigate('/profile')}>
+              <div className="concierge-card-icon" style={{ background: 'linear-gradient(135deg, rgba(255,180,171,0.2), rgba(255,45,85,0.2))' }}>
+                <AlertTriangle style={{ width: 20, height: 20, color: 'var(--error)' }} />
+              </div>
+              <div className="concierge-card-body">
+                <h3>Emergency Contact</h3>
+                <p>Safety protocols &amp; alerts</p>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+            </button>
+          </div>
+
+          {/* Primary Action */}
+          <button className="concierge-primary-btn" onClick={() => navigate('/profile')}>
+            <span className="concierge-primary-bg" />
+            <span className="concierge-primary-inner">
+              <Shield style={{ width: 20, height: 20 }} />
+              <span>Settings &amp; Verification</span>
+            </span>
+          </button>
+
+          {/* Secondary Row */}
+          <div className="concierge-secondary-row">
+            <button className="glass-card concierge-sec-btn" onClick={() => window.open('mailto:support@instadate.club', '_blank')}>
+              <HelpCircle style={{ width: 16, height: 16 }} />
+              Help Center
+            </button>
+            <button className="concierge-signout-btn" onClick={onLogout}>
+              <LogOut style={{ width: 16, height: 16 }} />
+              Sign Out
+            </button>
+          </div>
+
+          {/* Account & Data */}
+          <section className="neon-section">
+            <h3 className="neon-section-title">Account &amp; Data</h3>
+            <p className="neon-section-desc">Manage your data, privacy, account access, and lifecycle.</p>
+            <div className="neon-section-links">
+              <button className="neon-link" onClick={handleExport} disabled={busyAction === 'export'}>
+                <Download style={{ width: 18, height: 18, color: 'var(--primary)' }} />
+                <span>{busyAction === 'export' ? 'Exporting…' : 'Export Data Archive'}</span>
+                {busyAction !== 'export' && <ArrowLeft style={{ width: 14, height: 14, transform: 'rotate(180deg)', color: 'var(--text-muted)' }} />}
+              </button>
+              <div className="neon-divider" />
+              <button className="neon-link" onClick={handleDeactivate} disabled={busyAction === 'deactivate'}>
+                <PauseCircle style={{ width: 18, height: 18, color: 'var(--text-muted)' }} />
+                <span>{busyAction === 'deactivate' ? 'Deactivating…' : 'Deactivate Account'}</span>
+                {busyAction !== 'deactivate' && <ArrowLeft style={{ width: 14, height: 14, transform: 'rotate(180deg)', color: 'var(--text-muted)' }} />}
+              </button>
+              <div className="neon-divider" />
+              <button className="neon-link neon-link-danger" onClick={() => setShowDeleteConfirm(true)} disabled={busyAction === 'delete'}>
+                <Trash2 style={{ width: 18, height: 18, color: 'var(--error)' }} />
+                <span className="neon-link-danger-text">{busyAction === 'delete' ? 'Deleting…' : 'Delete Account Permanently'}</span>
+                {busyAction !== 'delete' && <ArrowLeft style={{ width: 14, height: 14, transform: 'rotate(180deg)', color: 'var(--error)', opacity: 0.5 }} />}
+              </button>
+            </div>
+          </section>
+
+          {/* Delete Confirmation Modal */}
+          {showDeleteConfirm && (
+            <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setShowDeleteConfirm(false)}>
+              <motion.div
+                className="concierge-confirm-dialog glass-card"
+                initial={{ opacity: 0, scale: 0.92, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.92, y: 20 }}
+                onClick={e => e.stopPropagation()}
+                style={{ padding: '2rem', borderRadius: 24, maxWidth: 360, width: '90%', textAlign: 'center' }}
+              >
+                <AlertTriangle style={{ width: 40, height: 40, color: 'var(--error)', marginBottom: '1rem' }} />
+                <h3 style={{ color: '#fff', font: '800 1.2rem Outfit, sans-serif', margin: '0 0 0.5rem' }}>Delete Account?</h3>
+                <p style={{ color: 'var(--muted)', fontSize: '0.88rem', lineHeight: 1.5, margin: '0 0 1.5rem' }}>
+                  This starts a 30-day grace period. After that, your data will be permanently deleted. This cannot be undone.
+                </p>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button className="btn-quiet" style={{ flex: 1, minHeight: 42, borderRadius: 12 }} onClick={() => setShowDeleteConfirm(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn-main"
+                    style={{ flex: 1, minHeight: 42, borderRadius: 12, background: 'linear-gradient(135deg, #ff3366, #93000a)', border: 'none' }}
+                    onClick={handleDelete}
+                    disabled={busyAction === 'delete'}
+                  >
+                    {busyAction === 'delete' ? 'Deleting…' : 'Yes, Delete'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Elite Status Card */}
+          <div className="concierge-status-card">
+            <div className="concierge-status-img" />
+            <div className="concierge-status-overlay" />
+            <div className="concierge-status-content">
+              <span className="concierge-status-badge">Your Status</span>
+              <h4>{isElite ? 'Elite Membership Active' : 'Member'}</h4>
+              <p>
+                {isElite
+                  ? `Verified ${verificationLevel === 'full' ? 'with full biometric ID' : 'with phone verification'}`
+                  : 'Complete verification to unlock Elite status'}
+              </p>
+            </div>
+          </div>
+        </main>
+
+        {/* Bottom Navigation removed — Concierge Controls is a focused settings page */}
+      </div>
+    </div>
+  );
+}
+
 function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], navigate }) {
   const hasNoChats = resolvedChats.length === 0;
+  const vibeCheckCount = appState?.vibeChecks?.inbox?.length || 0;
+  const requestCount = appState?.notifications?.filter(n => n.type === 'connection_request' && !n.readAt)?.length || 0;
 
   return (
     <section className="page-shell inbox-page">
       <PageTitle eyebrow="Inbox" title="Chat Inbox" text="Pick a connection to open a dedicated chat page. No cramped split layout." />
-      <button className="btn-quiet" style={{ alignSelf: 'flex-start', marginBottom: '1rem', minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/requests')}>
-        <Users style={{ width: 16, height: 16 }} /> View connection requests
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/vibe-checks')}>
+          <Mic style={{ width: 16, height: 16 }} /> Vibe Checks{vibeCheckCount > 0 ? ` (${vibeCheckCount})` : ''}
+        </button>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/requests')}>
+          <Users style={{ width: 16, height: 16 }} /> Connection requests{requestCount > 0 ? ` (${requestCount})` : ''}
+        </button>
+      </div>
       {hasNoChats ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 2rem',
-          background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)',
-          borderRadius: '24px',
-          color: 'var(--muted)',
-          marginTop: '2rem'
-        }}>
-          <MessageSquare style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No Conversations Yet</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>You don't have any active chats yet. Connect with members in discovery to unlock voice verification and start real-time messaging!</p>
-          <button className="btn-main" style={{ marginTop: '1.25rem' }} onClick={() => navigate('/members')}>Find Connections</button>
-        </div>
+        <EmptyState
+          type="chat"
+          title="No Conversations Yet"
+          description="You don't have any active chats yet. Connect with members in discovery to unlock voice verification and start real-time messaging!"
+          actionText="Find Connections"
+          onAction={() => navigate('/members')}
+        />
       ) : (
         <div className="inbox-list">
-          {(resolvedChats || []).map(chat => {
+          {[...(resolvedChats || [])]
+            .sort((a, b) => parseChatTs(b.lastMessageAt) - parseChatTs(a.lastMessageAt))
+            .map(chat => {
             const profile = getChatProfile(chat, resolvedMembers);
-            const messageCount = (appState.chatMessages[chat.slug] || chat.messages || []).length;
+            const msgs = appState.chatMessages[chat.slug] || chat.messages || [];
+            const last = msgs.length ? msgs[msgs.length - 1] : null;
+            const previewRaw = last ? (last[4] ? '📎 Attachment' : last[1]) : 'Say hi 👋';
+            const preview = previewRaw && previewRaw.length > 40 ? `${previewRaw.slice(0, 40)}…` : previewRaw;
+            const unread = chat.unreadCount || 0;
             return (
             <button key={chat.slug} className="inbox-card" onClick={() => navigate(`/chat/${chat.slug}`)}>
               <Avatar member={profile} />
               <div className="inbox-copy">
-                <div className="inbox-row"><strong>{profile.name}</strong><span>6d 23h</span></div>
-                <small className="message-count-tag">{messageCount} messages</small>
+                <div className="inbox-row"><strong>{profile.name}</strong><span>{formatInboxTime(chat.lastMessageAt)}</span></div>
+                <small className="message-count-tag" style={unread > 0 ? { color: '#ff7ac2', fontWeight: 800 } : undefined}>
+                  {unread > 0 ? `${unread} new message${unread > 1 ? 's' : ''}` : preview}
+                </small>
               </div>
               <ChevronRight />
             </button>
@@ -3001,6 +3592,27 @@ function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], nav
       )}
     </section>
   );
+}
+
+function formatLastSeen(lastActiveAt) {
+  if (!lastActiveAt) return 'Offline';
+  try {
+    const parsedDate = lastActiveAt.includes('T') ? new Date(lastActiveAt) : new Date(lastActiveAt.replace(' ', 'T') + 'Z');
+    const diffMs = Date.now() - parsedDate.getTime();
+    if (Number.isNaN(diffMs)) return 'Offline';
+    
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Active just now';
+    if (diffMins < 60) return `Active ${diffMins}m ago`;
+    
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `Active ${diffHours}h ago`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    return `Active ${diffDays}d ago`;
+  } catch (e) {
+    return 'Offline';
+  }
 }
 
 function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = [], route, navigate, onVerify, onSend, onProfileClick, onMeetupFeedbackClick }) {
@@ -3029,15 +3641,389 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
   }
 
   const profile = getChatProfile(active, resolvedMembers);
-  const isVerified = Boolean(appState.verifiedChats[active.slug]);
-  const thread = appState.chatMessages[active.slug] || active.messages;
+  const isVerified = appState?.verifiedChats?.[active.slug] || false;
+  
   const [draft, setDraft] = React.useState('');
+  const [liveMessages, setLiveMessages] = React.useState(() => appState.chatMessages[active.slug] || active.messages || []);
+  const [peerOnline, setPeerOnline] = React.useState(false);
+  const [peerTyping, setPeerTyping] = React.useState(false);
+
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [recordingDuration, setRecordingDuration] = React.useState(0);
+
+  const socketRef = React.useRef(null);
+  const reconnectTimeoutRef = React.useRef(null);
+  const typingTimeoutRef = React.useRef(null);
+  const fileInputRef = React.useRef(null);
+  const mediaRecorderRef = React.useRef(null);
+  const audioChunksRef = React.useRef([]);
+  const durationIntervalRef = React.useRef(null);
+
+  // Sync with global appState messages (e.g. if page is refreshed or parent state changes)
+  React.useEffect(() => {
+    setLiveMessages(appState.chatMessages[active.slug] || active.messages || []);
+  }, [appState.chatMessages, active.slug, active.messages]);
+
+  // Reset statuses when changing chats
+  React.useEffect(() => {
+    setPeerOnline(false);
+    setPeerTyping(false);
+    setIsRecording(false);
+  }, [active.slug]);
+
+  // Mark all messages as read via HTTP API on mount/switch
+  React.useEffect(() => {
+    if (isVerified) {
+      fetch(`/api/chats/${active.slug}/read`, { method: 'POST' }).catch(() => {});
+    }
+  }, [active.slug, isVerified]);
+
+  // WebSocket connection lifecycle & reconnection logic
+  React.useEffect(() => {
+    if (!isVerified) return;
+
+    let activeConnection = true;
+
+    function connect() {
+      if (!activeConnection) return;
+      
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = window.location.port === '5173' ? `${window.location.hostname}:8787` : window.location.host;
+      const wsUrl = `${wsProtocol}//${wsHost}/api/chats/${active.slug}/ws`;
+
+      console.log(`[WS] Connecting to ${wsUrl}`);
+      const ws = new WebSocket(wsUrl);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        if (!activeConnection) {
+          ws.close();
+          return;
+        }
+        console.log(`[WS] Connected successfully to chat DO for ${active.slug}`);
+        // Catch up on anything missed while the socket was down, without falling
+        // back to the full-state poll. Cursor = id of the last message we hold.
+        setLiveMessages(prev => {
+          const lastServerId = [...prev].reverse().find(m => m[3] && !String(m[3]).startsWith('cm-'))?.[3];
+          const qs = lastServerId ? `?cursor=${encodeURIComponent(lastServerId)}` : '';
+          fetch(`/api/chats/${active.slug}/since${qs}`, { credentials: 'same-origin', cache: 'no-store' })
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => {
+              if (!data?.messages?.length) return;
+              setLiveMessages(curr => {
+                const have = new Set(curr.map(m => m[3]));
+                const merged = curr.slice();
+                for (const m of data.messages) {
+                  if (!have.has(m.id)) merged.push([m.role, m.body, 'sent', m.id, m.attachmentUrl]);
+                }
+                return merged;
+              });
+            })
+            .catch(err => console.error('[WS] since catch-up failed:', err));
+          return prev;
+        });
+      };
+
+      ws.onmessage = (event) => {
+        if (!activeConnection) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'message') {
+            const senderRole = data.senderId === appState.profile.id ? 'you' : 'match';
+            setLiveMessages(prev => {
+              // If this echoes our own optimistic send, replace the temp bubble
+              // (matched by clientMsgId) with the server-assigned id + 'sent'.
+              if (data.clientMsgId) {
+                const idx = prev.findIndex(([, , , msgId]) => msgId === data.clientMsgId);
+                if (idx !== -1) {
+                  const next = prev.slice();
+                  next[idx] = [senderRole, data.message, 'sent', data.id, data.attachmentUrl];
+                  return next;
+                }
+              }
+              // Deduplicate same message id to prevent dual listing
+              const isDuplicate = prev.some(([from, text, status, msgId]) => msgId === data.id);
+              if (isDuplicate) return prev;
+              return [...prev, [senderRole, data.message, 'sent', data.id, data.attachmentUrl]];
+            });
+            if (data.senderId !== appState.profile.id) {
+              setPeerTyping(false);
+              // Send read receipt immediately back over WebSocket
+              ws.send(JSON.stringify({ type: 'read', messageId: data.id }));
+            }
+          } else if (data.type === 'ack') {
+            // Idempotent dedup hit (server already had this clientMsgId): mark sent.
+            setLiveMessages(prev => prev.map(msg =>
+              msg[3] === data.clientMsgId ? [msg[0], msg[1], 'sent', data.id, msg[4]] : msg
+            ));
+          } else if (data.type === 'deleted') {
+            setLiveMessages(prev => prev.map(msg =>
+              msg[3] === data.id ? [msg[0], '[message deleted]', msg[2], msg[3], null] : msg
+            ));
+          } else if (data.type === 'typing') {
+            if (data.userId !== appState.profile.id) {
+              setPeerTyping(data.isTyping);
+            }
+          } else if (data.type === 'presence') {
+            if (data.userId !== appState.profile.id) {
+              setPeerOnline(data.status === 'online');
+            }
+          } else if (data.type === 'read') {
+            if (data.userId !== appState.profile.id) {
+              setLiveMessages(prev => prev.map(msg => {
+                if (msg[3] === data.messageId) {
+                  return [msg[0], msg[1], 'read', msg[3], msg[4]];
+                }
+                return msg;
+              }));
+            }
+          } else if (data.type === 'read_all') {
+            if (data.userId !== appState.profile.id) {
+              setLiveMessages(prev => prev.map(msg => {
+                if (msg[0] === 'you') {
+                  return [msg[0], msg[1], 'read', msg[3], msg[4]];
+                }
+                return msg;
+              }));
+            }
+          }
+        } catch (err) {
+          console.error('[WS] Error processing incoming payload:', err);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('[WS] Connection closed:', event);
+        if (activeConnection) {
+          console.log('[WS] Reconnecting in 3s...');
+          reconnectTimeoutRef.current = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error('[WS] Connection error encountered:', err);
+        ws.close();
+      };
+    }
+
+    connect();
+
+    return () => {
+      activeConnection = false;
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+      }
+    };
+  }, [active.slug, isVerified, appState.profile.id]);
 
   const submitMessage = event => {
     event.preventDefault();
-    if (!isVerified) return;
-    onSend(active.slug, draft);
+    if (!isVerified || !draft.trim()) return;
+
+    const text = draft.trim();
     setDraft('');
+
+    // Clear typing timeout since user is sending
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      // Client message id makes resends idempotent server-side and lets us
+      // reconcile the optimistic bubble when the ack / echo returns.
+      const clientMsgId = `cm-${crypto.randomUUID()}`;
+      socketRef.current.send(JSON.stringify({
+        type: 'message',
+        message: text,
+        clientMsgId
+      }));
+      // Append optimistically (tempId = clientMsgId so the echo can replace it).
+      setLiveMessages(prev => [...prev, ['you', text, 'sending', clientMsgId]]);
+      // Send typing false immediately to stop typing indicator
+      socketRef.current.send(JSON.stringify({
+        type: 'typing',
+        isTyping: false
+      }));
+    } else {
+      // Fallback: use the parent's HTTP onSend callback
+      onSend(active.slug, text);
+    }
+  };
+
+  const handleInputChange = (event) => {
+    setDraft(event.target.value);
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: 'typing',
+        isTyping: true
+      }));
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          socketRef.current.send(JSON.stringify({
+            type: 'typing',
+            isTyping: false
+          }));
+        }
+      }, 1500);
+    }
+  };
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const previewUrl = URL.createObjectURL(file);
+    
+    // Add optimistic sending bubble with preview
+    setLiveMessages(prev => [...prev, ['you', '[Sending Image...]', 'sending', tempId, previewUrl]]);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`/api/chats/${active.slug}/attachments`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', '[Image]', 'sent', msg[3], data.attachmentUrl];
+        }
+        return msg;
+      }));
+    } catch (err) {
+      console.error('[Upload] Image transfer failed:', err);
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', 'Failed to send image.', 'error', msg[3]];
+        }
+        return msg;
+      }));
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+
+        if (audioChunksRef.current.length === 0) return;
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (audioBlob.size <= 0) return;
+
+        await uploadVoiceNote(audioBlob);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      durationIntervalRef.current = setInterval(() => {
+        setRecordingDuration(prev => {
+          if (prev >= 59) {
+            stopRecording();
+            return 60;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+
+    } catch (err) {
+      console.error('[Audio] Microphone access failed:', err);
+      alert('Could not access microphone.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
+    audioChunksRef.current = [];
+  };
+
+  const uploadVoiceNote = async (blob) => {
+    const tempId = `temp-${Date.now()}`;
+    const previewUrl = URL.createObjectURL(blob);
+    
+    // Add optimistic sending bubble with audio preview
+    setLiveMessages(prev => [...prev, ['you', '[Voice Note]', 'sending', tempId, previewUrl]]);
+
+    try {
+      const file = new File([blob], 'voice-note.webm', { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/chats/${active.slug}/attachments`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', '[Voice Note]', 'sent', msg[3], data.attachmentUrl];
+        }
+        return msg;
+      }));
+    } catch (err) {
+      console.error('[Upload] Voice note transfer failed:', err);
+      setLiveMessages(prev => prev.map(msg => {
+        if (msg[3] === tempId) {
+          return ['you', 'Failed to send voice note.', 'error', msg[3]];
+        }
+        return msg;
+      }));
+    }
   };
 
   return (
@@ -3054,7 +4040,20 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
                 {active.verification_level === 'identity' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#22d3ee', flexShrink: 0 }} title="Identity Verified Selfie Check Complete" />}
                 {active.verification_level === 'basic' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#3b82f6', flexShrink: 0 }} title="Basic Verified Phone Connected" />}
               </h2>
-              <p>{active.meta} • Trust: {active.trustScore || 94}%</p>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {peerOnline ? (
+                  <>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
+                    <span style={{ color: '#22c55e', fontWeight: 'bold' }}>Active now</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.3)', display: 'inline-block' }} />
+                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>{formatLastSeen(active.lastActiveAt)}</span>
+                  </>
+                )}
+                <span>• Trust: {active.trustScore || 94}%</span>
+              </p>
             </span>
           </button>
           <span className="expiry">6d 23h</span>
@@ -3095,18 +4094,150 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
           </div>
         )}
         <div className="message-thread">
-          {thread.map(([from, text], index) => <div key={`${from}-${index}`} className={`message-bubble ${from}`}>{text}</div>)}
+          {liveMessages.map(([from, text, status, msgId, attachmentUrl], index) => {
+            const isAudio = attachmentUrl && (attachmentUrl.endsWith('.webm') || attachmentUrl.endsWith('.ogg') || attachmentUrl.endsWith('.wav') || attachmentUrl.endsWith('.bin') || text === '[Voice Note]');
+            return (
+              <div key={`${from}-${index}`} style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+                maxWidth: 'min(520px, 88%)',
+                alignSelf: from === 'you' ? 'flex-end' : from === 'match' ? 'flex-start' : 'center',
+                width: 'fit-content'
+              }}>
+                <div className={`message-bubble ${from}`} style={{ maxWidth: '100%', alignSelf: 'unset', padding: attachmentUrl ? (isAudio ? '8px 12px' : '4px') : '0.75rem 0.9rem', overflow: 'hidden' }}>
+                  {attachmentUrl ? (
+                    isAudio ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '220px' }}>
+                        <audio src={attachmentUrl} controls style={{ width: '100%', height: '36px', filter: from === 'you' ? 'invert(1)' : 'none' }} />
+                      </div>
+                    ) : (
+                      <img src={attachmentUrl} alt="Chat attachment" style={{ maxWidth: '100%', maxHeight: '280px', borderRadius: '14px', display: 'block', objectFit: 'cover' }} />
+                    )
+                  ) : (
+                    text
+                  )}
+                </div>
+                {from === 'you' && (
+                  <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', alignSelf: 'flex-end', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                    {status === 'read' ? (
+                      <>
+                        <span style={{ color: '#22d3ee', fontWeight: 'bold' }}>Read</span>
+                        <svg style={{ width: '12px', height: '12px', color: '#22d3ee' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      </>
+                    ) : (
+                      <>
+                        <span>Sent</span>
+                        <svg style={{ width: '12px', height: '12px', color: 'rgba(255,255,255,0.3)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {peerTyping && (
+            <div className="message-bubble match" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '12px 16px', maxWidth: 'fit-content' }}>
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+            </div>
+          )}
         </div>
         <div className={`voice-lock compact-lock ${isVerified ? 'verified-lock' : ''}`}>
           <Mic />
-          <div><h3>{isVerified ? 'Voice Verified' : 'Voice Connection Locked'}</h3><p>{isVerified ? 'You can now send messages in this chat.' : 'Listen to their intro or record yours to fully unlock texting.'}</p></div>
-          {!isVerified && <button className="btn-quiet" onClick={() => onVerify(active.slug)}>Verify Voice</button>}
+          <div><h3>{isVerified ? 'Voice Verified' : 'Voice Connection Locked'}</h3><p>{isVerified ? 'You can now send messages in this chat.' : 'Record a voice note to unlock texting. Chat opens after they accept.'}</p></div>
         </div>
-        <form className="chat-composer" onSubmit={submitMessage}>
-          <input value={draft} disabled={!isVerified} onChange={event => setDraft(event.target.value)} placeholder={isVerified ? 'Write a message...' : 'Verify voice to send messages'} />
-          <button className="btn-main" type="submit" disabled={!isVerified || !draft.trim()} aria-label="Send message"><Send /></button>
-        </form>
+        {isRecording ? (
+          <div className="chat-composer recording-composer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '8px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="pulsing-red-dot" style={{ width: '10px', height: '10px', backgroundColor: '#ef4444', borderRadius: '50%', display: 'inline-block' }}></span>
+              <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 'bold' }}>Recording... 0:{recordingDuration.toString().padStart(2, '0')}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button type="button" className="btn-quiet" onClick={cancelRecording} style={{ color: 'rgba(255,255,255,0.6)', background: 'transparent', border: 0, cursor: 'pointer', padding: '4px 8px', fontSize: '0.86rem' }}>Cancel</button>
+              <button type="button" className="btn-main" onClick={stopRecording} style={{ background: '#ef4444', border: 0, padding: '6px 16px', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.86rem' }}>Send</button>
+            </div>
+          </div>
+        ) : (
+          <form className="chat-composer" onSubmit={submitMessage}>
+            <button 
+              type="button" 
+              disabled={!isVerified} 
+              onClick={() => fileInputRef.current?.click()} 
+              style={{
+                background: 'transparent',
+                border: 0,
+                color: isVerified ? 'var(--soft)' : 'rgba(255,255,255,0.1)',
+                cursor: isVerified ? 'pointer' : 'default',
+                padding: '0 8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+              aria-label="Attach photo"
+            >
+              <Paperclip style={{ width: '20px', height: '20px' }} />
+            </button>
+            <button
+              type="button"
+              onClick={startRecording}
+              style={{
+                background: 'transparent',
+                border: 0,
+                color: 'var(--soft)',
+                cursor: 'pointer',
+                padding: '0 8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+              aria-label="Record voice note"
+            >
+              <Mic style={{ width: '20px', height: '20px' }} />
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleImageUpload} 
+              accept="image/*" 
+              style={{ display: 'none' }} 
+            />
+            <input value={draft} disabled={!isVerified} onChange={handleInputChange} placeholder={isVerified ? 'Write a message...' : 'Verify voice to send messages'} />
+            <button className="btn-main" type="submit" disabled={!isVerified || !draft.trim()} aria-label="Send message"><Send /></button>
+          </form>
+        )}
       </section>
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes typing-pulse {
+          0%, 100% { transform: translateY(0); opacity: 0.4; }
+          50% { transform: translateY(-4px); opacity: 1; }
+        }
+        .typing-dot {
+          width: 6px;
+          height: 6px;
+          background-color: rgba(255,255,255,0.7);
+          border-radius: 50%;
+          display: inline-block;
+          animation: typing-pulse 1.2s infinite ease-in-out;
+        }
+        .typing-dot:nth-child(2) {
+          animation-delay: 0.2s;
+        }
+        .typing-dot:nth-child(3) {
+          animation-delay: 0.4s;
+        }
+        @keyframes pulsing-dot {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.3); opacity: 0.4; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .pulsing-red-dot {
+          animation: pulsing-dot 1.2s infinite ease-in-out;
+        }
+      `}} />
     </section>
   );
 }
@@ -3116,6 +4247,158 @@ const hostEventTypes = [
   'Road Trip', 'Trek', 'Jamming Session', 'Networking', 'Singles Meetup', 'Gaming', 'Study Group', 'Other'
 ];
 
+// --- Venue autocomplete (Foursquare via /api/places/search) ---------------
+function placesLog(name, data) {
+  if (!ROUTE_DEBUG) return; // shares the onboarding_debug switch
+  // eslint-disable-next-line no-console
+  console.info(`[places] ${name}`, data === undefined ? '' : data);
+}
+
+function formatDistance(meters) {
+  if (!Number.isFinite(meters)) return '';
+  return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
+}
+
+const venueRowStyle = { display: 'flex', alignItems: 'center', gap: '10px', padding: '0.7rem 0.85rem' };
+const venueItemStyle = { ...venueRowStyle, width: '100%', background: 'transparent', border: 0, cursor: 'pointer' };
+
+/**
+ * Replaces the plain Location input with live venue suggestions. Calls the Worker
+ * proxy (key stays server-side), debounced 300ms. Degrades to a plain text field
+ * if the API is unconfigured/unavailable, so event creation always works.
+ */
+function VenueAutocomplete({ value, venue, onChange, onSelect }) {
+  const [suggestions, setSuggestions] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [unavailable, setUnavailable] = React.useState(false);
+  const coordsRef = React.useRef(null);
+  const debounceRef = React.useRef(null);
+  const reqIdRef = React.useRef(0);
+  const blurRef = React.useRef(null);
+
+  // Request precise location once (non-blocking) to power the distance column.
+  const ensureCoords = React.useCallback(() => {
+    if (coordsRef.current || !('geolocation' in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => { coordsRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      () => { /* denied — distance simply omitted */ },
+      { maximumAge: 300000, timeout: 8000 }
+    );
+  }, []);
+
+  // Debounced search (300ms). Skips when a selected venue's name still matches.
+  React.useEffect(() => {
+    if (venue && venue.venueName === value) return undefined;
+    const q = (value || '').trim();
+    if (q.length < 2) { setSuggestions([]); setLoading(false); return undefined; }
+
+    setLoading(true);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const reqId = ++reqIdRef.current;
+      const params = new URLSearchParams({ q });
+      const c = coordsRef.current;
+      if (c) { params.set('lat', String(c.lat)); params.set('lng', String(c.lng)); }
+      try {
+        const res = await fetch(`/api/places/search?${params}`, { credentials: 'same-origin', cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (reqId !== reqIdRef.current) return; // a newer keystroke superseded this
+        if (data.configured === false || data.error) {
+          setUnavailable(true);
+          setSuggestions([]);
+          placesLog('unavailable', { configured: data.configured, error: Boolean(data.error) });
+        } else {
+          setUnavailable(false);
+          const results = Array.isArray(data.results) ? data.results : [];
+          setSuggestions(results);
+          placesLog('search', { q, count: results.length });
+        }
+      } catch (err) {
+        if (reqId !== reqIdRef.current) return;
+        setUnavailable(true);
+        setSuggestions([]);
+        placesLog('error', { message: err?.message });
+      } finally {
+        if (reqId === reqIdRef.current) setLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [value, venue]);
+
+  const choose = (s) => {
+    onChange(s.name);
+    onSelect({
+      placeId: s.placeId,
+      venueName: s.name,
+      formattedAddress: s.address || s.locality || '',
+      latitude: s.latitude,
+      longitude: s.longitude,
+      provider: 'foursquare'
+    });
+    placesLog('select', { placeId: s.placeId, name: s.name });
+    setOpen(false);
+    setSuggestions([]);
+  };
+
+  const chooseCustom = () => {
+    const text = (value || '').trim();
+    onSelect(text
+      ? { placeId: null, venueName: text, formattedAddress: '', latitude: null, longitude: null, provider: null }
+      : null);
+    placesLog('custom', { text });
+    setOpen(false);
+    setSuggestions([]);
+  };
+
+  const showDropdown = open && (value || '').trim().length >= 2 && !unavailable;
+
+  return (
+    <div className="host-field" style={{ position: 'relative' }}>
+      <span>Location</span>
+      <input
+        value={value}
+        autoComplete="off"
+        placeholder="Search a venue — cafe, bar, restaurant, park…"
+        onFocus={() => { ensureCoords(); setOpen(true); }}
+        onChange={event => { onChange(event.target.value); onSelect(null); setOpen(true); }}
+        onBlur={() => { clearTimeout(blurRef.current); blurRef.current = setTimeout(() => setOpen(false), 160); }}
+      />
+      {showDropdown && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, marginTop: '6px', background: '#120f18', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 18px 50px rgba(0,0,0,0.55)', maxHeight: '320px', overflowY: 'auto' }}>
+          {loading && (
+            <div style={venueRowStyle}><span style={{ opacity: 0.6, fontSize: '0.82rem' }}>Searching venues…</span></div>
+          )}
+          {!loading && suggestions.map(s => (
+            <button type="button" key={s.placeId} onMouseDown={event => { event.preventDefault(); choose(s); }} style={venueItemStyle}>
+              <span style={{ flexShrink: 0 }}>📍</span>
+              <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+                <span style={{ display: 'block', color: '#fff', fontWeight: 700, fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
+                {(s.locality || s.address) && (
+                  <span style={{ display: 'block', color: 'rgba(255,255,255,0.45)', fontSize: '0.74rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.locality || s.address}</span>
+                )}
+              </span>
+              {Number.isFinite(s.distanceMeters) && (
+                <span style={{ flexShrink: 0, color: 'var(--cyan)', fontSize: '0.72rem', fontWeight: 700 }}>{formatDistance(s.distanceMeters)}</span>
+              )}
+            </button>
+          ))}
+          {!loading && suggestions.length === 0 && (
+            <div style={venueRowStyle}><span style={{ opacity: 0.55, fontSize: '0.82rem' }}>No venues found</span></div>
+          )}
+          <button type="button" onMouseDown={event => { event.preventDefault(); chooseCustom(); }} style={{ ...venueItemStyle, borderTop: '1px solid rgba(255,255,255,0.08)', color: 'var(--pink)', fontSize: '0.82rem', fontWeight: 700 }}>
+            <span style={{ flexShrink: 0 }}>✎</span>
+            <span style={{ minWidth: 0, flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Use “{(value || '').trim() || 'custom location'}” as custom location
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HostEventPage({ navigate, onCreateEvent }) {
   const [form, setForm] = React.useState({
     type: 'House Party',
@@ -3123,6 +4406,7 @@ function HostEventPage({ navigate, onCreateEvent }) {
     photo: '',
     description: '',
     location: '',
+    venue: null, // { placeId, venueName, formattedAddress, latitude, longitude, provider } | null
     date: '',
     time: '',
     capacity: '10',
@@ -3206,10 +4490,12 @@ function HostEventPage({ navigate, onCreateEvent }) {
           <textarea value={form.description} onChange={event => update('description', event.target.value)} rows="4" placeholder="What are you doing, who should join, and why will it be fun?" />
         </label>
 
-        <label className="host-field">
-          <span>Location</span>
-          <input value={form.location} onChange={event => update('location', event.target.value)} placeholder="Venue name or Google Maps location" />
-        </label>
+        <VenueAutocomplete
+          value={form.location}
+          venue={form.venue}
+          onChange={text => update('location', text)}
+          onSelect={venue => update('venue', venue)}
+        />
 
         <div className="host-two-col">
           <label className="host-field">
@@ -3280,7 +4566,7 @@ function HostEventPage({ navigate, onCreateEvent }) {
   );
 }
 
-function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick }) {
+function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick, navigate, currentUserId }) {
   const [filter, setFilter] = React.useState('all'); // 'all', 'plans', 'mixers', 'invite'
   const [query, setQuery] = React.useState('');
   const [threeLoaded, setThreeLoaded] = React.useState(false);
@@ -3757,35 +5043,32 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
       <div className="event-grid" style={{ minHeight: '300px' }}>
         {filteredEvents.map(event => (
           <div key={event.id} className="gsap-event-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <EventCard 
-              event={event} 
-              isRsvped={Boolean(appState.rsvps[event.id])} 
-              onToggleRsvp={onToggleRsvp} 
+            <EventCard
+              event={event}
+              isRsvped={Boolean(appState.rsvps[event.id])}
+              onToggleRsvp={onToggleRsvp}
               onReviewClick={onReviewClick}
+              currentUserId={currentUserId}
+              navigate={navigate}
             />
           </div>
         ))}
       </div>
 
       {filteredEvents.length === 0 && (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 2rem',
-          background: 'rgba(255,255,255,0.01)',
-          border: '1px dashed rgba(255,255,255,0.08)',
-          borderRadius: '24px',
-          color: 'var(--muted)'
-        }}>
-          <Calendar style={{ width: '40px', height: '40px', color: 'var(--soft)', marginBottom: '1rem', display: 'inline-block' }} />
-          <h3 style={{ margin: '0 0 0.5rem', color: '#fff', font: '800 1.2rem Outfit, sans-serif' }}>No events found</h3>
-          <p style={{ margin: 0, fontSize: '0.86rem' }}>Try searching another term, or switch categories to explore active scheduled mixers.</p>
-        </div>
+        <EmptyState
+          type="events"
+          title="No events found"
+          description="Try searching another term, or switch categories to explore active scheduled mixers."
+          actionText="Host Your Outing"
+          onAction={() => navigate('/host')}
+        />
       )}
     </section>
   );
 }
 
-function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
+function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick, currentUserId, navigate }) {
   const cardRef = React.useRef(null);
 
   // Aceternity spotlight mouse position tracking
@@ -3800,6 +5083,11 @@ function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
 
   const isExclusive = event.type.toLowerCase().includes("exclusive") || event.type.toLowerCase().includes("vip") || event.type.toLowerCase().includes("invite");
   const isHostedPlan = event.source === 'hosted';
+  const isHost = isEventHost(event, currentUserId);
+
+  React.useEffect(() => {
+    eventLog('host-check', { currentUserId: currentUserId ?? null, hostId: getEventHostId(event), isHost, eventId: event.id });
+  }, [currentUserId, event.id, isHost]);
 
   return (
     <article 
@@ -3957,7 +5245,7 @@ function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong style={{ color: '#9af7bb', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Hosted by {event.hostName || 'Club host'}
+                {isHost ? 'Hosted by You' : `Hosted by ${event.hostName || 'Club host'}`}
               </strong>
               <span style={{
                 background: 'rgba(155, 48, 255, 0.18)',
@@ -4071,25 +5359,46 @@ function EventCard({ event, isRsvped, onToggleRsvp, onReviewClick }) {
           </button>
         )}
 
-        <button 
-          className={isRsvped ? 'btn-quiet full' : 'btn-main full'} 
-          onClick={() => onToggleRsvp(event)}
-          style={{
-            marginTop: 'auto',
-            minHeight: '42px',
-            borderRadius: '12px',
-            fontWeight: 'bold',
-            fontSize: '0.86rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            boxShadow: isRsvped ? 'none' : '0 4px 15px rgba(255, 46, 147, 0.2)'
-          }}
-        >
-          {isRsvped ? 'Leave Plan' : isHostedPlan ? 'Join Plan Tonight' : 'Reserve Spot Securely'}
-          <Ticket style={{ width: '16px', height: '16px' }} />
-        </button>
+        {isHost ? (
+          // Host of this event: no Join/RSVP — manage it instead.
+          <button
+            className="btn-quiet full"
+            onClick={() => navigate?.('/profile')}
+            style={{
+              marginTop: 'auto',
+              minHeight: '42px',
+              borderRadius: '12px',
+              fontWeight: 'bold',
+              fontSize: '0.86rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+          >
+            Manage Event <ChevronRight style={{ width: '16px', height: '16px' }} />
+          </button>
+        ) : (
+          <button
+            className={isRsvped ? 'btn-quiet full' : 'btn-main full'}
+            onClick={() => onToggleRsvp(event)}
+            style={{
+              marginTop: 'auto',
+              minHeight: '42px',
+              borderRadius: '12px',
+              fontWeight: 'bold',
+              fontSize: '0.86rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              boxShadow: isRsvped ? 'none' : '0 4px 15px rgba(255, 46, 147, 0.2)'
+            }}
+          >
+            {isRsvped ? 'Leave Plan' : isHostedPlan ? 'Join Plan Tonight' : 'Reserve Spot Securely'}
+            <Ticket style={{ width: '16px', height: '16px' }} />
+          </button>
+        )}
       </div>
     </article>
   );
@@ -4302,43 +5611,9 @@ function ProfilePage({ initialProfile, appState, onSave, onToggleRsvp, navigate 
 
           {activeTab === 'settings' && (
             <div className="settings-list">
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>👤 Identity Verification Locker</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Aadhaar & Photo face scan verified</span>
-                </div>
-                <div style={{ background: 'rgba(37, 211, 102, 0.1)', padding: '6px 12px', borderRadius: '99px', color: '#9af7bb', fontSize: '0.76rem', fontWeight: 'bold' }}>
-                  100% Secure
-                </div>
-              </div>
-
+              {/* Beta: removed fake billing/refund, Aadhaar "100% Secure", Safety Shield,
+                  and VIP Concierge rows. Only the real block-management feature remains. */}
               <BlockedMembersSection />
-
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>💳 Payment Methods & Refund Center</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Manage saved UPI addresses / refund tracks</span>
-                </div>
-                <ChevronRight style={{ color: 'var(--soft)' }} />
-              </div>
-
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>🛡️ Safety Shield Guards</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Anti-harassment triggers, slow mode settings</span>
-                </div>
-                <ChevronRight style={{ color: 'var(--soft)' }} />
-              </div>
-
-              <div className="settings-row">
-                <div>
-                  <strong style={{ display: 'block', font: '800 1rem Outfit, sans-serif' }}>📞 VIP Concierge Support</strong>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Chat directly with our coffee mixer hosts</span>
-                </div>
-                <button className="btn-quiet" style={{ minHeight: '36px', borderRadius: '10px', fontSize: '0.8rem', padding: '0 12px' }} onClick={() => window.open('https://wa.me/919999999999', '_blank')}>
-                  Help
-                </button>
-              </div>
             </div>
           )}
 
@@ -4446,8 +5721,371 @@ function Field({ label, error, children }) {
   );
 }
 
+// ============ VIBE CHECK SEND PAGE ============
+// Voice recording screen for sending a vibe check to a specific user.
+function VibeCheckSendPage({ route, navigate, appState }) {
+  const userId = route.split('/').pop();
+  const member = React.useMemo(() => {
+    const allMembers = appState?.discovery?.members || appState?.discovery || [];
+    const fromInbox = (appState?.vibeChecks?.inbox || []).find(vc => vc.from?.id === userId)?.from;
+    if (fromInbox) return { id: userId, name: fromInbox.name, age: fromInbox.age, city: fromInbox.city, avatar: fromInbox.avatar, photos: fromInbox.photos, gradient: fromInbox.gradient };
+    const fromMembers = allMembers.find(m => m.id === userId);
+    if (fromMembers) return fromMembers;
+    return { id: userId, name: 'Someone', avatar: 'S', gradient: 'pink' };
+  }, [userId, appState]);
+
+  const [recordingState, setRecordingState] = React.useState('idle'); // idle | recording | preview | sending
+  const [duration, setDuration] = React.useState(0);
+  const [audioBlob, setAudioBlob] = React.useState(null);
+  const [audioUrl, setAudioUrl] = React.useState(null);
+  const [error, setError] = React.useState('');
+  const [dailyQuota, setDailyQuota] = React.useState(null);
+
+  const mediaRecorderRef = React.useRef(null);
+  const chunksRef = React.useRef([]);
+  const timerRef = React.useRef(null);
+  const audioPreviewRef = React.useRef(null);
+
+  // Fetch daily quota on mount
+  React.useEffect(() => {
+    fetch('/api/vibe-checks/daily-quota', { credentials: 'same-origin' })
+      .then(r => r.json()).then(d => setDailyQuota(d)).catch(() => {});
+  }, []);
+
+  // Cleanup on unmount
+  React.useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+  }, [audioUrl]);
+
+  const startRecording = async () => {
+    try {
+      setError('');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg' });
+      mediaRecorderRef.current = mr;
+      chunksRef.current = [];
+
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        if (blob.size > 0) {
+          setAudioBlob(blob);
+          setAudioUrl(URL.createObjectURL(blob));
+          setRecordingState('preview');
+        } else {
+          setRecordingState('idle');
+        }
+      };
+      mr.start();
+      setRecordingState('recording');
+      setDuration(0);
+      timerRef.current = setInterval(() => {
+        setDuration(prev => {
+          if (prev >= 29) { stopRecording(); return 30; }
+          return prev + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setError('Microphone access denied. Please allow mic access in your browser settings.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    } else {
+      setRecordingState('idle');
+    }
+  };
+
+  const cancelPreview = () => {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setDuration(0);
+    setRecordingState('idle');
+  };
+
+  const sendVibeCheck = async () => {
+    if (!audioBlob) return;
+    setRecordingState('sending');
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'vibe-check.webm');
+      formData.append('toUserId', userId);
+      formData.append('duration', String(duration));
+
+      const res = await fetch('/api/vibe-checks', { method: 'POST', body: formData, credentials: 'same-origin' });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'daily_quota_exceeded') setError('You\'ve used all 10 vibe checks for today. Try again tomorrow.');
+        else if (data.error === 'already_pending') setError('You already have a pending vibe check with this person.');
+        else if (data.error === 'cooldown_active') setError('You cannot send a vibe check to this person yet. Cooldown active.');
+        else if (data.error === 'not_available') setError('This person is not available for vibe checks.');
+        else setError(data.error || 'Failed to send vibe check.');
+        setRecordingState('preview');
+        return;
+      }
+      // Navigate to confirmation / members
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Vibe Check sent! 🎤' }));
+      navigate('/members');
+    } catch {
+      setError('Network error. Please try again.');
+      setRecordingState('preview');
+    }
+  };
+
+  const formatTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+  const photoUrl = member.photos?.[0] || member.photo;
+
+  return (
+    <section className="page-shell vc-send-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '3rem' }}>
+      <button className="vibe-secondary" style={{ alignSelf: 'flex-start', marginBottom: '1rem' }} onClick={() => { window.history.back(); window.setTimeout(() => navigate('/members'), 100); }}>
+        ← Back
+      </button>
+
+      <div className="vc-send-avatar">
+        {photoUrl ? <img src={photoUrl} alt="" /> : <div className="vc-send-avatar-fallback">{member.avatar || 'S'}</div>}
+      </div>
+      <h2 className="vc-send-name">{member.name}{member.age ? `, ${member.age}` : ''}</h2>
+      <p className="vc-send-city">{member.city || ''}</p>
+
+      <div className="vc-recorder-card">
+        {recordingState === 'idle' && (
+          <div className="vc-idle-state">
+            <div className="vc-mic-icon-wrap">
+              <Mic style={{ width: 40, height: 40 }} />
+            </div>
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', textAlign: 'center', margin: '1rem 0' }}>
+              Record a voice message (max 30 seconds)<br/>to introduce yourself and break the ice!
+            </p>
+            {dailyQuota && (
+              <small style={{ color: 'var(--soft)', display: 'block', textAlign: 'center', marginBottom: '1rem' }}>
+                {dailyQuota.remaining} of {dailyQuota.total} vibe checks remaining today
+              </small>
+            )}
+            <button className="vc-record-btn" onClick={startRecording} disabled={dailyQuota?.remaining === 0}>
+              <div className="vc-record-btn-inner">
+                <Mic style={{ width: 28, height: 28 }} />
+              </div>
+              <span>Tap to Record</span>
+            </button>
+          </div>
+        )}
+
+        {recordingState === 'recording' && (
+          <div className="vc-recording-state">
+            <div className="vc-pulse-dot" />
+            <span className="vc-timer">{formatTime(duration)} / 00:30</span>
+            <div className="vc-waveform-bar">
+              <div className="vc-waveform-fill" style={{ width: `${(duration / 30) * 100}%` }} />
+            </div>
+            <button className="vc-stop-btn" onClick={stopRecording}>
+              <Square style={{ width: 20, height: 20 }} /> Stop Recording
+            </button>
+          </div>
+        )}
+
+        {recordingState === 'preview' && (
+          <div className="vc-preview-state">
+            <p style={{ textAlign: 'center', color: 'var(--muted)', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
+              Preview your recording ({formatTime(duration)})
+            </p>
+            <audio ref={audioPreviewRef} src={audioUrl} controls style={{ width: '100%', borderRadius: 12, marginBottom: '1rem' }} />
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button className="vibe-secondary" onClick={cancelPreview}>Record Again</button>
+              <button className="vc-send-btn" onClick={sendVibeCheck}>
+                <Send style={{ width: 18, height: 18 }} /> Send Vibe Check
+              </button>
+            </div>
+          </div>
+        )}
+
+        {recordingState === 'sending' && (
+          <div className="vc-sending-state">
+            <div className="vc-spinner" />
+            <p>Sending your Vibe Check...</p>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="vc-error" style={{ color: 'var(--pink)', fontSize: '0.85rem', marginTop: '1rem', textAlign: 'center', maxWidth: 360 }}>
+          {error}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============ VIBE CHECK INBOX PAGE ============
+// Lists incoming pending vibe checks for the current user.
+function VibeCheckInboxPage({ appState, navigate }) {
+  const [vibeChecks, setVibeChecks] = React.useState(() => appState?.vibeChecks?.inbox || null);
+  const [busyId, setBusyId] = React.useState(null);
+  const [listenedIds, setListenedIds] = React.useState(new Set());
+  const [audioPlayerId, setAudioPlayerId] = React.useState(null);
+  const audioRef = React.useRef(null);
+
+  const load = React.useCallback(() => {
+    fetch('/api/vibe-checks/inbox', { credentials: 'same-origin', cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => setVibeChecks(data.vibeChecks || []))
+      .catch(() => setVibeChecks([]));
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const markListened = async (vcId) => {
+    if (listenedIds.has(vcId)) return;
+    try {
+      await fetch(`/api/vibe-checks/${vcId}/listen`, { method: 'POST', credentials: 'same-origin' });
+      setListenedIds(prev => new Set([...prev, vcId]));
+    } catch {}
+  };
+
+  const handlePlay = (vcId) => {
+    setAudioPlayerId(vcId);
+    markListened(vcId);
+  };
+
+  const act = async (vcId, action) => {
+    setBusyId(vcId);
+    try {
+      const res = await fetch(`/api/vibe-checks/${vcId}/${action}`, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'content-type': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVibeChecks(prev => (prev || []).filter(vc => vc.id !== vcId));
+        if (action === 'accept' && data.chatId) {
+          navigate('/chat');
+        }
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const getVoiceUrl = (vc) => {
+    if (vc.voiceUrl && vc.voiceUrl.startsWith('/api/')) return vc.voiceUrl;
+    return `/api/vibe-checks/${vc.id}/voice`;
+  };
+
+  return (
+    <section className="page-shell inbox-page">
+      <PageTitle eyebrow="Vibe Checks" title="Your Vibe Check Inbox" text="Listen to voice intros. Accept to start chatting, or pass." />
+      <div style={{ display: 'flex', gap: 8, marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/chat')}>
+          <MessageCircle style={{ width: 16, height: 16 }} /> Chat Inbox
+        </button>
+        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/members')}>
+          <Users style={{ width: 16, height: 16 }} /> Discover People
+        </button>
+      </div>
+
+      {vibeChecks === null ? (
+        <div className="inbox-list"><Skeleton type="list" count={3} /></div>
+      ) : vibeChecks.length === 0 ? (
+        <EmptyState
+          type="connections"
+          title="No pending Vibe Checks"
+          description="When someone sends you a voice intro, it will appear here. Listen, then accept or pass."
+          actionText="Discover People"
+          onAction={() => navigate('/members')}
+        />
+      ) : (
+        <div className="inbox-list">
+          {vibeChecks.map(vc => {
+            const isPlaying = audioPlayerId === vc.id;
+            const hasListened = listenedIds.has(vc.id) || vc.status === 'listened' || !!vc.listenedAt;
+            return (
+              <div
+                key={vc.id}
+                className="inbox-card vc-inbox-card"
+                style={{ flexDirection: 'column', alignItems: 'stretch', cursor: 'default', gap: '0.75rem' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <Avatar member={vc.from} />
+                  <div className="inbox-copy" style={{ flex: 1, minWidth: 0 }}>
+                    <div className="inbox-row">
+                      <strong>{vc.from.name}{vc.from.age ? `, ${vc.from.age}` : ''}</strong>
+                      <span>{vc.from.city || ''}</span>
+                    </div>
+                    <small style={{ color: 'var(--muted)' }}>
+                      {vc.voiceDuration ? `${vc.voiceDuration}s voice intro` : 'Voice intro'} · {formatInboxTime(vc.createdAt)}
+                    </small>
+                  </div>
+                </div>
+
+                {/* Audio player area */}
+                <div className="vc-audio-area">
+                  {isPlaying ? (
+                    <audio
+                      ref={audioRef}
+                      src={getVoiceUrl(vc)}
+                      controls
+                      autoPlay
+                      onEnded={() => setAudioPlayerId(null)}
+                      style={{ width: '100%', borderRadius: 12, height: 40 }}
+                    />
+                  ) : (
+                    <button
+                      className="vc-listen-btn"
+                      onClick={() => handlePlay(vc.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px',
+                        borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)',
+                        background: hasListened ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg, rgba(255,46,147,0.12), rgba(155,48,255,0.12))',
+                        color: '#fff', cursor: 'pointer', width: '100%', justifyContent: 'center'
+                      }}
+                    >
+                      <Play style={{ width: 16, height: 16, color: hasListened ? 'var(--muted)' : 'var(--pink)' }} />
+                      <span>{hasListened ? 'Listen Again' : 'Listen to Voice Intro'}</span>
+                      {!hasListened && <span className="vc-new-badge">NEW</span>}
+                    </button>
+                  )}
+                </div>
+
+                {/* Actions after listening */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn-main"
+                    style={{ flex: 1, minHeight: 38, borderRadius: 10, fontSize: '0.85rem' }}
+                    disabled={busyId === vc.id}
+                    onClick={() => act(vc.id, 'accept')}
+                  >
+                    {busyId === vc.id ? '…' : 'Accept Chat 💬'}
+                  </button>
+                  <button
+                    className="btn-quiet"
+                    style={{ minHeight: 38, borderRadius: 10, fontSize: '0.85rem', padding: '0 18px' }}
+                    disabled={busyId === vc.id}
+                    onClick={() => act(vc.id, 'decline')}
+                  >
+                    Pass
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
-  const [note, setNote] = React.useState('');
+  const handleSendVibeCheck = () => {
+    onClose();
+    navigate(`/vibe-check/send/${member.id}`);
+  };
 
   return (
     <div className="modal-backdrop vibe-check-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
@@ -4466,23 +6104,17 @@ function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
           <div>
             <span>{requested ? 'Request queued' : 'Verified intro'}</span>
             <h2>{requested ? 'Vibe Check Sent' : `Connect with ${member.name}`}</h2>
-            <p>{requested ? 'Your concierge intro is already pending.' : member.prompt || member.message || 'Weekend status available for verified intros.'}</p>
+            <p>{requested ? 'Your vibe check is already pending.' : 'Send a voice note to connect. Chat unlocks after they accept.'}</p>
           </div>
         </div>
 
-        <label className="vibe-note-wrap">
-          <span>Your intro note</span>
-          <textarea value={note} onChange={event => setNote(event.target.value)} placeholder="Coffee this week? I liked your music/event vibe..." disabled={requested} maxLength={140} />
-          <small>{note.length}/140</small>
-        </label>
-
         <div className="vibe-mini-grid">
-          <div><MessageCircle /><strong>Direct request</strong><span>Saved as a pending intro.</span></div>
-          <div><ShieldCheck /><strong>Safer unlock</strong><span>Chat opens after voice verify.</span></div>
+          <div><Mic /><strong>Voice-first intro</strong><span>Record a 30s voice message.</span></div>
+          <div><ShieldCheck /><strong>Safer unlock</strong><span>Chat opens after they accept.</span></div>
         </div>
 
-        <button className="vibe-primary" disabled={requested} onClick={() => onSend(member, note)}>
-          {requested ? 'Already Sent' : 'Send Vibe Check'} <Send />
+        <button className="vibe-primary" disabled={requested} onClick={handleSendVibeCheck}>
+          <Send style={{ width: 18, height: 18 }} /> Send Vibe Check
         </button>
         <button className="vibe-secondary" onClick={() => { onClose(); navigate('/profile'); }}>Edit My Profile</button>
       </motion.div>

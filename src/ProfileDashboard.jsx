@@ -8,6 +8,7 @@ import {
   RotateCcw, Settings, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Star, Trash2,
   TrendingUp, UserCheck, Users, Wallet, WandSparkles, X, Zap
 } from 'lucide-react';
+import { EmptyState } from './components/FeedbackState.jsx';
 
 function renderVerificationBadge(level, size = "w-4 h-4") {
   if (level === 'highly_verified') {
@@ -23,30 +24,77 @@ function renderVerificationBadge(level, size = "w-4 h-4") {
 }
 
 export function getProfileCompletion(profile, localState = {}) {
-  const hasEnoughPhotos = Boolean((profile?.photos || []).length >= 3);
-  const isInstagramVerified = Boolean(profile?.instagram_verified);
-  const hasWeekendStatus = Boolean(profile?.weekendStatus);
-  const hasBio = Boolean(profile?.bio);
-  const hasInterests = Boolean((profile?.interests || []).length);
-  const hasVoiceIntro = Boolean(localState?.verifiedChats && Object.keys(localState.verifiedChats).length);
+  const nameOk = Boolean(profile?.fullName?.trim());
+  const ageVal = parseInt(profile?.age, 10);
+  const ageOk = !isNaN(ageVal) && ageVal >= 18;
+  const genderOk = Boolean(profile?.gender);
+  const hasPhotos = Boolean((profile?.photos || []).length >= 1);
+  const cityOk = Boolean(profile?.city?.trim());
+  const intentOk = Boolean(profile?.intent);
 
-  const items = [
-    { name: 'Add better photos', completed: hasEnoughPhotos },
-    { name: 'Verify Instagram', completed: isInstagramVerified },
-    { name: 'Add weekend status', completed: hasWeekendStatus },
-    { name: 'Add bio', completed: hasBio },
-    { name: 'Add interests', completed: hasInterests },
-    { name: 'Add voice intro', completed: hasVoiceIntro }
+  const mandatoryItems = [
+    { name: 'fullName', label: 'Add full name', completed: nameOk },
+    { name: 'age', label: 'Add age (18+)', completed: ageOk },
+    { name: 'gender', label: 'Select gender identity', completed: genderOk },
+    { name: 'photos', label: 'Upload at least 1 photo', completed: hasPhotos },
+    { name: 'city', label: 'Select city', completed: cityOk },
+    { name: 'intent', label: 'Select dating intention', completed: intentOk }
   ];
 
-  const completedItems = items.filter(item => item.completed).map(item => item.name);
-  const remainingItems = items.filter(item => !item.completed).map(item => item.name);
-  const percent = Math.round((completedItems.length / items.length) * 100);
+  const mandatoryCompleted = mandatoryItems.filter(item => item.completed).length;
+  const isAllMandatoryDone = (mandatoryCompleted === 6);
+
+  const hasEnoughPhotos = Boolean((profile?.photos || []).length >= 3);
+  const hasBio = Boolean(profile?.bio && profile.bio.trim().length >= 40);
+  const hasInterests = Boolean((profile?.interests || []).length >= 3);
+  const isPhoneVerified = Boolean(profile?.phone_verified === 1);
+  const isInstagramVerified = Boolean(profile?.instagram_verified === 1);
+  const hasWeekendStatus = Boolean(profile?.weekendStatus);
+  const hasVoiceIntro = Boolean(localState?.verifiedChats && Object.keys(localState.verifiedChats).length);
+
+  const qualityItems = [
+    { name: 'enoughPhotos', label: 'Upload 3+ photos', weight: 10, completed: hasEnoughPhotos },
+    { name: 'bio', label: 'Write bio (>=40 chars)', weight: 8, completed: hasBio },
+    { name: 'interests', label: 'Add 3+ interests', weight: 7, completed: hasInterests },
+    { name: 'phone', label: 'Verify phone number', weight: 8, completed: isPhoneVerified },
+    { name: 'instagram', label: 'Verify Instagram', weight: 7, completed: isInstagramVerified }
+  ];
+
+  let percent = mandatoryCompleted * 10;
+  if (isAllMandatoryDone) {
+    let qualityScore = 0;
+    qualityItems.forEach(item => {
+      if (item.completed) qualityScore += item.weight;
+    });
+    percent += qualityScore;
+  }
+
+  percent = Math.min(100, Math.max(0, Math.round(percent)));
+
+  const completedItems = [
+    ...mandatoryItems.filter(item => item.completed).map(item => item.label),
+    ...qualityItems.filter(item => item.completed).map(item => item.label)
+  ];
+  const remainingItems = [
+    ...mandatoryItems.filter(item => !item.completed).map(item => item.label),
+    ...qualityItems.filter(item => !item.completed).map(item => item.label)
+  ];
+
+  let readinessMessage = "You're discovery-ready";
+  if (!isAllMandatoryDone) {
+    const missingLabels = mandatoryItems.filter(item => !item.completed).map(item => item.label.replace('Add ', '').replace('Select ', '').replace('Upload ', '').toLowerCase());
+    readinessMessage = `Complete mandatory fields: ${missingLabels.join(', ')}`;
+  } else if (percent < 100) {
+    const nextQuality = qualityItems.find(item => !item.completed);
+    readinessMessage = nextQuality ? `${nextQuality.label}` : 'Verify accounts';
+  }
 
   return {
     percent,
     completedItems,
     remainingItems,
+    readinessMessage,
+    isAllMandatoryDone,
     flags: {
       hasEnoughPhotos,
       isInstagramVerified,
@@ -246,6 +294,112 @@ export default function ProfileDashboard({
   const [datesTab, setDatesTab] = React.useState('Upcoming');
   const [saving, setSaving] = React.useState(false);
   const [meetSomeoneOpen, setMeetSomeoneOpen] = React.useState(false);
+  const [notificationsOpen, setNotificationsOpen] = React.useState(false);
+  const lastCursorRef = React.useRef(new Date().toISOString());
+
+  async function fetchNotifications() {
+    try {
+      const res = await fetch('/api/notifications', { credentials: 'same-origin' });
+      const data = await res.json();
+      if (data && data.notifications) {
+        setLocalState(prev => ({
+          ...prev,
+          notifications: data.notifications
+        }));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function pollDeltaUpdates() {
+    try {
+      const res = await fetch(`/api/updates?since=${encodeURIComponent(lastCursorRef.current)}`, { credentials: 'same-origin' });
+      const data = await res.json();
+      if (data) {
+        lastCursorRef.current = data.cursor;
+        
+        if (data.updates.notifications) {
+          fetchNotifications();
+        }
+        if (data.updates.connections || data.updates.events) {
+          apiCall('/api/state');
+        }
+      }
+    } catch (e) {
+      console.error("Delta poll error:", e);
+    }
+  }
+
+  React.useEffect(() => {
+    if (!isGuest) {
+      fetchNotifications();
+      const interval = setInterval(pollDeltaUpdates, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [isGuest]);
+
+  // Lazy-load the CPU-heavy feeds that were removed from /api/state (they blew the
+  // Workers CPU limit there). Each is its own request with its own budget. Recommendations
+  // runs first to warm the 1h recommendation cache so /api/discovery is then a cache hit.
+  React.useEffect(() => {
+    if (isGuest) return;
+    let cancelled = false;
+    const getJson = url => fetch(url, { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .catch(() => null);
+    (async () => {
+      const rec = await getJson('/api/recommendations');
+      if (!cancelled && rec?.recommendations) {
+        setLocalState(prev => ({ ...prev, recommendations: rec.recommendations }));
+      }
+      const [disc, evt] = await Promise.all([
+        getJson('/api/discovery'),
+        getJson('/api/events/recommended')
+      ]);
+      if (cancelled) return;
+      setLocalState(prev => ({
+        ...prev,
+        discovery: disc?.discovery ?? prev.discovery ?? {},
+        recommendedEvents: evt?.events ?? prev.recommendedEvents ?? []
+      }));
+    })();
+    return () => { cancelled = true; };
+  }, [isGuest, appState.lastUpdated]);
+
+  async function handleMarkNotificationRead(id) {
+    const data = await apiCall('/api/notifications/read', 'POST', { notificationId: id });
+    if (data && data.state) {
+      // updated via apiCall
+    } else {
+      await fetchNotifications();
+    }
+  }
+
+  async function handleMarkAllNotificationsRead() {
+    const data = await apiCall('/api/notifications/read', 'POST', {});
+    if (data && data.state) {
+      // updated via apiCall
+    } else {
+      await fetchNotifications();
+    }
+  }
+
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+
+  async function handleUpdateSettings(updates) {
+    const data = await apiCall('/api/settings', 'PATCH', { updates });
+    if (data && data.state) {
+      // updated via apiCall
+    }
+  }
+
+  async function handleVerifyAction(type) {
+    const data = await apiCall('/api/settings/verify', 'POST', { type });
+    if (data && data.state) {
+      // updated via apiCall
+    }
+  }
 
   React.useEffect(() => {
     if (isGuest) {
@@ -338,7 +492,13 @@ export default function ProfileDashboard({
         initial="hidden" 
         animate="show"
       >
-        <StickyProfileNav completion={completion} navigate={navigate} onOpenDrawer={onOpenDrawer} />
+        <StickyProfileNav 
+          completion={completion} 
+          navigate={navigate} 
+          onOpenDrawer={onOpenDrawer} 
+          unreadCount={(localState?.notifications || []).filter(n => !n.readAt).length}
+          onOpenNotifications={() => setNotificationsOpen(true)}
+        />
 
         <ProfileHero
           profile={profile}
@@ -657,24 +817,55 @@ export default function ProfileDashboard({
             }}
           />
         )}
+        {notificationsOpen && (
+          <NotificationsSheet
+            notifications={localState?.notifications || []}
+            onClose={() => setNotificationsOpen(false)}
+            onMarkRead={handleMarkNotificationRead}
+            onMarkAllRead={handleMarkAllNotificationsRead}
+            navigate={navigate}
+          />
+        )}
+        {settingsOpen && (
+          <SettingsSheet
+            profile={profile}
+            settings={localState?.settings || {}}
+            onClose={() => setSettingsOpen(false)}
+            onUpdateSettings={handleUpdateSettings}
+            onVerifyAction={handleVerifyAction}
+            apiCall={apiCall}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
 }
 
-function StickyProfileNav({ completion, navigate, onOpenDrawer }) {
+function StickyProfileNav({ completion, navigate, onOpenDrawer, unreadCount, onOpenNotifications }) {
   return (
     <motion.div variants={fadeUp} className="-mx-4 mb-4 border-b border-white/10 bg-[#050506]/78 px-4 py-3 backdrop-blur-2xl sm:mx-0 sm:rounded-[28px] sm:border" data-profile-card>
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-fuchsia-300/80">Relationship Identity</p>
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-bold uppercase tracking-[0.24em] text-fuchsia-300/80">Relationship Identity</p>
           <h1 className="font-['Outfit'] text-2xl font-black leading-none text-white">Profile</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button onClick={onOpenDrawer} className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95" aria-label="Open drawer">
             <Menu className="h-5 w-5" />
           </button>
-          <button onClick={() => navigate?.('/chat')} className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95">
+          <button 
+            onClick={onOpenNotifications} 
+            className="relative grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95 animate-none"
+            aria-label="Open notifications"
+          >
+            <Bell className="h-5 w-5" />
+            {unreadCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white ring-2 ring-[#050506]">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+          <button onClick={() => navigate?.('/chat')} className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95" aria-label="Open chat">
             <MessageCircle className="h-5 w-5" />
           </button>
           <div className="rounded-2xl border border-fuchsia-400/25 bg-fuchsia-400/10 px-3 py-2 text-right">
@@ -736,8 +927,8 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
               {isPremium && <Badge icon={Gem} text="Elite VIP" tone="gold" />}
             </div>
             
-            <h2 className="flex items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white flex-wrap">
-              <span>{(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}</span>
+            <h2 className="flex min-w-0 items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white flex-wrap">
+              <span className="min-w-0 break-words">{(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}</span>
               {renderVerificationBadge(profile.verification_level, "w-6 h-6")}
             </h2>
             
@@ -1135,6 +1326,561 @@ function WeekendStatusSheet({ value, onClose, onSave }) {
   );
 }
 
+function NotificationsSheet({ notifications = [], onClose, onMarkRead, onMarkAllRead, navigate }) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-[92] flex items-end justify-center bg-black/70 px-4 pb-4 backdrop-blur-xl sm:items-center animate-none"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <motion.div
+        className="w-full max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col rounded-[30px] border border-white/10 bg-[#08070d] shadow-[0_30px_90px_rgba(0,0,0,.7)] overflow-hidden animate-none"
+        initial={{ y: 36, opacity: 0, scale: 0.97 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 36, opacity: 0, scale: 0.97 }}
+        transition={{ type: "spring", damping: 25, stiffness: 280 }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-white/5 p-5">
+          <div>
+            <h3 className="text-base font-black text-white flex items-center gap-2">
+              <Bell className="h-5 w-5 text-fuchsia-400" /> Notifications
+            </h3>
+            <p className="text-[10px] text-white/50 mt-0.5">Stay updated with your connections and events</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {notifications.some(n => !n.readAt) && (
+              <button
+                onClick={onMarkAllRead}
+                className="text-[10px] font-black uppercase tracking-wider text-cyan-400 hover:text-cyan-300 transition"
+              >
+                Mark all read
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.04] text-white/70 hover:text-white transition"
+              aria-label="Close sheet"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-3 max-h-[400px] no-scrollbar">
+          {notifications.length === 0 ? (
+            <EmptyState
+              type="notifications"
+              title="All caught up!"
+              description="You will see updates about connection requests and events here."
+            />
+          ) : (
+            notifications.map(n => {
+              const isUnread = !n.readAt;
+              let Icon = Bell;
+              let iconColor = "text-fuchsia-400";
+              let bgClass = "bg-fuchsia-500/10";
+              
+              if (n.type === 'connection_request') {
+                Icon = Heart;
+                iconColor = "text-rose-400";
+                bgClass = "bg-rose-500/10";
+              } else if (n.type === 'connection_accept') {
+                Icon = BadgeCheck;
+                iconColor = "text-cyan-400";
+                bgClass = "bg-cyan-500/10";
+              } else if (n.type === 'event_rsvp') {
+                Icon = Calendar;
+                iconColor = "text-amber-400";
+                bgClass = "bg-amber-500/10";
+              } else if (n.type === 'event_approved') {
+                Icon = CheckCircle2;
+                iconColor = "text-emerald-400";
+                bgClass = "bg-emerald-500/10";
+              }
+
+              return (
+                <div
+                  key={n.id}
+                  onClick={() => !n.readAt && onMarkRead(n.id)}
+                  className={`flex items-start gap-3.5 rounded-2xl border border-white/5 p-4 transition-all duration-200 cursor-pointer ${
+                    isUnread ? 'bg-white/[0.04] border-fuchsia-500/20' : 'bg-white/[0.01] opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${bgClass} ${iconColor}`}>
+                    <Icon className="h-4.5 w-4.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-white/90 leading-normal">{n.payload.message}</p>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className="text-[9px] text-white/30">
+                        {new Date(n.createdAt).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                      {isUnread && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                      )}
+                    </div>
+
+                    {/* Action buttons inside notifications */}
+                    <div className="flex gap-2 mt-2.5">
+                      {n.type === 'connection_request' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Mark read immediately (stopPropagation suppresses the row's
+                            // own mark-read), so the unread count drops and the list
+                            // refreshes without a reload.
+                            if (!n.readAt) onMarkRead(n.id);
+                            onClose();
+                            // Go straight to the Connection Requests screen, carrying the
+                            // sender id so that screen can surface the relevant request.
+                            const senderId = n.payload?.senderId;
+                            navigate?.(senderId ? `/requests?from=${encodeURIComponent(senderId)}` : '/requests');
+                          }}
+                          className="rounded-lg bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-rose-300 hover:bg-rose-500/20 transition"
+                        >
+                          View Request
+                        </button>
+                      )}
+                      {n.type === 'connection_accept' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!n.readAt) onMarkRead(n.id);
+                            onClose();
+                            navigate?.('/chat');
+                          }}
+                          className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition"
+                        >
+                          Start Chat
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function SettingsSheet({ profile, settings, onClose, onUpdateSettings, onVerifyAction, apiCall }) {
+  const [activeTab, setActiveTab] = React.useState('privacy'); // 'privacy' | 'notifications' | 'sessions' | 'verification' | 'blocks'
+  const [sessions, setSessions] = React.useState([]);
+  const [blocks, setBlocks] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [successMsg, setSuccessMsg] = React.useState('');
+
+  const fetchSessions = async () => {
+    try {
+      const res = await fetch('/api/settings/sessions', { credentials: 'same-origin' });
+      const data = await res.json();
+      if (data && data.sessions) {
+        setSessions(data.sessions);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchBlocks = async () => {
+    try {
+      const res = await fetch('/api/blocks', { credentials: 'same-origin' });
+      const data = await res.json();
+      if (data && data.blocks) {
+        setBlocks(data.blocks);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeTab === 'sessions') {
+      fetchSessions();
+    } else if (activeTab === 'blocks') {
+      fetchBlocks();
+    }
+  }, [activeTab]);
+
+  const handleRevokeSession = async (sessionId) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/settings/sessions/${sessionId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin'
+      });
+      const data = await res.json();
+      if (data.loggedOut) {
+        window.location.reload();
+      } else {
+        await fetchSessions();
+        showSuccess('Session revoked.');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnblock = async (blockedUserId) => {
+    try {
+      setLoading(true);
+      await fetch(`/api/blocks/${blockedUserId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin'
+      });
+      await fetchBlocks();
+      showSuccess('User unblocked.');
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggle = async (key, currentVal) => {
+    try {
+      await onUpdateSettings({ [key]: !currentVal });
+      showSuccess('Settings updated.');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleVerify = async (type) => {
+    try {
+      setLoading(true);
+      await onVerifyAction(type);
+      showSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} verified!`);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showSuccess = (msg) => {
+    setSuccessMsg(msg);
+    setTimeout(() => setSuccessMsg(''), 2000);
+  };
+
+  const tabItems = [
+    { id: 'privacy', label: 'Privacy', icon: Lock },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'verification', label: 'Verification', icon: ShieldCheck },
+    { id: 'sessions', label: 'Sessions', icon: Clock },
+    { id: 'blocks', label: 'Block List', icon: Ban }
+  ];
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[92] flex items-end justify-center bg-black/70 px-4 pb-4 backdrop-blur-xl sm:items-center animate-none"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <motion.div
+        className="w-full max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col rounded-[30px] border border-white/10 bg-[#08070d] shadow-[0_30px_90px_rgba(0,0,0,.7)] overflow-hidden"
+        initial={{ y: 36, opacity: 0, scale: 0.97 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 36, opacity: 0, scale: 0.97 }}
+        transition={{ type: "spring", damping: 25, stiffness: 280 }}
+      >
+        {/* Header */}
+        <div className="relative flex items-center justify-between border-b border-white/5 p-5">
+          <div>
+            <h3 className="text-base font-black text-white flex items-center gap-2">
+              <Settings className="h-5 w-5 text-fuchsia-400" /> Settings & Vetting
+            </h3>
+            <p className="text-[10px] text-white/50 mt-0.5">Control your privacy, alerts, and active connections</p>
+          </div>
+          
+          <button
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.04] text-white/70 hover:text-white transition"
+            aria-label="Close settings"
+          >
+            <X className="h-4 w-4" />
+          </button>
+
+          {successMsg && (
+            <div className="absolute right-12 top-5 flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-[10px] font-black text-emerald-300 shadow-md">
+              <CheckCircle2 className="h-3 w-3" /> {successMsg}
+            </div>
+          )}
+        </div>
+
+        {/* Tab Selector */}
+        <div className="flex border-b border-white/5 bg-white/[0.01] px-4 py-2 overflow-x-auto no-scrollbar gap-1.5">
+          {tabItems.map(item => {
+            const isActive = activeTab === item.id;
+            const TabIcon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition shrink-0 ${
+                  isActive 
+                    ? 'bg-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20' 
+                    : 'text-white/50 hover:text-white/70 hover:bg-white/[0.03]'
+                }`}
+              >
+                <TabIcon className="h-3.5 w-3.5" />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Content body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4 max-h-[380px] no-scrollbar">
+          {activeTab === 'privacy' && (
+            <div className="space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Privacy Controls</p>
+              
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white">Show Age</h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Toggle visibility of your age on profile cards</p>
+                </div>
+                <button
+                  onClick={() => handleToggle('showAge', settings.showAge)}
+                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.showAge ? 'bg-fuchsia-500' : 'bg-white/10'}`}
+                >
+                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.showAge ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white">Show Distance</h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Toggle showing city proximity to matched users</p>
+                </div>
+                <button
+                  onClick={() => handleToggle('showDistance', settings.showDistance)}
+                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.showDistance ? 'bg-fuchsia-500' : 'bg-white/10'}`}
+                >
+                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.showDistance ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white">Incognito Mode</h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Hide your profile from feeds; only visible to active chats</p>
+                </div>
+                <button
+                  onClick={() => handleToggle('incognitoMode', settings.incognitoMode)}
+                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.incognitoMode ? 'bg-fuchsia-500' : 'bg-white/10'}`}
+                >
+                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.incognitoMode ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'notifications' && (
+            <div className="space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Notification Preferences</p>
+              
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white">Email Alerts</h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Receive magic links, security updates, and digests</p>
+                </div>
+                <button
+                  onClick={() => handleToggle('emailNotifications', settings.emailNotifications)}
+                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.emailNotifications ? 'bg-fuchsia-500' : 'bg-white/10'}`}
+                >
+                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.emailNotifications ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white">Connection Updates</h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Get notified for connections and chat verification events</p>
+                </div>
+                <button
+                  onClick={() => handleToggle('connectionNotifications', settings.connectionNotifications)}
+                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.connectionNotifications ? 'bg-fuchsia-500' : 'bg-white/10'}`}
+                >
+                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.connectionNotifications ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white">Outing Reminders</h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Alerts when hosting plans get RSVPs or RSVPs are approved</p>
+                </div>
+                <button
+                  onClick={() => handleToggle('eventNotifications', settings.eventNotifications)}
+                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.eventNotifications ? 'bg-fuchsia-500' : 'bg-white/10'}`}
+                >
+                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.eventNotifications ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'verification' && (
+            <div className="space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Verification Checklist</p>
+              
+              {/* Phone Verification */}
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                    Phone Verification
+                    {profile.phone_verified ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : null}
+                  </h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Basic phone verification for login credentials</p>
+                </div>
+                {profile.phone_verified ? (
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">Verified</span>
+                ) : (
+                  <button
+                    onClick={() => handleVerify('phone')}
+                    disabled={loading}
+                    className="rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-fuchsia-300 hover:bg-fuchsia-500/20 transition disabled:opacity-40"
+                  >
+                    Verify
+                  </button>
+                )}
+              </div>
+
+              {/* Instagram */}
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                    Linked Instagram
+                    {profile.instagram_verified ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : null}
+                  </h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Integrates your IG handle with your club vetting</p>
+                </div>
+                {profile.instagram_verified ? (
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">Linked</span>
+                ) : (
+                  <button
+                    onClick={() => handleVerify('instagram')}
+                    disabled={loading}
+                    className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition disabled:opacity-40"
+                  >
+                    Link IG
+                  </button>
+                )}
+              </div>
+
+              {/* Selfie Check */}
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                <div>
+                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                    Selfie Identity Vetting
+                    {profile.profile_verified ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : null}
+                  </h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Concierge selfie vetting to lock your VIP passport status</p>
+                </div>
+                {profile.profile_verified ? (
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">Highly Verified</span>
+                ) : (
+                  <button
+                    onClick={() => handleVerify('selfie')}
+                    disabled={loading}
+                    className="rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-fuchsia-300 hover:bg-fuchsia-500/20 transition disabled:opacity-40"
+                  >
+                    Submit Selfie
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'sessions' && (
+            <div className="space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Active Sessions</p>
+              
+              <div className="space-y-2">
+                {sessions.map(s => (
+                  <div key={s.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                    <div>
+                      <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                        Device Session
+                        {s.isCurrent && <span className="rounded bg-fuchsia-500/10 border border-fuchsia-500/20 px-1.5 py-0.5 text-[8px] font-black uppercase text-fuchsia-300">This Device</span>}
+                      </h4>
+                      <p className="text-[9px] text-white/40 mt-1">
+                        Active: {new Date(s.createdAt).toLocaleDateString()} at {new Date(s.createdAt).toLocaleTimeString()}
+                      </p>
+                    </div>
+                    
+                    <button
+                      onClick={() => handleRevokeSession(s.id)}
+                      disabled={loading}
+                      className={`rounded-lg px-2.5 py-1 text-[9px] font-black uppercase tracking-wider transition ${
+                        s.isCurrent 
+                          ? 'bg-rose-500/10 border border-rose-500/20 text-rose-300 hover:bg-rose-500/20' 
+                          : 'bg-white/[0.04] border border-white/5 text-white/50 hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {s.isCurrent ? 'Sign Out' : 'Revoke'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'blocks' && (
+            <div className="space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Blocked Profiles</p>
+              
+              {blocks.length === 0 ? (
+                <div className="text-center py-6 text-white/30 text-xs">
+                  Your block list is currently empty.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {blocks.map(b => (
+                    <div key={b.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+                      <div>
+                        <h4 className="text-xs font-black text-white">{b.name}</h4>
+                        <p className="text-[9px] text-white/40 mt-0.5">Profile ID: {b.id}</p>
+                      </div>
+                      <button
+                        onClick={() => handleUnblock(b.id)}
+                        disabled={loading}
+                        className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition disabled:opacity-40"
+                      >
+                        Unblock
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // AUTH-BE-08 / AUTH-FE-08 — Account lifecycle: export, deactivate (reversible), delete (30d grace).
 function DangerZone({ onLogout }) {
   const [mode, setMode] = React.useState(null); // null | 'deactivate' | 'delete'
@@ -1339,6 +2085,14 @@ function SimplifiedSettings({ onLogout, profile, upgrade, authUser, onGoogleLogi
             <ChevronRight className="h-4.5 w-4.5 text-white/30" />
           </button>
         ))}
+
+        {/* Settings, Security & Verification button */}
+        <button 
+          onClick={() => setSettingsOpen(true)}
+          className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200 transition active:scale-95 hover:bg-fuchsia-500/15"
+        >
+          <Settings className="h-4 w-4 text-fuchsia-400" /> Settings & Verification
+        </button>
 
         {/* Minimal settings row for Notifications, Help, and Logout */}
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
@@ -2726,14 +3480,8 @@ function GatekeeperAdmissions({ onApply, onDemoLogin, authUser, onGoogleLogin })
 
       {/* 4. FOOTER */}
       <footer className="mt-4 border-t border-white/5 pt-6 pb-2 text-center text-[9px] text-white/25 space-y-3">
-        <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 font-bold uppercase tracking-wider">
-          <a href="#" className="hover:text-white transition">About</a>
-          <a href="#" className="hover:text-white transition">Safety</a>
-          <a href="#" className="hover:text-white transition">Privacy</a>
-          <a href="#" className="hover:text-white transition">Terms</a>
-          <a href="#" className="hover:text-white transition">Guidelines</a>
-        </div>
-        <p>© 2026 Instadate Speakeasy. Manually Reviewed Offline Outing Club.</p>
+        {/* Beta: removed dead href="#" footer links (About/Safety/Privacy/Terms/Guidelines). */}
+        <p>© 2026 Instadate • Friends &amp; Family Beta</p>
       </footer>
 
     </div>

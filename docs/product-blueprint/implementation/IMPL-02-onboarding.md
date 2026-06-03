@@ -40,3 +40,31 @@
 - Cannot reach main app without account+name+age(18+)+gender+≥1 photo+intent+city.
 - Every permission requested with rationale, degrades on denial.
 - Interrupt at any step resumes correctly.
+
+## Fix log
+
+### 2026-06-02 — Onboarding restarts at step 1 after Google sign-in
+**Symptom:** At the auth step (step 4) the user connects Google, sees "Successfully logged in", then is bounced to step 1.
+
+**Root cause (two compounding bugs):**
+1. *Client* — only the form *draft* (`onboarding_draft`) was mirrored to `localStorage`; the current **step index was not**. `signIn()` does a full-page `window.location` redirect to Google and back, which re-mounts the React app and reset `index` to `0`.
+2. *Server* — the intended `ONB-FE-04` resume fallback was dead: `/api/auth/me` (`currentAuth`) never `SELECT`ed `onboarding_step`, so `authUser.onboardingStep` was always `undefined` → `serverStep` always `0`. At the auth gate the step was never written server-side anyway (`updateDraft` only syncs when already authenticated).
+
+**Fix:**
+- `OnboardingFlow.jsx` — mirror `index` to `localStorage` (`onboarding_step`) on every change; restore it synchronously in the `useState` initializer; clear it on completion. The step now survives reloads and the OAuth redirect independently of the server.
+- `worker/index.ts` — add `onboarding_step` + `onboarding_completed_at` to the `/api/auth/me`, login, and OTP-verify `SELECT`s so the server resume path (cross-device) actually works. Regression test: `tests/api/auth-me.test.ts`.
+- Added filterable diagnostics (`[onboarding]` / `[auth]` console logs, on by default in beta; silence with `localStorage.setItem('onboarding_debug','0')`): step before OAuth, step after return, auth-state changes, navigation decisions, profile-fetch results.
+
+**Follow-up (same day) — "Cannot read properties of undefined (reading 'eyebrow')" after sign-in:** reviving the server resume surfaced a latent crash. A *completed* account stores the sentinel `onboarding_step = 13` (written by the final-step save), so the resume effect did `setIndex(13)` — one past the 10-entry `stepHeaders[]` table (covers index 3–12) → `SlideHeader` read `undefined.eyebrow` and the `RouteErrorBoundary` showed "View could not render". Fixed by clamping the resume target to `LAST_STEP` (12) and making `currentHeader()` fall back to the last header instead of crashing on any out-of-range index.
+
+### 2026-06-02 — Existing (completed) users forced back through onboarding after Google sign-in
+**Symptom:** A user who had already finished onboarding signs in with Google from the onboarding auth gate and is shown the onboarding flow again instead of entering the app.
+
+**Root cause:** the post-OAuth redirect lands on `/onboarding`, and the route guard treats `/onboarding` as an always-public route — so even an authenticated, completed user rendered the flow. Completion status was never consulted when routing.
+
+**Fix (route on completion):**
+- *Server* — `userDto` now exposes a derived boolean `onboardingCompleted` (`onboarding_completed_at IS NOT NULL` OR `users.completed = 1`); `/api/auth/me`, login, and OTP-verify now `SELECT u.completed`. No new column — `onboarding_completed_at` (migration 0012) + `users.completed` are the authoritative markers, set when the final step saves `completed: true`. Adding a third boolean would duplicate state and risk drift.
+- *Client (`main.jsx`)* — completion drives routing: `canBrowseApp` keys off `onboardingCompleted` (primary signal `authUser.onboardingCompleted`, resolves first; `profile.completed` fallback), and the guard sends an authenticated+completed user off `/onboarding` to `/`. Incomplete users still resume onboarding. Keying `canBrowseApp` on the same flag avoids a `/onboarding`↔`/` redirect ping-pong while the profile fetch is in flight.
+- Added `[routing] decision` logs (user id, profile found/status, `onboardingCompleted`, route, final navigateTo). Tests: `tests/api/auth-me.test.ts` (completed vs incomplete).
+
+*Note:* the side-drawer "Onboarding 🚀" link now bounces completed users to home (onboarding cannot be replayed once finished), per "skip onboarding entirely".

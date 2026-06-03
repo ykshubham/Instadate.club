@@ -2,6 +2,7 @@ export interface Env {
   DB: D1Database;
   PROFILE_IMAGES: R2Bucket;
   ASSETS: Fetcher;
+  CHAT_ROOM: DurableObjectNamespace;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   ENVIRONMENT?: string;
@@ -15,11 +16,19 @@ export interface Env {
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM?: string;
+  // Foursquare Places API (venue autocomplete). Secret; unset => feature degrades
+  // to manual location entry. Base/version/category overrides are optional.
+  FOURSQUARE_API_KEY?: string;
+  FOURSQUARE_API_BASE?: string;       // default https://places-api.foursquare.com
+  FOURSQUARE_API_VERSION?: string;    // default 2025-06-17 (X-Places-Api-Version)
+  FOURSQUARE_CATEGORIES?: string;     // optional fsq_category_ids filter
+  FOURSQUARE_FIELDS?: string;         // optional explicit response field mask
 }
 
 import {
   getOrInitializeTrustMetrics,
-  recordMeetupOutcome
+  recordMeetupOutcome,
+  recomputeTrustMetrics
 } from './services/trust';
 import {
   getOrInitializePreferences,
@@ -59,6 +68,12 @@ import {
   seedDatabaseIfEmpty
 } from './services/seeder';
 import {
+  checkRateLimit,
+  rateLimitResponse,
+  pruneRateLimits
+} from './services/ratelimit';
+import { isPlacesConfigured, searchPlaces } from './services/places';
+import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
   getCookie,
@@ -67,12 +82,24 @@ import {
   base64UrlEncode,
   sha256,
   randomToken,
-  resolvePrincipal
+  resolvePrincipal,
+  safeRedirect
 } from './auth';
 import { requireAuthedActive, requirePublished, requireVerified } from './authz';
 import { visibleUserIds } from './visibility';
 import { sanitizeProfile } from './dto';
 import { setAccountStatus, createReport, listReports, resolveReport } from './services/moderation';
+import {
+  resolveRole,
+  isModerator,
+  isAdmin,
+  recordAudit,
+  listAuditLogs,
+  listUsersForModeration,
+  listEventsForModeration,
+  setEventModeration,
+  setUserRole
+} from './services/admin';
 import {
   deactivateAccount,
   requestDeletion,
@@ -81,6 +108,7 @@ import {
   runScheduledPurge
 } from './services/account';
 import { normalizePhone, startOtp, verifyOtp } from './services/otp';
+import { startMagicLink, verifyMagicLink } from './services/magic';
 import {
   sendConnectionRequest,
   acceptConnectionRequest,
@@ -89,8 +117,20 @@ import {
   getConnections
 } from './services/connections';
 import { assertCanSend } from './services/chat';
-
-
+import { getNotifications, createNotification, markNotificationsRead } from './services/notifications';
+import { getSettings, updateSettings, verifyAction } from './services/settings';
+import {
+  sendVibeCheck,
+  getIncomingVibeChecks,
+  getOutgoingVibeChecks,
+  checkDailyQuota,
+  markVibeCheckListened,
+  acceptVibeCheck,
+  declineVibeCheck,
+  getVibeCheckVoice,
+  expireStaleVibeChecks,
+  cleanupExpiredCooldowns
+} from './services/vibe-checks';
 
 type AppState = {
   profile: Record<string, unknown>;
@@ -98,7 +138,7 @@ type AppState = {
   rsvps: Record<string, unknown>;
   hostedEvents: EventDto[];
   verifiedChats: Record<string, boolean>;
-  chatMessages: Record<string, Array<[string, string]>>;
+  chatMessages: Record<string, Array<[string, string, string?, string?, string?]>>;
   lastUpdated: string;
   recommendations?: any[];
   discovery?: any;
@@ -108,6 +148,9 @@ type AppState = {
   pendingReviews?: any;
   chats?: any[];
   outcomes?: any[];
+  notifications?: any[];
+  settings?: any;
+  vibeChecks?: { inbox: any[]; outbox: any[] };
 };
 
 type EventDto = {
@@ -126,6 +169,13 @@ type EventDto = {
   price: string;
   approval: string;
   hostName: string;
+  hostUserId?: string;
+  venueName?: string | null;
+  formattedAddress?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  placeId?: string | null;
+  placeProvider?: string | null;
   createdAt: string;
   source: string;
   attendeeCount: number;
@@ -147,6 +197,10 @@ type UserDto = {
   status: string;
   statusReason: string | null;
   statusUntil: string | null;
+  role?: string;
+  onboardingStep?: number;
+  onboardingCompleted?: boolean;
+  onboardingCompletedAt?: string | null;
 };
 
 type ProfileDto = {
@@ -280,7 +334,14 @@ function userDto(row: Record<string, unknown>): UserDto {
     authProvider: (row.auth_provider as string) || 'google',
     status: (row.status as string) || 'active',
     statusReason: (row.status_reason as string) ?? null,
-    statusUntil: (row.status_until as string) ?? null
+    statusUntil: (row.status_until as string) ?? null,
+    role: (row.role as string) || 'member',
+    onboardingStep: row.onboarding_step !== undefined ? Number(row.onboarding_step) : undefined,
+    // Derived completion flag the client routes on. Sourced from the dedicated
+    // onboarding marker (migration 0012), falling back to users.completed for
+    // accounts that finished before that column existed.
+    onboardingCompleted: Boolean(row.onboarding_completed_at) || Number(row.completed) === 1,
+    onboardingCompletedAt: (row.onboarding_completed_at as string) ?? null
   };
 }
 
@@ -665,7 +726,7 @@ async function ensureDefaultChats(db: D1Database, userId: string) {
 
 async function getState(db: D1Database, userId: string): Promise<AppState> {
   await ensureUser(db, userId);
-  await ensureDefaultChats(db, userId);
+  // Beta: no fake demo chats injected into real users' inboxes.
   const profile = await getProfile(db, userId);
 
   const user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first<Record<string, unknown>>();
@@ -675,7 +736,7 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
      FROM events e
      LEFT JOIN users u ON u.id = e.host_user_id
      LEFT JOIN event_attendees ea ON ea.event_id = e.id
-     WHERE e.deleted_at IS NULL
+     WHERE e.deleted_at IS NULL AND e.moderation_status = 'active'
      GROUP BY e.id
      ORDER BY e.created_at DESC`
   ).all<Record<string, unknown>>();
@@ -776,6 +837,12 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
       approval: row.approval_type as string,
       hostName: (row.host_name as string) || 'Club host',
       hostUserId,
+      venueName: (row.venue_name as string) ?? null,
+      formattedAddress: (row.formatted_address as string) ?? null,
+      latitude: row.latitude != null ? Number(row.latitude) : null,
+      longitude: row.longitude != null ? Number(row.longitude) : null,
+      placeId: (row.place_id as string) ?? null,
+      placeProvider: (row.place_provider as string) ?? null,
       createdAt: row.created_at as string,
       source: row.source as string,
       attendeeCount: Number(row.attendee_count || 0),
@@ -831,20 +898,52 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
            CASE
              WHEN c.participant_a_user_id = ? THEN ub.id
              ELSE ua.id
-           END as other_user_id
+           END as other_user_id,
+           CASE
+             WHEN c.participant_a_user_id = ? THEN ub.last_active_at
+             ELSE ua.last_active_at
+           END as last_active_at
     FROM chats c
     LEFT JOIN users ua ON c.participant_a_user_id = ua.id
     LEFT JOIN users ub ON c.participant_b_user_id = ub.id
+    WHERE c.participant_a_user_id = ? OR c.participant_b_user_id = ?
     ORDER BY c.created_at ASC
-  `).bind(userId, userId).all<Record<string, unknown>>();
-  const chatMessages: Record<string, Array<[string, string]>> = {};
+  `).bind(userId, userId, userId, userId, userId).all<Record<string, unknown>>();
+  const chatMessages: Record<string, Array<[string, string, string?, string?, string?]>> = {};
   const verifiedChats: Record<string, boolean> = {};
+  const lastMessageAtBySlug: Record<string, string | null> = {};
+  const unreadBySlug: Record<string, number> = {};
 
   for (const chat of chatRows) {
-    const { results: messages } = await db.prepare(
-      'SELECT sender_role, body FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC'
-    ).bind(chat.id).all<Record<string, unknown>>();
-    chatMessages[chat.slug as string] = messages.map(message => [message.sender_role as string, message.body as string]);
+    const { results: messages } = await db.prepare(`
+      SELECT cm.sender_user_id, cm.sender_role, cm.body, cm.id as message_id, cm.attachment_url, cm.created_at,
+             (SELECT 1 FROM message_reads mr WHERE mr.message_id = cm.id AND mr.user_id = ?1) as is_read_by_peer,
+             (SELECT 1 FROM message_reads mr WHERE mr.message_id = cm.id AND mr.user_id = ?3) as read_by_me
+      FROM chat_messages cm
+      WHERE cm.chat_id = ?2 AND cm.deleted_at IS NULL
+      ORDER BY cm.created_at ASC
+    `).bind(chat.other_user_id, chat.id, userId).all<Record<string, unknown>>();
+
+    chatMessages[chat.slug as string] = messages.map(message => {
+      let role = message.sender_role as string;
+      if (message.sender_user_id) {
+        role = message.sender_user_id === userId ? 'you' : 'match';
+      }
+      const status = message.is_read_by_peer ? 'read' : 'sent';
+      const msgId = message.message_id as string || '';
+      const attachmentUrl = message.attachment_url as string || '';
+      return [role, message.body as string, status, msgId, attachmentUrl];
+    });
+
+    // Recency + my unread count (peer-sent messages I haven't read yet → clears on open).
+    lastMessageAtBySlug[chat.slug as string] = messages.length
+      ? (messages[messages.length - 1].created_at as string)
+      : ((chat.created_at as string) || null);
+    unreadBySlug[chat.slug as string] = messages.reduce(
+      (n, m) => n + ((m.sender_user_id && m.sender_user_id !== userId && !m.read_by_me) ? 1 : 0),
+      0
+    );
+
     verifiedChats[chat.slug as string] = parseJson<string[]>(chat.verified_by_user_ids_json as string, []).includes(userId);
   }
 
@@ -888,18 +987,28 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     }))
   };
 
+  const tsMs = (s: string | null | undefined) => {
+    if (!s) return 0;
+    const str = String(s);
+    const norm = str.includes('T') ? str : str.replace(' ', 'T');
+    const zoned = /[zZ]|[+-]\d\d:?\d\d$/.test(norm) ? norm : `${norm}Z`;
+    return Date.parse(zoned) || 0;
+  };
+
   const liveChats = chatRows.map(row => {
     const messages = chatMessages[row.slug as string] || [];
-    const lastMessage = messages.length > 0 ? messages[messages.length - 1][1] : '';
     return {
       id: row.id,
       slug: row.slug as string,
       name: row.name as string || 'Unknown',
       avatar: ((row.name as string) || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
       gradient: 'cyan',
-      messages
+      messages,
+      lastActiveAt: row.last_active_at as string || null,
+      lastMessageAt: lastMessageAtBySlug[row.slug as string] || null,
+      unreadCount: unreadBySlug[row.slug as string] || 0
     };
-  });
+  }).sort((a, b) => tsMs(b.lastMessageAt) - tsMs(a.lastMessageAt)); // most recent first
 
   const { results: outingRows } = await db.prepare(`
     SELECT mo.id, mo.status, mo.updated_at,
@@ -938,7 +1047,7 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
   }
 
   return {
-    profile,
+    profile: { ...profile, id: userId },
     vibeRequests,
     rsvps,
     hostedEvents,
@@ -946,12 +1055,23 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     chatMessages,
     chats: liveChats,
     outcomes: enrichedOutcomes,
-    recommendations: await getRecommendationsWithProfilesV2(db, userId),
-    discovery: await getDiscoveryMembersV2(db, userId),
-    recommendedEvents: await getRecommendedEventsV2(db, userId),
+    // Beta/free-plan CPU budget: the recommendation + discovery + recommended-event
+    // generators (O(9·N) compatibility scoring) are NOT run inline here — they blew the
+    // Workers CPU limit and 503'd /api/state. The client lazy-loads them from their own
+    // endpoints (/api/recommendations, /api/discovery, /api/events/recommended), each with
+    // its own CPU budget. getState stays cheap (profile, chats, events, notifications...).
+    recommendations: [],
+    discovery: {},
+    recommendedEvents: [],
     instantPlans: await getInstantPlans(db, userId),
     trustMetrics: await getOrInitializeTrustMetrics(db, userId, profile.completed),
     pendingReviews,
+    notifications: await getNotifications(db, userId),
+    settings: await getSettings(db, userId),
+    vibeChecks: {
+      inbox: await getIncomingVibeChecks(db, userId),
+      outbox: await getOutgoingVibeChecks(db, userId)
+    },
     lastUpdated: new Date().toISOString()
   };
 }
@@ -975,8 +1095,22 @@ async function saveProfile(db: D1Database, userId: string, profile: Record<strin
     bio: cleanText(profile.bio, PROFILE_TEXT_LIMITS.bio),
     vibe: cleanText(profile.vibe, PROFILE_TEXT_LIMITS.vibe),
     plan: cleanText(profile.plan || 'Instadate Plus', PROFILE_TEXT_LIMITS.plan),
-    completed: Boolean(profile.completed)
+    completed: false
   };
+
+  // Dynamically calculate if all mandatory fields are present (ONB-BE-02 / ONB-BE-03)
+  const nameOk = typeof nextProfile.fullName === 'string' && nextProfile.fullName.trim().length > 0;
+  const ageInt = parseInt(nextProfile.age, 10);
+  const ageOk = !isNaN(ageInt) && ageInt >= 18;
+  const genderOk = typeof nextProfile.gender === 'string' && nextProfile.gender.trim().length > 0;
+  const intentOk = typeof nextProfile.intent === 'string' && nextProfile.intent.trim().length > 0;
+  const cityOk = typeof nextProfile.city === 'string' && nextProfile.city.trim().length > 0;
+
+  const photoCountRow = await db.prepare('SELECT COUNT(*) AS count FROM profile_photos WHERE user_id = ?').bind(userId).first<{ count: number }>();
+  const hasPhoto = (photoCountRow?.count ?? 0) > 0 || (profile.photos && Array.isArray(profile.photos) && profile.photos.length > 0);
+
+  const allMandatoryPresent = nameOk && ageOk && genderOk && intentOk && cityOk && hasPhoto;
+  nextProfile.completed = allMandatoryPresent;
 
   const cityCoords = getCoordinatesForCity(nextProfile.city);
   const profileLatitude = profile.profileLatitude !== undefined ? (profile.profileLatitude !== null ? Number(profile.profileLatitude) : null) : (cityCoords ? cityCoords.lat : null);
@@ -1026,6 +1160,11 @@ async function saveProfile(db: D1Database, userId: string, profile: Record<strin
     `UPDATE users SET full_name = COALESCE(NULLIF(?, ''), full_name), completed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
   ).bind(nextProfile.fullName, nextProfile.completed ? 1 : 0, userId).run();
 
+  if (profile.onboarding_step !== undefined) {
+    await db.prepare('UPDATE users SET onboarding_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(Number(profile.onboarding_step), userId).run();
+  }
+
   if (profile.interests && Array.isArray(profile.interests)) {
     await db.prepare('DELETE FROM user_interests WHERE user_id = ?').bind(userId).run();
     for (const item of profile.interests) {
@@ -1067,6 +1206,9 @@ async function saveProfile(db: D1Database, userId: string, profile: Record<strin
     await logEvent(db, { user_id: userId, event_name: 'profile_started' });
   }
   if (isCompleting) {
+    await db.prepare(
+      "UPDATE users SET onboarding_completed_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).bind(userId).run();
     await logEvent(db, { user_id: userId, event_name: 'profile_completed' });
   }
   await logEvent(db, { user_id: userId, event_name: 'profile_updated' });
@@ -1076,19 +1218,22 @@ async function createEvent(db: D1Database, userId: string, event: Record<string,
   await ensureUser(db, userId);
   const eventId = (event.id as string) || id('event');
 
+  const lat = Number(event.latitude);
+  const lng = Number(event.longitude);
   await db.prepare(
     `INSERT INTO events (
       id, host_user_id, type, title, description, location, display_date, raw_date, display_time,
       image, status, capacity, entry_type, price, approval_type, source,
-      category, activity_type, approval_required, gender_ratio_preference, visibility
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      category, activity_type, approval_required, gender_ratio_preference, visibility,
+      venue_name, formatted_address, latitude, longitude, place_id, place_provider
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     eventId,
     userId,
     event.type || 'Host Party Plan',
     event.title || 'Untitled plan',
     event.description || '',
-    event.place || event.location || '',
+    event.place || event.location || event.venueName || '',
     event.date || 'Tonight',
     event.rawDate || null,
     event.time || 'Tonight',
@@ -1103,7 +1248,13 @@ async function createEvent(db: D1Database, userId: string, event: Record<string,
     event.activityType || 'Social Outing',
     event.approvalRequired ? 1 : 0,
     event.genderRatioPreference || 'None',
-    event.visibility || 'Public'
+    event.visibility || 'Public',
+    event.venueName || event.place || event.location || null,
+    event.formattedAddress || null,
+    Number.isFinite(lat) ? lat : null,
+    Number.isFinite(lng) ? lng : null,
+    event.placeId || null,
+    event.placeId ? (event.placeProvider || 'foursquare') : null
   ).run();
 
   return eventId;
@@ -1111,7 +1262,7 @@ async function createEvent(db: D1Database, userId: string, event: Record<string,
 
 async function joinEvent(db: D1Database, userId: string, eventId: string) {
   await ensureUser(db, userId);
-  const event = await db.prepare('SELECT capacity, is_closed FROM events WHERE id = ? AND deleted_at IS NULL').bind(eventId).first<{ capacity: number; is_closed: number }>();
+  const event = await db.prepare('SELECT capacity, is_closed, host_user_id, title FROM events WHERE id = ? AND deleted_at IS NULL').bind(eventId).first<{ capacity: number; is_closed: number; host_user_id: string; title: string }>();
   if (!event) return json({ error: 'Event not found' }, { status: 404 });
   if (event.is_closed) return json({ error: 'Event is closed' }, { status: 409 });
 
@@ -1127,6 +1278,19 @@ async function joinEvent(db: D1Database, userId: string, eventId: string) {
      VALUES (?, ?, 'joined')
      ON CONFLICT(event_id, user_id) DO UPDATE SET status = 'joined', updated_at = CURRENT_TIMESTAMP`
   ).bind(eventId, userId).run();
+
+  // Trigger event RSVP notification to the host
+  if (event.host_user_id && event.host_user_id !== userId) {
+    const attendeeProfile = await db.prepare('SELECT full_name FROM profiles WHERE user_id = ?').bind(userId).first<{ full_name: string }>();
+    const attendeeName = attendeeProfile?.full_name || 'Someone';
+    await createNotification(db, event.host_user_id, 'event_rsvp', {
+      message: `${attendeeName} RSVPed to your event "${event.title}".`,
+      senderId: userId,
+      senderName: attendeeName,
+      eventId: eventId,
+      eventTitle: event.title
+    });
+  }
 
   return null;
 }
@@ -1256,7 +1420,7 @@ async function createSessionResponse(request: Request, env: Env, userId: string,
   return new Response(null, {
     status: 302,
     headers: {
-      location: redirectTo.startsWith('/') ? redirectTo : '/profile',
+      location: safeRedirect(redirectTo),
       'set-cookie': sessionCookie(request, sessionId)
     }
   });
@@ -1295,7 +1459,7 @@ async function tokenLogin(request: Request, env: Env) {
     ).bind(sessionId, userId, '+30 days').run();
 
     const user = await env.DB.prepare(
-      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until FROM users WHERE id = ?'
+      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at, completed FROM users WHERE id = ?'
     ).bind(userId).first<Record<string, unknown>>();
 
     return json({ user: user ? userDto(user) : null, profile: await getProfile(env.DB, userId) }, {
@@ -1369,7 +1533,7 @@ async function currentAuth(request: Request, env: Env) {
   }
 
   const user = await env.DB.prepare(
-    `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.status, u.status_reason, u.status_until
+    `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.status, u.status_reason, u.status_until, u.role, u.onboarding_step, u.onboarding_completed_at, u.completed
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.id = ? AND s.expires_at > CURRENT_TIMESTAMP`
@@ -1459,9 +1623,13 @@ async function deleteProfilePhoto(env: Env, userId: string, photoId: string) {
 }
 
 async function serveProfilePhoto(request: Request, env: Env, userId: string, photoId: string) {
+  // Profile photos are visible to other members (discovery/members publish these URLs).
+  // Look up by the (random, unguessable) photo id only — NOT scoped to the viewer's
+  // user_id, which previously 404'd every cross-user photo so nobody could see anyone
+  // else's pictures.
   const photo = await env.DB.prepare(
-    'SELECT r2_key, content_type FROM profile_photos WHERE id = ? AND user_id = ?'
-  ).bind(photoId, userId).first<Record<string, unknown>>();
+    'SELECT r2_key, content_type FROM profile_photos WHERE id = ?'
+  ).bind(photoId).first<Record<string, unknown>>();
   if (!photo) return json({ error: 'Photo not found' }, { status: 404 });
 
   const object = await env.PROFILE_IMAGES.get(photo.r2_key as string);
@@ -1475,14 +1643,108 @@ async function serveProfilePhoto(request: Request, env: Env, userId: string, pho
   return new Response(object.body, { headers });
 }
 
+async function uploadChatAttachment(request: Request, env: Env, userId: string, slug: string) {
+  const check = await assertCanSend(env.DB, userId, slug);
+  if (!check.ok) return json({ error: check.error }, { status: check.status });
+
+  const formData = await request.formData();
+  const file = formData.get('file');
+  if (!(file instanceof File)) return json({ error: 'Image file is required' }, { status: 400 });
+
+  const ALLOWED_CHAT_ATTACHMENT_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+    'audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'application/octet-stream'
+  ]);
+  if (!ALLOWED_CHAT_ATTACHMENT_TYPES.has(file.type)) {
+    return json({ error: 'Unsupported file type. Only standard images and audio notes are allowed.' }, { status: 415 });
+  }
+  if (file.size <= 0 || file.size > MAX_IMAGE_BYTES) {
+    return json({ error: 'Image must be between 1 byte and 8 MB' }, { status: 413 });
+  }
+
+  const attachmentId = id('msg-attachment');
+  const extension = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'bin';
+  const r2Key = `chats/${check.chatId}/${attachmentId}.${extension}`;
+  await env.PROFILE_IMAGES.put(r2Key, await file.arrayBuffer(), {
+    httpMetadata: { contentType: file.type },
+    customMetadata: { userId, chat_id: check.chatId || '' }
+  });
+
+  const isAudioFile = file.type.startsWith('audio/') || file.name.endsWith('.webm');
+  const messageBody = isAudioFile ? '[Voice Note]' : '[Image]';
+
+  const msgId = `msg-${crypto.randomUUID()}`;
+  const url = `/api/chats/${slug}/attachments/${attachmentId}`;
+  await env.DB.prepare(
+    'INSERT INTO chat_messages (id, chat_id, sender_user_id, sender_role, body, attachment_url) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(msgId, check.chatId, userId, 'you', messageBody, url).run();
+
+  // Send real-time broadcast via Durable Object room stub if anyone is connected
+  try {
+    const chatDoId = env.CHAT_ROOM.idFromName(check.chatId || '');
+    const stub = env.CHAT_ROOM.get(chatDoId);
+    
+    // We send a POST to the DO's /broadcast route
+    await stub.fetch(new Request('http://localhost/broadcast', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: "message",
+        id: msgId,
+        senderId: userId,
+        message: messageBody,
+        attachmentUrl: url,
+        createdAt: new Date().toISOString()
+      })
+    }));
+  } catch (err) {
+    console.error("Failed to broadcast chat attachment real-time:", err);
+  }
+
+  return json({ ok: true, attachmentUrl: url, state: await getState(env.DB, userId) }, { status: 201 });
+}
+
+async function serveChatAttachment(request: Request, env: Env, userId: string, slug: string, attachmentId: string) {
+  const chat = await env.DB.prepare('SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?').bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+  if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
+  if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
+    return json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const listResult = await env.PROFILE_IMAGES.list({
+    prefix: `chats/${chat.id}/${attachmentId}.`,
+    limit: 1
+  });
+  
+  if (listResult.objects.length === 0) {
+    return json({ error: 'Attachment not found' }, { status: 404 });
+  }
+  
+  const objectKey = listResult.objects[0].key;
+  const object = await env.PROFILE_IMAGES.get(objectKey);
+  if (!object) return json({ error: 'Attachment file not found' }, { status: 404 });
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('content-type', object.httpMetadata?.contentType || 'image/jpeg');
+  headers.set('cache-control', 'private, max-age=3600');
+  headers.set('etag', object.httpEtag);
+  return new Response(object.body, { headers });
+}
+
 async function routeApi(request: Request, env: Env) {
   const url = new URL(request.url);
 
   if (url.pathname === '/api/auth/google/start' && request.method === 'GET') {
+    const ip = request.headers.get('cf-connecting-ip') || '127.0.0.1';
+    const limitResult = await checkRateLimit(env.DB, `auth_ip:${ip}`, 5, 60);
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
     return startGoogleLogin(request, env);
   }
 
   if (url.pathname === '/api/auth/login' && request.method === 'POST') {
+    const ip = request.headers.get('cf-connecting-ip') || '127.0.0.1';
+    const limitResult = await checkRateLimit(env.DB, `auth_ip:${ip}`, 5, 60);
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
     return tokenLogin(request, env);
   }
 
@@ -1496,10 +1758,13 @@ async function routeApi(request: Request, env: Env) {
 
   // --- PHONE OTP (Sprint 2 Task 1) — public, mint sessions ---
   if (url.pathname === '/api/auth/otp/start' && request.method === 'POST') {
+    const ip = request.headers.get('cf-connecting-ip') || '127.0.0.1';
+    const limitResult = await checkRateLimit(env.DB, `auth_ip:${ip}`, 5, 60);
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
+
     const body = await readJson<{ phone?: string; countryCode?: string }>(request);
     const phone = normalizePhone(body.phone || '', body.countryCode || '+91');
     if (!phone) return json({ error: 'invalid_phone' }, { status: 400 });
-    const ip = request.headers.get('cf-connecting-ip') || '';
     const result = await startOtp(env, phone, ip);
     if (!result.ok) {
       const status = result.error === 'invalid_phone' ? 400 : 429;
@@ -1511,6 +1776,10 @@ async function routeApi(request: Request, env: Env) {
   }
 
   if (url.pathname === '/api/auth/otp/verify' && request.method === 'POST') {
+    const ip = request.headers.get('cf-connecting-ip') || '127.0.0.1';
+    const limitResult = await checkRateLimit(env.DB, `auth_ip:${ip}`, 5, 60);
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
+
     const body = await readJson<{ phone?: string; countryCode?: string; code?: string }>(request);
     const phone = normalizePhone(body.phone || '', body.countryCode || '+91');
     const code = (body.code || '').replace(/\D/g, '');
@@ -1524,9 +1793,42 @@ async function routeApi(request: Request, env: Env) {
       user_id: result.userId || null, event_name: 'otp_verified', entity_type: 'user', entity_id: result.userId || null
     });
     const user = await env.DB.prepare(
-      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until FROM users WHERE id = ?'
+      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at, completed FROM users WHERE id = ?'
     ).bind(result.userId).first<Record<string, unknown>>();
     return json({ user: user ? userDto(user) : null }, { headers: { 'set-cookie': result.setCookie! } });
+  }
+
+  // --- EMAIL MAGIC LINK (Sprint 2 Task 2) ---
+  if (url.pathname === '/api/auth/magic/start' && request.method === 'POST') {
+    const ip = request.headers.get('cf-connecting-ip') || '127.0.0.1';
+    const limitResult = await checkRateLimit(env.DB, `auth_ip:${ip}`, 5, 60);
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
+
+    const body = await readJson<{ email?: string }>(request);
+    const email = body.email || '';
+    const result = await startMagicLink(env, email, request.url);
+    if (!result.ok) {
+      return json({ error: result.error }, { status: 400 });
+    }
+    return json({ ok: true, devLink: result.devLink });
+  }
+
+  if (url.pathname === '/api/auth/magic/callback' && request.method === 'GET') {
+    const token = url.searchParams.get('token') || '';
+    const result = await verifyMagicLink(env, request, token);
+    if (!result.ok) {
+      return new Response(null, {
+        status: 302,
+        headers: { 'Location': `/login?error=${result.error || 'invalid_magic_link'}` }
+      });
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': '/profile',
+        'Set-Cookie': result.setCookie!
+      }
+    });
   }
 
   if (url.pathname === '/api/auth/me' && request.method === 'GET') {
@@ -1566,6 +1868,9 @@ async function routeApi(request: Request, env: Env) {
   const userId = gate.userId;
   const sessionId = principal.sessionId;
 
+  // Asynchronously update last_active_at for the user to track active presence / last seen
+  env.DB.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').bind(userId).run().catch(() => {});
+
   if (url.pathname === '/api/state' && request.method === 'GET') {
     return json({ state: await getState(env.DB, userId) });
   }
@@ -1577,7 +1882,54 @@ async function routeApi(request: Request, env: Env) {
   if (url.pathname === '/api/profile' && request.method === 'PATCH') {
     const body = await readJson<{ profile?: Record<string, unknown> }>(request);
     await saveProfile(env.DB, userId, body.profile || body || {});
-    return json({ profile: await getProfile(env.DB, userId), state: await getState(env.DB, userId) });
+    await recomputeTrustMetrics(env.DB, userId);
+    
+    // Calculate exact weighted, mandatory-aware Profile Completion Model (Phase 4 / Sprint 2 Task 4)
+    const db = env.DB;
+    const profileRow = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').bind(userId).first<Record<string, any>>();
+    const nameOk = typeof profileRow?.full_name === 'string' && profileRow.full_name.trim().length > 0;
+    const ageInt = parseInt(profileRow?.age || '', 10);
+    const ageOk = !isNaN(ageInt) && ageInt >= 18;
+    const genderOk = typeof profileRow?.gender === 'string' && profileRow.gender.trim().length > 0;
+    const intentOk = typeof profileRow?.intent === 'string' && profileRow.intent.trim().length > 0;
+    const cityOk = typeof profileRow?.city === 'string' && profileRow.city.trim().length > 0;
+    
+    const photoCountRow = await db.prepare('SELECT COUNT(*) AS count FROM profile_photos WHERE user_id = ?').bind(userId).first<{ count: number }>();
+    const photoCount = photoCountRow?.count ?? 0;
+    const hasPhoto = photoCount >= 1;
+
+    let mandatoryCompleted = 0;
+    if (nameOk) mandatoryCompleted += 1;
+    if (ageOk) mandatoryCompleted += 1;
+    if (genderOk) mandatoryCompleted += 1;
+    if (hasPhoto) mandatoryCompleted += 1;
+    if (cityOk) mandatoryCompleted += 1;
+    if (intentOk) mandatoryCompleted += 1;
+
+    const isAllMandatoryDone = (mandatoryCompleted === 6);
+
+    let percent = mandatoryCompleted * 10;
+    if (isAllMandatoryDone) {
+      let qualityScore = 0;
+      if (photoCount >= 3) qualityScore += 10;
+      if (typeof profileRow?.bio === 'string' && profileRow.bio.trim().length >= 40) qualityScore += 8;
+      
+      const interestsCountRow = await db.prepare('SELECT COUNT(*) AS count FROM user_interests WHERE user_id = ?').bind(userId).first<{ count: number }>();
+      if ((interestsCountRow?.count ?? 0) >= 3) qualityScore += 7;
+      
+      if (Number(profileRow?.phone_verified ?? 0) === 1) qualityScore += 8;
+      if (Number(profileRow?.instagram_verified ?? 0) === 1) qualityScore += 7;
+      
+      percent += qualityScore;
+    }
+
+    const completionPercent = Math.min(100, Math.max(0, Math.round(percent)));
+
+    return json({
+      profile: await getProfile(env.DB, userId),
+      state: await getState(env.DB, userId),
+      completionPercent
+    });
   }
 
   if (url.pathname === '/api/profile/photo' && request.method === 'POST') {
@@ -1596,12 +1948,36 @@ async function routeApi(request: Request, env: Env) {
   if (url.pathname === '/api/users/me' && request.method === 'PUT') {
     const body = await readJson<{ profile?: Record<string, unknown> }>(request);
     await saveProfile(env.DB, userId, body.profile || {});
+    await recomputeTrustMetrics(env.DB, userId);
     return json({ state: await getState(env.DB, userId) });
+  }
+
+  // Venue autocomplete proxy (Foursquare). Key stays server-side. Degrades to
+  // { configured:false } when unconfigured and to { error:true } on upstream
+  // failure so the client always allows manual location entry.
+  if (url.pathname === '/api/places/search' && request.method === 'GET') {
+    const limitResult = await checkRateLimit(env.DB, `places:${userId}`, 60, 60); // 60 searches/min
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
+
+    if (!isPlacesConfigured(env)) return json({ configured: false, results: [] });
+
+    const q = (url.searchParams.get('q') || '').trim();
+    if (q.length < 2) return json({ configured: true, results: [] });
+
+    const lat = Number(url.searchParams.get('lat'));
+    const lng = Number(url.searchParams.get('lng'));
+    const { ok, results } = await searchPlaces(env, {
+      query: q,
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
+      limit: 5
+    });
+    return json({ configured: true, error: !ok, results });
   }
 
   if (url.pathname === '/api/events' && request.method === 'POST') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
-    const ver = await requireVerified(env, userId); if (ver) return ver;
+    // Beta: event hosting does NOT require identity verification (no verify flow live).
     const body = await readJson<{ event?: Record<string, unknown> }>(request);
     const eventId = await createEvent(env.DB, userId, body.event || {});
     await logEvent(env.DB, {
@@ -1618,6 +1994,8 @@ async function routeApi(request: Request, env: Env) {
   const eventJoinMatch = url.pathname.match(/^\/api\/events\/([^/]+)\/attendees\/me$/);
   if (eventJoinMatch && request.method === 'POST') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
+    const limitResult = await checkRateLimit(env.DB, `evt:${userId}`, 10, 60); // 10 RSVPs per minute
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
     const error = await joinEvent(env.DB, userId, eventJoinMatch[1]);
     if (error) return error;
     await logEvent(env.DB, {
@@ -1651,7 +2029,7 @@ async function routeApi(request: Request, env: Env) {
     const eventId = attendeeApproveMatch[1];
     const attendeeUserId = attendeeApproveMatch[2];
     
-    const event = await env.DB.prepare('SELECT host_user_id FROM events WHERE id = ?').bind(eventId).first<{ host_user_id: string }>();
+    const event = await env.DB.prepare('SELECT host_user_id, title FROM events WHERE id = ?').bind(eventId).first<{ host_user_id: string; title: string }>();
     if (!event) return json({ error: 'Event not found' }, { status: 404 });
     if (event.host_user_id !== userId) return json({ error: 'Only the host can approve attendees' }, { status: 403 });
 
@@ -1659,6 +2037,17 @@ async function routeApi(request: Request, env: Env) {
       `UPDATE event_attendees SET status = 'joined', updated_at = CURRENT_TIMESTAMP
        WHERE event_id = ? AND user_id = ?`
     ).bind(eventId, attendeeUserId).run();
+
+    // Trigger attendee approved notification
+    const hostProfile = await env.DB.prepare('SELECT full_name FROM profiles WHERE user_id = ?').bind(event.host_user_id).first<{ full_name: string }>();
+    const hostName = hostProfile?.full_name || 'The host';
+    await createNotification(env.DB, attendeeUserId, 'event_approved', {
+      message: `${hostName} approved your request to join "${event.title}"!`,
+      senderId: event.host_user_id,
+      senderName: hostName,
+      eventId: eventId,
+      eventTitle: event.title
+    });
 
     await logEvent(env.DB, {
       user_id: attendeeUserId,
@@ -1755,9 +2144,138 @@ async function routeApi(request: Request, env: Env) {
     return json({ state: await getState(env.DB, userId) }, { status: 201 });
   }
 
+  // --- NOTIFICATIONS SYSTEM ---
+  if (url.pathname === '/api/notifications' && request.method === 'GET') {
+    const notifications = await getNotifications(env.DB, userId);
+    return json({ notifications });
+  }
+
+  if (url.pathname === '/api/notifications/read' && request.method === 'POST') {
+    const body = await readJson<{ notificationId?: string }>(request).catch(() => ({} as { notificationId?: string }));
+    await markNotificationsRead(env.DB, userId, body.notificationId);
+    return json({ ok: true, state: await getState(env.DB, userId) });
+  }
+
+  // --- DELTA UPDATES SYSTEM ---
+  if (url.pathname === '/api/updates' && request.method === 'GET') {
+    const since = url.searchParams.get('since') || new Date(0).toISOString();
+    // D1 mixes SQLite-format timestamps (CURRENT_TIMESTAMP → '2026-06-01 12:00:00',
+    // no 'Z') with JS ISO strings (with 'T'/'Z'). A raw string '>' across the two
+    // formats is unsafe, so every comparison is canonicalised through datetime().
+
+    // 1. Notification Updates
+    const newNotificationsRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM notifications
+       WHERE user_id = ? AND datetime(created_at) > datetime(?) AND read_at IS NULL`
+    ).bind(userId, since).first<{ count: number }>();
+    const notificationsUpdate = (newNotificationsRow?.count ?? 0) > 0;
+
+    // 2. Connection Updates
+    const newRequestsRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM connection_requests
+       WHERE to_user_id = ? AND datetime(created_at) > datetime(?)`
+    ).bind(userId, since).first<{ count: number }>();
+
+    const newConnectionsRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM connections
+       WHERE (user_a_id = ? OR user_b_id = ?) AND datetime(created_at) > datetime(?)`
+    ).bind(userId, userId, since).first<{ count: number }>();
+    const connectionsUpdate = (newRequestsRow?.count ?? 0) > 0 || (newConnectionsRow?.count ?? 0) > 0;
+
+    // 3. Event Updates
+    const newAttendeeActivityRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM event_attendees
+       WHERE (user_id = ?1 OR event_id IN (SELECT id FROM events WHERE host_user_id = ?1))
+         AND datetime(updated_at) > datetime(?2)`
+    ).bind(userId, since).first<{ count: number }>();
+
+    const newEventDetailsRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM events
+       WHERE (datetime(created_at) > datetime(?) OR datetime(updated_at) > datetime(?))`
+    ).bind(since, since).first<{ count: number }>();
+    const eventsUpdate = (newAttendeeActivityRow?.count ?? 0) > 0 || (newEventDetailsRow?.count ?? 0) > 0;
+
+    // Get current unread/pending counters
+    const unreadNotificationsRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND read_at IS NULL`
+    ).bind(userId).first<{ count: number }>();
+
+    const pendingRequestsRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM connection_requests 
+       WHERE to_user_id = ? AND status = 'pending' 
+         AND (expires_at IS NULL OR datetime(expires_at) > datetime(CURRENT_TIMESTAMP))`
+    ).bind(userId).first<{ count: number }>();
+
+    return json({
+      cursor: new Date().toISOString(),
+      updates: {
+        notifications: notificationsUpdate,
+        connections: connectionsUpdate,
+        events: eventsUpdate
+      },
+      unreadNotificationsCount: unreadNotificationsRow?.count ?? 0,
+      pendingRequestsCount: pendingRequestsRow?.count ?? 0
+    });
+  }
+
+  // --- SETTINGS SYSTEM ---
+  if (url.pathname === '/api/settings' && request.method === 'GET') {
+    const settings = await getSettings(env.DB, userId);
+    return json({ settings });
+  }
+
+  if (url.pathname === '/api/settings' && request.method === 'PATCH') {
+    const body = await readJson<{ updates?: any }>(request).catch(() => ({} as { updates?: any }));
+    await updateSettings(env.DB, userId, body.updates || {});
+    return json({ ok: true, state: await getState(env.DB, userId) });
+  }
+
+  if (url.pathname === '/api/settings/verify' && request.method === 'POST') {
+    const body = await readJson<{ type?: 'phone' | 'instagram' | 'selfie' }>(request).catch(() => ({} as { type?: 'phone' | 'instagram' | 'selfie' }));
+    if (body.type) {
+      await verifyAction(env.DB, userId, body.type);
+    }
+    return json({ ok: true, state: await getState(env.DB, userId) });
+  }
+
+  if (url.pathname === '/api/settings/sessions' && request.method === 'GET') {
+    const currentSessionId = getCookie(request, SESSION_COOKIE);
+    const { results } = await env.DB.prepare(
+      `SELECT id, created_at, expires_at FROM auth_sessions 
+       WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP 
+       ORDER BY created_at DESC`
+    ).bind(userId).all<{ id: string; created_at: string; expires_at: string }>();
+
+    const sessions = results.map(s => ({
+      id: s.id,
+      createdAt: s.created_at,
+      expiresAt: s.expires_at,
+      isCurrent: s.id === currentSessionId
+    }));
+    return json({ sessions });
+  }
+
+  const sessionRevokeMatch = url.pathname.match(/^\/api\/settings\/sessions\/([^/]+)$/);
+  if (sessionRevokeMatch && request.method === 'DELETE') {
+    const sessionIdToRevoke = sessionRevokeMatch[1];
+    await env.DB.prepare('DELETE FROM auth_sessions WHERE user_id = ? AND id = ?').bind(userId, sessionIdToRevoke).run();
+    
+    const currentSessionId = getCookie(request, SESSION_COOKIE);
+    if (sessionIdToRevoke === currentSessionId) {
+      return json({ ok: true, loggedOut: true }, {
+        headers: {
+          'set-cookie': clearSessionCookie(request)
+        }
+      });
+    }
+    return json({ ok: true });
+  }
+
   // --- CONNECTION SYSTEM (mutual consent) ---
   if (url.pathname === '/api/connections/request' && request.method === 'POST') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
+    const limitResult = await checkRateLimit(env.DB, `conn:${userId}`, 10, 3600); // 10 connection requests per hour
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
     const body = await readJson<{ toUserId?: string; note?: string }>(request);
     const result = await sendConnectionRequest(env.DB, userId, body.toUserId || '', body.note || '');
     if (!result.ok) return json({ error: result.error }, { status: 400 });
@@ -1798,6 +2316,101 @@ async function routeApi(request: Request, env: Env) {
     return json({ ok: true, state: await getState(env.DB, userId) });
   }
 
+  // --- VIBE CHECK SYSTEM ---
+  // POST /api/vibe-checks — send a vibe check (multipart: voice file + toUserId + duration)
+  if (url.pathname === '/api/vibe-checks' && request.method === 'POST') {
+    const pub = await requirePublished(env, userId); if (pub) return pub;
+    const quota = await checkDailyQuota(env.DB, userId);
+    if (quota.remaining <= 0) return json({ error: 'daily_quota_exceeded', ...quota }, { status: 429 });
+
+    const formData = await request.formData();
+    const file = formData.get('file');
+    const toUserId = (formData.get('toUserId') as string) || '';
+    const duration = parseInt((formData.get('duration') as string) || '0', 10);
+
+    if (!(file instanceof File)) return json({ error: 'Voice recording is required' }, { status: 400 });
+    if (!toUserId) return json({ error: 'Recipient is required' }, { status: 400 });
+    if (duration <= 0 || duration > 30) return json({ error: 'Duration must be 1-30 seconds' }, { status: 400 });
+
+    const ALLOWED_AUDIO = new Set([
+      'audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'application/octet-stream'
+    ]);
+    if (!ALLOWED_AUDIO.has(file.type) && !file.name.endsWith('.webm')) {
+      return json({ error: 'Unsupported audio format' }, { status: 415 });
+    }
+
+    const buffer = await file.arrayBuffer();
+    const result = await sendVibeCheck(env.DB, env.PROFILE_IMAGES, userId, toUserId, buffer, file.type || 'audio/webm', duration);
+    if (!result.ok) {
+      const status = result.error === 'daily_quota_exceeded' ? 429
+        : result.error === 'already_pending' ? 409
+        : result.error === 'cooldown_active' ? 403
+        : 400;
+      return json({ error: result.error, vibeCheckId: result.vibeCheckId }, { status });
+    }
+    await logEvent(env.DB, {
+      user_id: userId, session_id: sessionId,
+      event_name: 'vibe_check_sent', entity_type: 'vibe_check', entity_id: result.vibeCheckId || null
+    });
+    return json({ ok: true, status: result.status, vibeCheckId: result.vibeCheckId, voiceUrl: result.voiceUrl, state: await getState(env.DB, userId) }, { status: 201 });
+  }
+
+  // GET /api/vibe-checks/daily-quota
+  if (url.pathname === '/api/vibe-checks/daily-quota' && request.method === 'GET') {
+    const quota = await checkDailyQuota(env.DB, userId);
+    return json(quota);
+  }
+
+  // GET /api/vibe-checks/inbox
+  if (url.pathname === '/api/vibe-checks/inbox' && request.method === 'GET') {
+    return json({ vibeChecks: await getIncomingVibeChecks(env.DB, userId) });
+  }
+
+  // GET /api/vibe-checks/outbox
+  if (url.pathname === '/api/vibe-checks/outbox' && request.method === 'GET') {
+    return json({ vibeChecks: await getOutgoingVibeChecks(env.DB, userId) });
+  }
+
+  // Serve vibe check voice file
+  const vcVoiceMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/voice$/);
+  if (vcVoiceMatch && request.method === 'GET') {
+    const voice = await getVibeCheckVoice(env.DB, env.PROFILE_IMAGES, userId, vcVoiceMatch[1]);
+    if (!voice.ok) return json({ error: voice.error }, { status: voice.status || 404 });
+    const headers = new Headers();
+    headers.set('content-type', voice.contentType || 'audio/webm');
+    headers.set('cache-control', 'private, max-age=3600');
+    return new Response(voice.body, { headers });
+  }
+
+  // POST /api/vibe-checks/:id/listen
+  const vcListenMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/listen$/);
+  if (vcListenMatch && request.method === 'POST') {
+    const result = await markVibeCheckListened(env.DB, userId, vcListenMatch[1]);
+    if (!result.ok) return json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 });
+    return json({ ok: true, state: await getState(env.DB, userId) });
+  }
+
+  // POST /api/vibe-checks/:id/accept
+  const vcAcceptMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/accept$/);
+  if (vcAcceptMatch && request.method === 'POST') {
+    const pub = await requirePublished(env, userId); if (pub) return pub;
+    const result = await acceptVibeCheck(env.DB, userId, vcAcceptMatch[1]);
+    if (!result.ok) return json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 });
+    await logEvent(env.DB, {
+      user_id: userId, session_id: sessionId,
+      event_name: 'vibe_check_accepted', entity_type: 'vibe_check', entity_id: vcAcceptMatch[1]
+    });
+    return json({ ok: true, status: 'connected', chatId: result.chatId, state: await getState(env.DB, userId) });
+  }
+
+  // POST /api/vibe-checks/:id/decline
+  const vcDeclineMatch = url.pathname.match(/^\/api\/vibe-checks\/([^/]+)\/decline$/);
+  if (vcDeclineMatch && request.method === 'POST') {
+    const result = await declineVibeCheck(env.DB, userId, vcDeclineMatch[1]);
+    if (!result.ok) return json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 });
+    return json({ ok: true, state: await getState(env.DB, userId) });
+  }
+
   const chatVerifyMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/verification$/);
   if (chatVerifyMatch && request.method === 'PATCH') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
@@ -1814,18 +2427,95 @@ async function routeApi(request: Request, env: Env) {
     return json({ state: await getState(env.DB, userId) });
   }
 
+  const chatWsMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/ws$/);
+  if (chatWsMatch && request.method === 'GET') {
+    if (request.headers.get("Upgrade") !== "websocket") {
+      return new Response("Expected Upgrade: websocket", { status: 426 });
+    }
+
+    const slug = chatWsMatch[1];
+    
+    // Check if the chat exists and user is a participant
+    const chat = await env.DB.prepare('SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?').bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+    if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
+    if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
+      return json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const id = env.CHAT_ROOM.idFromName(chat.id);
+    const stub = env.CHAT_ROOM.get(id);
+
+    const wsUrl = new URL(request.url);
+    wsUrl.pathname = "/ws";
+    wsUrl.searchParams.set("userId", userId);
+    wsUrl.searchParams.set("chatId", chat.id);
+    wsUrl.searchParams.set("chatSlug", slug);
+    
+    return stub.fetch(new Request(wsUrl.toString(), {
+      headers: request.headers
+    }));
+  }
+
+  const chatReadMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/read$/);
+  if (chatReadMatch && request.method === 'POST') {
+    const pub = await requirePublished(env, userId); if (pub) return pub;
+    const slug = chatReadMatch[1];
+    
+    const chat = await env.DB.prepare('SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?').bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+    if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
+    if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
+      return json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Insert read receipts for all messages in this chat not sent by current user
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO message_reads (chat_id, user_id, message_id)
+      SELECT chat_id, ?1, id FROM chat_messages
+      WHERE chat_id = ?2 AND sender_user_id != ?1
+    `).bind(userId, chat.id).run();
+
+    return json({ ok: true });
+  }
+
+  const chatAttachmentMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/attachments$/);
+  if (chatAttachmentMatch && request.method === 'POST') {
+    const pub = await requirePublished(env, userId); if (pub) return pub;
+    // Throttle uploads: each is an 8 MB R2 write, so far cheaper to abuse than text.
+    const limitResult = await checkRateLimit(env.DB, `att:${userId}`, 20, 60); // 20 uploads/min
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
+    return uploadChatAttachment(request, env, userId, chatAttachmentMatch[1]);
+  }
+
+  const serveAttachmentMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/attachments\/([^/]+)$/);
+  if (serveAttachmentMatch && request.method === 'GET') {
+    return serveChatAttachment(request, env, userId, serveAttachmentMatch[1], serveAttachmentMatch[2]);
+  }
+
   const chatMessageMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/messages$/);
   if (chatMessageMatch && request.method === 'POST') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
+    const limitResult = await checkRateLimit(env.DB, `msg:${userId}`, 60, 60); // 60 messages per minute
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
     const slug = chatMessageMatch[1];
-    const body = await readJson<{ text?: string }>(request);
+    const body = await readJson<{ text?: string; clientMsgId?: string }>(request);
     const text = (body.text || '').trim();
     if (!text) return json({ error: 'Message text is required' }, { status: 400 });
+    if (text.length > 4000) return json({ error: 'Message too long' }, { status: 400 });
     const check = await assertCanSend(env.DB, userId, slug);
     if (!check.ok) return json({ error: check.error }, { status: check.status });
+
+    // Idempotency: collapse offline resends / double-taps to a single row.
+    const clientMsgId = typeof body.clientMsgId === 'string' ? body.clientMsgId.slice(0, 80) : null;
+    if (clientMsgId) {
+      const dupe = await env.DB.prepare(
+        'SELECT id FROM chat_messages WHERE chat_id = ? AND client_msg_id = ?'
+      ).bind(check.chatId, clientMsgId).first<{ id: string }>();
+      if (dupe) return json({ state: await getState(env.DB, userId), deduped: true }, { status: 200 });
+    }
+
     await env.DB.prepare(
-      'INSERT INTO chat_messages (id, chat_id, sender_user_id, sender_role, body) VALUES (?, ?, ?, ?, ?)'
-    ).bind(id('msg'), check.chatId, userId, 'you', text).run();
+      'INSERT INTO chat_messages (id, chat_id, sender_user_id, sender_role, body, client_msg_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(id('msg'), check.chatId, userId, 'you', text, clientMsgId).run();
 
     await logEvent(env.DB, {
       user_id: userId,
@@ -1837,6 +2527,81 @@ async function routeApi(request: Request, env: Env) {
     });
 
     return json({ state: await getState(env.DB, userId) }, { status: 201 });
+  }
+
+  // Reliability: catch-up fetch for a WebSocket reconnect gap. Returns messages
+  // created after `cursor` (a message id or ISO time) so the client can reconcile
+  // without falling back to the full-state poll. Excludes soft-deleted rows.
+  const chatSinceMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/since$/);
+  if (chatSinceMatch && request.method === 'GET') {
+    const slug = chatSinceMatch[1];
+    const chat = await env.DB.prepare(
+      'SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?'
+    ).bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+    if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
+    if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
+      return json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const cursor = url.searchParams.get('cursor') || '';
+    // Resolve the cursor to a created_at lower bound. A message id is preferred
+    // (stable ordering); fall back to treating the cursor as an ISO timestamp.
+    let sinceTs = '';
+    if (cursor) {
+      const cursorRow = await env.DB.prepare(
+        'SELECT created_at FROM chat_messages WHERE id = ? AND chat_id = ?'
+      ).bind(cursor, chat.id).first<{ created_at: string }>();
+      sinceTs = cursorRow?.created_at || cursor;
+    }
+
+    const { results } = await env.DB.prepare(
+      `SELECT id, sender_user_id, sender_role, body, attachment_url, created_at
+         FROM chat_messages
+        WHERE chat_id = ?1
+          AND deleted_at IS NULL
+          AND (?2 = '' OR created_at > ?2)
+        ORDER BY created_at ASC
+        LIMIT 200`
+    ).bind(chat.id, sinceTs).all<Record<string, unknown>>();
+
+    const messages = results.map(m => ({
+      id: m.id as string,
+      role: m.sender_user_id === userId ? 'you' : 'match',
+      body: m.body as string,
+      attachmentUrl: (m.attachment_url as string) || '',
+      createdAt: m.created_at as string
+    }));
+    return json({ messages, cursor: messages.length ? messages[messages.length - 1].createdAt : cursor });
+  }
+
+  // Soft-delete a message the caller authored. Renders as "message deleted"
+  // client-side; the row is retained for audit and a later purge job.
+  const messageDeleteMatch = url.pathname.match(/^\/api\/messages\/([^/]+)$/);
+  if (messageDeleteMatch && request.method === 'DELETE') {
+    const messageId = messageDeleteMatch[1];
+    const msg = await env.DB.prepare(
+      'SELECT id, sender_user_id, chat_id FROM chat_messages WHERE id = ?'
+    ).bind(messageId).first<{ id: string; sender_user_id: string; chat_id: string }>();
+    if (!msg) return json({ error: 'Message not found' }, { status: 404 });
+    if (msg.sender_user_id !== userId) return json({ error: 'Forbidden' }, { status: 403 });
+
+    await env.DB.prepare(
+      "UPDATE chat_messages SET deleted_at = CURRENT_TIMESTAMP, body = '[message deleted]', attachment_url = NULL WHERE id = ?"
+    ).bind(messageId).run();
+
+    // Fan out the deletion so open clients update in realtime.
+    try {
+      const doId = env.CHAT_ROOM.idFromName(msg.chat_id);
+      const stub = env.CHAT_ROOM.get(doId);
+      await stub.fetch(new Request('http://localhost/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'deleted', id: messageId })
+      }));
+    } catch (err) {
+      console.error('Failed to broadcast message deletion:', err);
+    }
+
+    return json({ ok: true, state: await getState(env.DB, userId) });
   }
 
   // --- MATCHMAKING & INTEL LAYER ENDPOINTS ---
@@ -2065,6 +2830,8 @@ async function routeApi(request: Request, env: Env) {
 
   // Abuse reports
   if (url.pathname === '/api/reports' && request.method === 'POST') {
+    const limitResult = await checkRateLimit(env.DB, `rep:${userId}`, 5, 3600); // 5 reports per hour
+    if (!limitResult.allowed) return rateLimitResponse(limitResult);
     const body = await readJson<{ targetType?: string; targetId?: string; reason?: string; details?: string }>(request);
     const result = await createReport(env.DB, userId, body.targetType || '', body.targetId || '', body.reason || '', body.details);
     if (!result.ok) return json({ error: result.error }, { status: 400 });
@@ -2251,43 +3018,137 @@ async function routeApi(request: Request, env: Env) {
     return json({ ok: true, eventId }, { status: 201 });
   }
 
-  // Consolidated Admin Analytics Dashboard API
-  // Moderation: set account status (admin only)
-  const adminStatusMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/status$/);
-  if (adminStatusMatch && request.method === 'POST') {
-    const adminIds = (env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!adminIds.includes(userId)) return json({ error: 'forbidden' }, { status: 403 });
-    const targetId = adminStatusMatch[1];
-    const body = await readJson<{ status?: string; reason?: string; until?: string }>(request);
-    const result = await setAccountStatus(env.DB, targetId, body.status || '', body.reason, body.until);
-    if (!result.ok) return json({ error: result.error }, { status: 400 });
-    await logEvent(env.DB, {
-      user_id: userId,
-      event_name: 'account_status_changed',
-      entity_type: 'user',
-      entity_id: targetId,
-      metadata: { status: body.status, reason: body.reason }
-    });
-    return json({ ok: true });
-  }
+  // === ADMIN & MODERATION CONTROLS (Sprint 4 Task 3) =======================
+  // Role is resolved from the DB users.role column, with the ADMIN_USER_IDS env
+  // allowlist as a break-glass super-admin. Moderators get the review queue +
+  // user/event moderation; admins additionally manage roles.
+  if (url.pathname.startsWith('/api/admin/')) {
+    const me = await resolveRole(env.DB, userId, env.ADMIN_USER_IDS);
 
-  // Moderation queue: list reports (admin only)
-  if (url.pathname === '/api/admin/reports' && request.method === 'GET') {
-    const adminIds = (env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!adminIds.includes(userId)) return json({ error: 'forbidden' }, { status: 403 });
-    const status = url.searchParams.get('status') || undefined;
-    return json({ reports: await listReports(env.DB, status) });
-  }
+    // Who am I (drives the admin console + nav gating on the client).
+    if (url.pathname === '/api/admin/me' && request.method === 'GET') {
+      return json({ role: me.role, isModerator: isModerator(me.role), isAdmin: isAdmin(me.role) });
+    }
 
-  // Moderation queue: resolve a report (admin only)
-  const reportResolveMatch = url.pathname.match(/^\/api\/admin\/reports\/([^/]+)$/);
-  if (reportResolveMatch && request.method === 'POST') {
-    const adminIds = (env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!adminIds.includes(userId)) return json({ error: 'forbidden' }, { status: 403 });
-    const body = await readJson<{ status?: string }>(request);
-    const result = await resolveReport(env.DB, userId, reportResolveMatch[1], body.status || '');
-    if (!result.ok) return json({ error: result.error }, { status: 400 });
-    return json({ ok: true });
+    // Everything below requires at least moderator.
+    if (!isModerator(me.role)) return json({ error: 'forbidden' }, { status: 403 });
+
+    // --- User moderation: set account status (suspend / ban / reinstate) ---
+    const adminStatusMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/status$/);
+    if (adminStatusMatch && request.method === 'POST') {
+      const targetId = adminStatusMatch[1];
+      if (targetId === userId) return json({ error: 'cannot_moderate_self' }, { status: 400 });
+      const body = await readJson<{ status?: string; reason?: string; until?: string }>(request);
+      const result = await setAccountStatus(env.DB, targetId, body.status || '', body.reason, body.until);
+      if (!result.ok) return json({ error: result.error }, { status: 400 });
+      await recordAudit(env.DB, {
+        actorUserId: userId,
+        action: `user_${body.status}`,
+        targetType: 'user',
+        targetId,
+        reason: body.reason ?? null,
+        metadata: { status: body.status, until: body.until ?? null }
+      });
+      await logEvent(env.DB, {
+        user_id: userId,
+        event_name: 'account_status_changed',
+        entity_type: 'user',
+        entity_id: targetId,
+        metadata: { status: body.status, reason: body.reason }
+      });
+      return json({ ok: true });
+    }
+
+    // --- User moderation: list / search users ---
+    if (url.pathname === '/api/admin/users' && request.method === 'GET') {
+      const users = await listUsersForModeration(env.DB, {
+        status: url.searchParams.get('status') || undefined,
+        search: url.searchParams.get('search') || undefined
+      });
+      return json({ users });
+    }
+
+    // --- Role management (admin only) ---
+    const adminRoleMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/role$/);
+    if (adminRoleMatch && request.method === 'POST') {
+      if (!isAdmin(me.role)) return json({ error: 'forbidden' }, { status: 403 });
+      const targetId = adminRoleMatch[1];
+      if (targetId === userId) return json({ error: 'cannot_change_own_role' }, { status: 400 });
+      const body = await readJson<{ role?: string }>(request);
+      const result = await setUserRole(env.DB, targetId, body.role || '');
+      if (!result.ok) return json({ error: result.error }, { status: 400 });
+      await recordAudit(env.DB, {
+        actorUserId: userId,
+        action: 'role_changed',
+        targetType: 'role',
+        targetId,
+        metadata: { role: body.role }
+      });
+      return json({ ok: true });
+    }
+
+    // --- Moderation queue: list reports ---
+    if (url.pathname === '/api/admin/reports' && request.method === 'GET') {
+      const status = url.searchParams.get('status') || undefined;
+      return json({ reports: await listReports(env.DB, status) });
+    }
+
+    // --- Moderation queue: resolve a report ---
+    const reportResolveMatch = url.pathname.match(/^\/api\/admin\/reports\/([^/]+)$/);
+    if (reportResolveMatch && request.method === 'POST') {
+      const body = await readJson<{ status?: string }>(request);
+      const result = await resolveReport(env.DB, userId, reportResolveMatch[1], body.status || '');
+      if (!result.ok) return json({ error: result.error }, { status: 400 });
+      await recordAudit(env.DB, {
+        actorUserId: userId,
+        action: 'report_resolved',
+        targetType: 'report',
+        targetId: reportResolveMatch[1],
+        metadata: { status: body.status }
+      });
+      return json({ ok: true });
+    }
+
+    // --- Event moderation: list events ---
+    if (url.pathname === '/api/admin/events' && request.method === 'GET') {
+      const events = await listEventsForModeration(env.DB, {
+        moderationStatus: url.searchParams.get('status') || undefined
+      });
+      return json({ events });
+    }
+
+    // --- Event moderation: hide / remove / restore ---
+    const eventModMatch = url.pathname.match(/^\/api\/admin\/events\/([^/]+)\/moderation$/);
+    if (eventModMatch && request.method === 'POST') {
+      const eventId = eventModMatch[1];
+      const body = await readJson<{ status?: string; reason?: string }>(request);
+      const result = await setEventModeration(env.DB, userId, eventId, body.status || '', body.reason);
+      if (!result.ok) return json({ error: result.error }, { status: 400 });
+      await recordAudit(env.DB, {
+        actorUserId: userId,
+        action: `event_${body.status}`,
+        targetType: 'event',
+        targetId: eventId,
+        reason: body.reason ?? null
+      });
+      await logEvent(env.DB, {
+        user_id: userId,
+        event_name: 'event_moderated',
+        entity_type: 'event',
+        entity_id: eventId,
+        metadata: { status: body.status, reason: body.reason }
+      });
+      return json({ ok: true });
+    }
+
+    // --- Audit trail ---
+    if (url.pathname === '/api/admin/audit' && request.method === 'GET') {
+      const logs = await listAuditLogs(env.DB, {
+        action: url.searchParams.get('action') || undefined,
+        targetType: url.searchParams.get('targetType') || undefined
+      });
+      return json({ logs });
+    }
   }
 
   if (url.pathname === '/api/admin/analytics' && request.method === 'GET') {
@@ -2397,11 +3258,215 @@ export default {
   },
   async scheduled(controller: any, env: Env, ctx: any) {
     ctx.waitUntil(runCronMatchmaking(env.DB));
+    // Sweep expired rate-limit buckets (moved off the per-request hot path).
+    ctx.waitUntil(
+      pruneRateLimits(env.DB).catch(err => console.error('[prune] rate_limits failed', err))
+    );
     // Hard-delete accounts whose 30-day deletion grace has elapsed (Task 8 purge job).
     ctx.waitUntil(
       runScheduledPurge(env.DB, env.PROFILE_IMAGES)
         .then(r => { if (r.purged) console.log(`[purge] removed ${r.purged} account(s):`, r.ids); })
         .catch(err => console.error('[purge] failed', err))
     );
+    // Expire stale vibe checks and clean up expired cooldowns.
+    ctx.waitUntil(
+      expireStaleVibeChecks(env.DB)
+        .then(n => { if (n) console.log(`[vibe-check] expired ${n} stale vibe check(s)`); })
+        .catch(err => console.error('[vibe-check] expire failed', err))
+    );
+    ctx.waitUntil(
+      cleanupExpiredCooldowns(env.DB)
+        .then(n => { if (n) console.log(`[vibe-check] cleaned up ${n} expired cooldown(s)`); })
+        .catch(err => console.error('[vibe-check] cooldown cleanup failed', err))
+    );
   }
 };
+
+export class ChatRoom {
+  state: any;
+  env: Env;
+  sessions: Map<string, WebSocket[]>;
+
+  constructor(state: any, env: Env) {
+    this.state = state;
+    this.env = env;
+    this.sessions = new Map();
+  }
+
+  async fetch(request: Request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/broadcast") {
+      try {
+        const data = await request.json<any>();
+        this.broadcast(data);
+        return new Response("ok", { status: 200 });
+      } catch (err) {
+        return new Response("Invalid request", { status: 400 });
+      }
+    }
+    
+    if (url.pathname === "/ws") {
+      const userId = url.searchParams.get("userId");
+      const chatId = url.searchParams.get("chatId");
+      const chatSlug = url.searchParams.get("chatSlug");
+      if (!userId) return new Response("Missing userId", { status: 400 });
+      if (!chatId) return new Response("Missing chatId", { status: 400 });
+      if (!chatSlug) return new Response("Missing chatSlug", { status: 400 });
+
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+
+      await this.handleSession(server, userId, chatId, chatSlug);
+
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    return new Response("Not Found", { status: 404 });
+  }
+
+  async handleSession(ws: WebSocket, userId: string, chatId: string, chatSlug: string) {
+    ws.accept();
+
+    let userSessions = this.sessions.get(userId);
+    if (!userSessions) {
+      userSessions = [];
+      this.sessions.set(userId, userSessions);
+    }
+    userSessions.push(ws);
+
+    // Notify the newly connected session about other online users
+    for (const [otherUserId, otherSessions] of this.sessions.entries()) {
+      if (otherUserId !== userId && otherSessions.length > 0) {
+        try {
+          ws.send(JSON.stringify({ type: "presence", userId: otherUserId, status: "online" }));
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+
+    // Broadcast our presence to other participants
+    this.broadcast({ type: "presence", userId, status: "online" });
+
+    // Mark existing messages as read upon connecting
+    this.env.DB.prepare(`
+      INSERT OR IGNORE INTO message_reads (chat_id, user_id, message_id)
+      SELECT chat_id, ?1, id FROM chat_messages
+      WHERE chat_id = ?2 AND sender_user_id != ?1
+    `).bind(userId, chatId).run()
+      .then(() => {
+        this.broadcast({ type: "read_all", userId });
+      })
+      .catch(err => console.error("Failed to mark messages as read on connect:", err));
+
+    ws.addEventListener("message", async (msg) => {
+      try {
+        const data = JSON.parse(msg.data as string);
+        if (data.type === "typing") {
+          this.broadcast({ type: "typing", userId, isTyping: data.isTyping }, userId);
+        } else if (data.type === "read") {
+          // Persist read receipt to database
+          await this.env.DB.prepare(
+            'INSERT OR IGNORE INTO message_reads (chat_id, user_id, message_id) VALUES (?, ?, ?)'
+          ).bind(chatId, userId, data.messageId).run();
+          
+          // Broadcast read status
+          this.broadcast({ type: "read", userId, messageId: data.messageId });
+        } else if (data.type === "message") {
+          // 1. Validate payload (reject empty / oversized).
+          const text = typeof data.message === 'string' ? data.message.trim() : '';
+          if (!text) {
+            ws.send(JSON.stringify({ type: "error", error: "empty_message" }));
+            return;
+          }
+          if (text.length > 4000) {
+            ws.send(JSON.stringify({ type: "error", error: "message_too_long" }));
+            return;
+          }
+
+          // 2. Rate-limit the realtime path too (the HTTP send route is limited
+          //    to 60/min; without this the WS path would bypass the throttle).
+          const limit = await checkRateLimit(this.env.DB, `msg:${userId}`, 60, 60);
+          if (!limit.allowed) {
+            ws.send(JSON.stringify({ type: "error", error: "too_many_requests" }));
+            return;
+          }
+
+          // 3. Authorize sender using assertCanSend by chat slug
+          const check = await assertCanSend(this.env.DB, userId, chatSlug);
+          if (!check.ok) {
+            ws.send(JSON.stringify({ type: "error", error: check.error }));
+            return;
+          }
+
+          // 4. Idempotency: a client-supplied id lets offline resends collapse to
+          //    one row. Echo it back so the optimistic bubble can reconcile.
+          const clientMsgId = typeof data.clientMsgId === 'string' ? data.clientMsgId.slice(0, 80) : null;
+          if (clientMsgId) {
+            const dupe = await this.env.DB.prepare(
+              'SELECT id FROM chat_messages WHERE chat_id = ? AND client_msg_id = ?'
+            ).bind(chatId, clientMsgId).first<{ id: string }>();
+            if (dupe) {
+              ws.send(JSON.stringify({ type: "ack", id: dupe.id, clientMsgId }));
+              return;
+            }
+          }
+
+          // 5. Persist message to D1 database
+          const msgId = `msg-${crypto.randomUUID()}`;
+          await this.env.DB.prepare(
+            'INSERT INTO chat_messages (id, chat_id, sender_user_id, sender_role, body, client_msg_id) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(msgId, chatId, userId, 'you', text, clientMsgId).run();
+
+          // 6. Broadcast message to all participants in this chat room
+          this.broadcast({
+            type: "message",
+            id: msgId,
+            senderId: userId,
+            message: text,
+            clientMsgId,
+            createdAt: new Date().toISOString()
+          });
+        }
+      } catch (e) {
+        console.error("Durable Object message handling failed:", e);
+      }
+    });
+
+    ws.addEventListener("close", () => {
+      this.removeSession(userId, ws);
+      this.broadcast({ type: "presence", userId, status: "offline" });
+    });
+
+    ws.addEventListener("error", () => {
+      this.removeSession(userId, ws);
+      this.broadcast({ type: "presence", userId, status: "offline" });
+    });
+  }
+
+  removeSession(userId: string, ws: WebSocket) {
+    const userSessions = this.sessions.get(userId);
+    if (userSessions) {
+      const idx = userSessions.indexOf(ws);
+      if (idx !== -1) {
+        userSessions.splice(idx, 1);
+      }
+      if (userSessions.length === 0) {
+        this.sessions.delete(userId);
+      }
+    }
+  }
+
+  broadcast(message: any, excludeUserId?: string) {
+    const payload = JSON.stringify(message);
+    for (const [userId, userSessions] of this.sessions.entries()) {
+      if (userId === excludeUserId) continue;
+      for (const ws of userSessions) {
+        try {
+          ws.send(payload);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
+}

@@ -1,64 +1,99 @@
 import { D1Database } from '@cloudflare/workers-types';
 import { getOrGenerateRecommendationsV2 } from './recommendations';
-import { calculateLocationScore } from './location';
-import { getOrInitializeTrustMetrics } from './trust';
 import { visibleUserIds } from '../visibility';
 
 export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
-  // Fetch master recommendations list
+  // 1. Fetch master recommendations list
   const recs = await getOrGenerateRecommendationsV2(db, userId);
-  // Visibility guard: drop blocked (either direction), rejected, self, and non-active accounts
-  // even if they are still present in the cached recommendation set.
+  
+  // 2. Visibility guard: drop blocked, rejected, self, and non-active accounts
   const visible = await visibleUserIds(db, userId, recs.map(r => r.recommended_user_id));
 
-  // Resolve full profiles, trust, and metadata
+  // Filter visible candidates
+  const visibleRecs = recs.filter(r => visible.has(r.recommended_user_id));
+  const candidateIds = visibleRecs.map(r => r.recommended_user_id);
+
   const enrichedCandidates: any[] = [];
   const myProfile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').bind(userId).first<any>();
 
-  for (const r of recs) {
-    if (!visible.has(r.recommended_user_id)) continue;
-    const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').bind(r.recommended_user_id).first<any>();
-    if (!profile) continue;
+  if (candidateIds.length > 0) {
+    const placeholders = candidateIds.map(() => '?').join(',');
 
-    const user = await db.prepare('SELECT email, avatar_url, full_name FROM users WHERE id = ?').bind(r.recommended_user_id).first<any>();
-    const trust = await getOrInitializeTrustMetrics(db, r.recommended_user_id, Boolean(profile.completed));
-    
-    // Parse photos and details
-    const { results: photos } = await db.prepare(
-      'SELECT url FROM profile_photos WHERE user_id = ? ORDER BY position ASC'
-    ).bind(r.recommended_user_id).all<{ url: string }>();
-    const photoUrls = photos.map(p => p.url);
+    // 3. Batched Enrichment: Query profiles, users, photos, interests, and trust in parallel
+    const [profilesRes, usersRes, photosRes, interestsRes, trustRes] = await Promise.all([
+      db.prepare(`SELECT * FROM profiles WHERE user_id IN (${placeholders})`).bind(...candidateIds).all<any>(),
+      db.prepare(`SELECT id, email, avatar_url, full_name FROM users WHERE id IN (${placeholders})`).bind(...candidateIds).all<any>(),
+      db.prepare(`SELECT user_id, url, position FROM profile_photos WHERE user_id IN (${placeholders}) ORDER BY position ASC`).bind(...candidateIds).all<any>(),
+      db.prepare(`SELECT user_id, interest, weight FROM user_interests WHERE user_id IN (${placeholders})`).bind(...candidateIds).all<any>(),
+      db.prepare(`SELECT * FROM trust_metrics WHERE user_id IN (${placeholders})`).bind(...candidateIds).all<any>()
+    ]);
 
-    const { results: interests } = await db.prepare(
-      'SELECT interest, weight FROM user_interests WHERE user_id = ?'
-    ).bind(r.recommended_user_id).all<{ interest: string; weight: number }>();
+    // 4. Map results into dictionaries for O(1) in-memory lookup
+    const profilesMap = new Map(profilesRes.results.map(p => [p.user_id, p]));
+    const usersMap = new Map(usersRes.results.map(u => [u.id, u]));
+    const trustMap = new Map(trustRes.results.map(t => [t.user_id, t]));
 
-    enrichedCandidates.push({
-      id: r.recommended_user_id,
-      score: r.score,
-      explanation: JSON.parse(r.explanation || '[]'),
-      trustScore: trust.trust_score,
-      isVerified: trust.is_verified,
-      updatedAt: profile.updated_at || new Date().toISOString(),
-      profile: {
-        fullName: profile.full_name || user?.full_name || '',
-        age: profile.age || '',
-        city: profile.city || '',
-        gender: profile.gender || '',
-        profession: profile.profession || '',
-        college: profile.college || '',
-        bio: profile.bio || '',
-        vibe: profile.vibe || '',
-        photo: photoUrls[0] || user?.avatar_url || '',
-        photos: photoUrls,
-        interests,
-        trustMetrics: trust,
-        phone_verified: profile.phone_verified,
-        instagram_verified: profile.instagram_verified,
-        profile_verified: profile.profile_verified,
-        verification_level: profile.verification_level
+    const photosMap = new Map<string, string[]>();
+    for (const photo of photosRes.results) {
+      if (!photosMap.has(photo.user_id)) {
+        photosMap.set(photo.user_id, []);
       }
-    });
+      photosMap.get(photo.user_id)!.push(photo.url);
+    }
+
+    const interestsMap = new Map<string, Array<{ interest: string; weight: number }>>();
+    for (const item of interestsRes.results) {
+      if (!interestsMap.has(item.user_id)) {
+        interestsMap.set(item.user_id, []);
+      }
+      interestsMap.get(item.user_id)!.push({ interest: item.interest, weight: item.weight });
+    }
+
+    // 5. Assemble candidates with O(1) lookups
+    for (const r of visibleRecs) {
+      const cId = r.recommended_user_id;
+      const profile = profilesMap.get(cId);
+      if (!profile) continue;
+
+      const user = usersMap.get(cId);
+      const photoUrls = photosMap.get(cId) || [];
+      const interests = interestsMap.get(cId) || [];
+      
+      const trust = trustMap.get(cId) || {
+        trust_score: 90.0,
+        is_verified: profile.verification_level !== 'none' ? 1 : 0,
+        attended_count: 0,
+        no_show_count: 0,
+        response_rate: 100.0
+      };
+
+      enrichedCandidates.push({
+        id: cId,
+        score: r.score,
+        explanation: JSON.parse(r.explanation || '[]'),
+        trustScore: trust.trust_score,
+        isVerified: Number(trust.is_verified) === 1,
+        updatedAt: profile.updated_at || new Date().toISOString(),
+        profile: {
+          fullName: profile.full_name || user?.full_name || '',
+          age: profile.age || '',
+          city: profile.city || '',
+          gender: profile.gender || '',
+          profession: profile.profession || '',
+          college: profile.college || '',
+          bio: profile.bio || '',
+          vibe: profile.vibe || '',
+          photo: photoUrls[0] || user?.avatar_url || '',
+          photos: photoUrls,
+          interests,
+          trustMetrics: trust,
+          phone_verified: profile.phone_verified,
+          instagram_verified: profile.instagram_verified,
+          profile_verified: profile.profile_verified,
+          verification_level: profile.verification_level
+        }
+      });
+    }
   }
 
   // Fetch users who recently RSVP'd to events
@@ -67,6 +102,7 @@ export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
     FROM event_attendees 
     WHERE status = 'joined' 
     ORDER BY updated_at DESC
+    LIMIT 20
   `).all<{ user_id: string }>();
   const recentRSVPUserIds = new Set(recentRSVPs.map(r => r.user_id));
 
@@ -79,10 +115,8 @@ export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
   const trendingMap = new Map(matchCounts.results.map(r => [r.target_member_id, r.req_count]));
 
   // --- Feed Diversity Logic ---
-  // A set of assigned IDs to prevent duplication across feeds
   const assignedIds = new Set<string>();
 
-  // Helper to filter and limit candidates
   const extractFeed = (
     filterFn: (cand: any) => boolean,
     sortFn?: (a: any, b: any) => number,
@@ -128,7 +162,7 @@ export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
 
   // 6. Trending Members Feed (High match requests)
   const trendingMembers = extractFeed(
-    c => true, // default match-all for sorting
+    c => true,
     (a, b) => (trendingMap.get(b.id) ?? 0) - (trendingMap.get(a.id) ?? 0)
   );
 
