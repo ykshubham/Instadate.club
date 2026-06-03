@@ -2,7 +2,11 @@
 // Vibe Check System: voice-first connection flow.
 // send -> listen -> accept/pass. Chat created only on accept.
 
-import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
+import type { D1Database } from '@cloudflare/workers-types';
+// R2Bucket / ReadableStream intentionally use the ambient worker globals (same
+// types worker/index.ts's Env uses). Importing R2Bucket from
+// @cloudflare/workers-types pulls a second, incompatible Headers/ReadableStream
+// declaration and breaks the build at the env.PROFILE_IMAGES call sites.
 import { visibleTo } from '../visibility';
 import { createNotification } from './notifications';
 import { createConnection } from './connections';
