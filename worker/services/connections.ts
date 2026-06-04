@@ -216,6 +216,8 @@ export async function getConnections(db: D1Database, userId: string) {
            CASE WHEN c.user_a_id = ?1 THEN c.user_b_id ELSE c.user_a_id END AS other_id
     FROM connections c
     WHERE (c.user_a_id = ?1 OR c.user_b_id = ?1) AND c.status = 'accepted'
+      AND c.user_a_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = c.user_b_id)
+      AND c.user_b_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = c.user_a_id)
     ORDER BY c.created_at DESC
   `).bind(userId).all<any>();
   return results;

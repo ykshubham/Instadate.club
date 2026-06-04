@@ -19,9 +19,18 @@
     "d1:migrate:local": "wrangler d1 migrations apply instadateclub --local",
     "d1:migrate:remote": "wrangler d1 migrations apply instadateclub --remote",
     "cloudflare:dev": "npm run d1:migrate:local && npm run build && wrangler dev --local --port 8787",
-    "cloudflare:deploy": "npm run build && wrangler deploy"
+    "cloudflare:deploy": "npm run build && wrangler deploy",
+    "android:build": "npm run build && npx cap sync android && cd android && gradlew assembleDebug",
+    "android:install": "adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.apk",
+    "android:run": "npm run android:build && npm run android:install",
+    "android:dev": "npx cap sync android && cd android && gradlew assembleDebug && adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk && adb -s emulator-5554 shell am start -n com.instadate.club/.MainActivity"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
     "@tailwindcss/vite": "^4.3.0",
     "@vitejs/plugin-react": "^5.0.0",
     "framer-motion": "^12.40.0",

@@ -1,6 +1,7 @@
 import { D1Database } from '@cloudflare/workers-types';
 import { getOrGenerateRecommendationsV2 } from './recommendations';
 import { visibleUserIds } from '../visibility';
+import { extractWeekendTags } from './compatibility';
 
 export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
   // 1. Fetch master recommendations list
@@ -90,7 +91,9 @@ export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
           phone_verified: profile.phone_verified,
           instagram_verified: profile.instagram_verified,
           profile_verified: profile.profile_verified,
-          verification_level: profile.verification_level
+          verification_level: profile.verification_level,
+          weekendStatus: profile.weekend_status || '',
+          weekendTags: extractWeekendTags(profile.weekend_status)
         }
       });
     }
@@ -133,9 +136,13 @@ export async function getDiscoveryMembersV2(db: D1Database, userId: string) {
     return result;
   };
 
-  // 1. Highly Compatible Feed (Compatibility > 90)
+  // 1. Top Matches Feed — the highest-scoring available candidates.
+  // (Recommendations are already floored at score >= 40 upstream, so every
+  // candidate here is a reasonable match. An absolute >= 90 gate left this feed —
+  // the default "Top Matches" tab — almost always empty, since reaching 90 needs
+  // near-perfect alignment across all engines simultaneously.)
   const highlyCompatible = extractFeed(
-    c => c.score >= 90,
+    c => true,
     (a, b) => b.score - a.score
   );
 

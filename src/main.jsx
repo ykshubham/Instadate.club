@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import gsap from 'gsap';
 import {
-  AlertTriangle, ArrowLeft, Award, BarChart2, Calendar, Camera, ChevronRight, Download, Fingerprint, Gem, Heart, HelpCircle, Home, LogOut, MapPin, Menu,
-  MessageCircle, MessageSquare, Mic, Moon, PauseCircle, Play, Search, Send, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Square, Star, Sun, Ticket, Trash2, User, Users, X, Zap, Mail, Paperclip
+  AlertTriangle, ArrowLeft, Award, BarChart2, Calendar, CalendarCheck, Camera, ChevronRight, Clock, Download, Fingerprint, Gem, Heart, HelpCircle, Home, LogOut, MapPin, Menu,
+  MessageCircle, MessageSquare, Mic, Moon, PauseCircle, Play, Search, Send, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Square, Star, Sun, Ticket, Trash2, User, Users, X, Zap, Mail, Paperclip, MoreVertical, Ban, Flag, UserX
 } from 'lucide-react';
 import './styles.css';
 import ProfileDashboard from './ProfileDashboard.jsx';
@@ -198,11 +198,14 @@ function getChatProfile(chat, resolvedMembers = []) {
 
   const [ageText = '', city = '', scoreText = '92% Vibe Match'] = (chat.meta || '').split('•').map(part => part.trim());
   const score = scoreText.replace('Vibe Match', '').replace('Match', '').trim() || '92%';
-  const photos = {
+  // Prefer the partner's real photo(s) sent by the server; fall back to the
+  // seed-data photo sets only when the chat carries no resolved photo.
+  const seedPhotos = {
     'ishaan-verma': ['/assets/social_mixer.png', '/assets/bandra_acoustic_mixer.png', '/assets/colaba_speakeasy.png'],
     'kabir-kapoor': ['/assets/member-photos/kavya-2.jpg', '/assets/member-photos/natasha-1.jpg'],
     'aarav-mehta': ['/assets/member-photos/priya-2.jpg', '/assets/member-photos/zara-2.jpg']
   }[chat.slug] || getMemberPhotos(chat.slug);
+  const photos = (Array.isArray(chat.photos) && chat.photos.length) ? chat.photos : seedPhotos;
 
   return {
     id: chat.slug,
@@ -213,6 +216,7 @@ function getChatProfile(chat, resolvedMembers = []) {
     vibe: 'Curated Match',
     prompt: 'Opening note',
     answer: chat.message,
+    photo: chat.photo || photos[0] || '',
     avatar: chat.avatar,
     gradient: chat.gradient,
     photos,
@@ -829,12 +833,22 @@ function eventLog(name, data) {
 
 function App() {
   const [route, setRoute] = React.useState(getRoute);
-  const [guestMode, setGuestMode] = React.useState(() => sessionStorage.getItem('instadate_guest_mode') !== 'false');
+  const [guestMode, setGuestMode] = React.useState(() => {
+    const stored = sessionStorage.getItem('instadate_guest_mode');
+    // An explicit choice this session always wins (e.g. tapping "Explore as guest").
+    if (stored !== null) return stored !== 'false';
+    // No stored preference yet — this is a fresh launch. On the installed native
+    // app we do NOT default to guest browsing: an unsigned-in user must land on
+    // the onboarding screen, and only a signed-in user is taken into the app.
+    // On web we keep the open guest-browse default.
+    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform());
+    return !isCapacitor;
+  });
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [selectedMember, setSelectedMember] = React.useState(null);
   const [profileMember, setProfileMember] = React.useState(null);
   const [installPrompt, setInstallPrompt] = React.useState(null);
-  const { user: authUser, isAuthenticated, isLoading, authError, signIn, signOut } = useAuth();
+  const { user: authUser, isAuthenticated, isLoading, authError, signIn, signOut, refreshAuth, exchangeTransferToken } = useAuth();
   const { profile, profileStatus, saveProfile: saveCloudProfile, uploadProfilePhotos, refreshProfile } = useProfile();
   // Onboarding completion drives routing. authUser.onboardingCompleted (from
   // /api/auth/me, resolves first) is the primary signal; profile.completed is a
@@ -893,13 +907,25 @@ function App() {
   }, [appState.chats]);
   const publicRoutes = ['/onboarding', '/login'];
   const guardedRoute = (() => {
-    // Completed users never see onboarding again — bounce them to home even
-    // though /onboarding is otherwise a public route.
-    if (route === '/onboarding' && isAuthenticated && onboardingCompleted) return '/';
-    if (canBrowseApp) return route === '/login' ? '/' : route;
-    return publicRoutes.includes(route) ? route : '/onboarding';
+    if (isAuthenticated) {
+      if (!onboardingCompleted) return '/onboarding';
+      if (route === '/onboarding') {
+        if (onboardingCompleted && authUser?.onboardingStep === 13) return '/';
+        return '/onboarding';
+      }
+      if (route === '/login') return '/';
+      return route;
+    } else {
+      const guestAllowed = ['/', '/members', '/events', '/login', '/onboarding'];
+      if (guestMode && guestAllowed.includes(route)) {
+        return route;
+      }
+      return publicRoutes.includes(route) ? route : '/login';
+    }
   })();
-  const isConversationRoute = guardedRoute.startsWith('/chat/');
+  // Both the live chat and the locked "send a vibe check" screen render as the
+  // full-bleed conversation surface (own back button, no header / bottom nav).
+  const isConversationRoute = guardedRoute.startsWith('/chat/') || guardedRoute.startsWith('/vibe-check/send/');
 
   React.useEffect(() => {
     if (isLoading || guardedRoute === route) return;
@@ -940,6 +966,37 @@ function App() {
     window.addEventListener('app-toast', handleAppToast);
     return () => window.removeEventListener('app-toast', handleAppToast);
   }, []);
+
+  // Capacitor deep link: Chrome Custom Tabs completes Google OAuth and the
+  // Worker redirects to instadateclub://auth?token=... which opens the app.
+  // Dynamic import: only load @capacitor/app when on native platform.
+  React.useEffect(() => {
+    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform());
+    if (!isCapacitor) return;
+
+    let cleanup;
+    import('@capacitor/app').then(({ App }) => {
+      const handler = App.addListener('appUrlOpen', async (data) => {
+        try {
+          const url = new URL(data.url);
+          if (url.host === 'auth') {
+            const token = url.searchParams.get('token');
+            const redirectTo = url.searchParams.get('redirectTo') || '/profile';
+            if (token) {
+              await exchangeTransferToken(token);
+              if (refreshAuth) await refreshAuth();
+              navigate(redirectTo);
+            }
+          }
+        } catch (e) {
+          notify('Login transfer failed. Please try again.');
+        }
+      });
+      cleanup = () => { handler?.remove(); };
+    }).catch(() => {});
+
+    return () => { if (cleanup) cleanup(); };
+  }, [exchangeTransferToken, refreshAuth]);
 
   React.useEffect(() => {
     if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
@@ -1004,7 +1061,9 @@ function App() {
       }
     }
     try {
-      const response = await fetch(`/api/auth/google/url?redirectTo=${encodeURIComponent(redirectTo)}`, {
+      const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform());
+      const platformParam = isCapacitor ? '&platform=capacitor' : '';
+      const response = await fetch(`/api/auth/google/url?redirectTo=${encodeURIComponent(redirectTo)}${platformParam}`, {
         cache: 'no-store',
         credentials: 'same-origin'
       });
@@ -1014,29 +1073,19 @@ function App() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Google login could not start');
       if (!payload.url) throw new Error('Google login URL missing');
+
+      if (isCapacitor) {
+        // Open Google OAuth in Chrome Custom Tabs — NOT the WebView.
+        // Google blocks embedded WebView OAuth with 403 disallowed_useragent.
+        // Dynamic import: only load @capacitor/browser when on native platform.
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: payload.url });
+        return; // stay on the current page, deep link will bring us back
+      }
+      // Web: navigate in-browser.
       window.location.assign(payload.url);
     } catch (error) {
       notify(error.message || 'Google login could not start');
-    }
-  };
-
-  const sendVibe = async (member, note) => {
-    try {
-      await mutateState('/api/connections/request', {
-        method: 'POST',
-        body: JSON.stringify({ toUserId: member.id, note })
-      }, current => ({
-        ...current,
-        vibeRequests: {
-          ...current.vibeRequests,
-          [member.id]: { memberId: member.id, memberName: member.name, note, sentAt: new Date().toISOString() }
-        },
-        lastUpdated: new Date().toISOString()
-      }));
-      setSelectedMember(null);
-      notify(`Connection request sent to ${member.name}`);
-    } catch {
-      notify('Connection request cached offline');
     }
   };
 
@@ -1103,21 +1152,6 @@ function App() {
       navigate('/events');
     } catch {
       notify('Event cached offline');
-    }
-  };
-
-  const verifyChat = async slug => {
-    try {
-      await mutateState(`/api/chats/${slug}/verification`, {
-        method: 'PATCH'
-      }, current => ({
-        ...current,
-        verifiedChats: { ...current.verifiedChats, [slug]: true },
-        lastUpdated: new Date().toISOString()
-      }));
-      notify('Voice verified. Chat unlocked.');
-    } catch {
-      notify('Voice verification cached offline');
     }
   };
 
@@ -1189,12 +1223,11 @@ function App() {
           {guardedRoute === '/admin/moderation' && <AdminModerationPage navigate={navigate} />}
            {guardedRoute === '/members' && <MembersPage appState={currentAppState} resolvedMembers={resolvedMembers} onVibeClick={setSelectedMember} onProfileClick={setProfileMember} />}
           {guardedRoute === '/chat' && <ChatInboxPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} navigate={navigate} onProfileClick={setProfileMember} />}
-          {guardedRoute === '/requests' && <ConnectionRequestsPage navigate={navigate} />}
           {guardedRoute === '/vibe-checks' && <VibeCheckInboxPage appState={currentAppState} navigate={navigate} />}
-          {guardedRoute.startsWith('/vibe-check/send/') && <VibeCheckSendPage route={guardedRoute} navigate={navigate} appState={currentAppState} />}
+          {guardedRoute.startsWith('/vibe-check/send/') && <VibeCheckSendPage route={guardedRoute} navigate={navigate} appState={currentAppState} resolvedMembers={resolvedMembers} />}
           {guardedRoute === '/concierge' && <ConciergePage appState={currentAppState} navigate={navigate} onLogout={handleLogout} />}
-          {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onVerify={verifyChat} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
-          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} currentUserId={authUser?.id} />}
+          {guardedRoute.startsWith('/chat/') && <ChatConversationPage appState={currentAppState} resolvedChats={resolvedChats} resolvedMembers={resolvedMembers} route={guardedRoute} navigate={navigate} onSend={sendChatMessage} onProfileClick={setProfileMember} onMeetupFeedbackClick={setFeedbackMeetup} />}
+          {guardedRoute === '/events' && <EventsPage appState={currentAppState} resolvedEvents={resolvedEvents} onToggleRsvp={toggleRsvp} onReviewClick={setReviewEvent} navigate={navigate} currentUserId={authUser?.id} onApiCall={mutateState} />}
           {guardedRoute === '/host' && <HostEventPage navigate={navigate} onCreateEvent={createHostedEvent} />}
           {guardedRoute === '/profile' && <ProfileDashboard initialProfile={currentAppState.profile} appState={currentAppState} onSave={saveProfile} onUploadPhotos={uploadProfilePhotos} onLogout={handleLogout} navigate={navigate} onOpenDrawer={() => setMenuOpen(true)} authUser={authUser} onGoogleLogin={startGoogleLogin} onReviewClick={setReviewEvent} onMeetupFeedbackClick={setFeedbackMeetup} />}
           {guardedRoute === '/login' && <LoginPage onGoogleLogin={startGoogleLogin} authError={authError} navigate={navigate} />}
@@ -1214,7 +1247,7 @@ function App() {
       </main>
       {(!isConversationRoute && guardedRoute !== '/onboarding' && guardedRoute !== '/login' && guardedRoute !== '/concierge' && guardedRoute !== '/admin/analytics' && guardedRoute !== '/admin/health' && guardedRoute !== '/admin/moderation') && <BottomNav route={guardedRoute} navigate={navigate} />}
       {installPrompt && <InstallBanner prompt={installPrompt} onDone={() => setInstallPrompt(null)} />}
-      {selectedMember && <VibeRequestModal member={selectedMember} requested={Boolean(currentAppState.vibeRequests[selectedMember.id])} onClose={() => setSelectedMember(null)} onSend={sendVibe} navigate={navigate} />}
+      {selectedMember && <VibeRequestModal member={selectedMember} requested={Boolean(currentAppState.vibeRequests[selectedMember.id])} onClose={() => setSelectedMember(null)} navigate={navigate} />}
       {profileMember && <MemberProfileModal member={profileMember} requested={Boolean(currentAppState.vibeRequests[profileMember.id])} onClose={() => setProfileMember(null)} onVibeClick={member => { setProfileMember(null); setSelectedMember(member); }} navigate={navigate} />}
       {reviewEvent && (
         <EventReviewModal 
@@ -1300,7 +1333,6 @@ function getRoute() {
   if (path.startsWith('/chat/')) return path;
   if (path.endsWith('/events.html') || path === '/events') return '/events';
   if (path === '/host') return '/host';
-  if (path === '/requests') return '/requests';
   if (path === '/vibe-checks') return '/vibe-checks';
   if (path.startsWith('/vibe-check/send/')) return path;
   if (path === '/concierge') return '/concierge';
@@ -1370,7 +1402,7 @@ function SideDrawer({ route, navigate, onClose, appState }) {
   const navItems = [
     { path: '/', label: 'Home Tab', subtitle: 'Scanner Map & Activity', icon: Home },
     { path: '/members', label: 'Verified Members', subtitle: 'Browse active profiles', icon: Users },
-    { path: '/chat', label: 'Inbox Chats', subtitle: 'Open locked voice connections', icon: MessageCircle },
+    { path: '/chat', label: 'Inbox Chats', subtitle: 'Open your conversations', icon: MessageCircle },
     { path: '/events', label: 'mixers Calendar', subtitle: 'RSVP scheduled offline mixer', icon: Calendar },
     { path: '/concierge', label: 'Concierge Controls', subtitle: 'Security, billing & account settings', icon: Shield },
     { path: '/profile', label: 'My Club Profile', subtitle: 'Aadhaar safety & tier locker', icon: User },
@@ -2220,21 +2252,40 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
   );
 }
 
+// Tracks whether the members list has already finished loading once during this
+// app session. MembersPage unmounts/remounts on every tab switch, so without this
+// the loading shimmer + entrance animation would replay each time you return to
+// the tab. The flag lives at module scope so it survives remounts but resets on a
+// full app reload — i.e. members only "reload" on app open (or pull-to-refresh).
+let membersLoadedOnce = false;
+
 function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileClick }) {
   const [query, setQuery] = React.useState('');
+  const [selectedInterest, setSelectedInterest] = React.useState(null);
+  const [showFilterPanel, setShowFilterPanel] = React.useState(false);
+  const [selectedGender, setSelectedGender] = React.useState('All');
+  const [selectedVerification, setSelectedVerification] = React.useState('All');
   const [threeLoaded, setThreeLoaded] = React.useState(false);
   const [gsapLoaded, setGsapLoaded] = React.useState(false);
   const [lenisLoaded, setLenisLoaded] = React.useState(false);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoading, setIsLoading] = React.useState(!membersLoadedOnce);
 
   const canvasRef = React.useRef(null);
   const threeApp = React.useRef(null);
 
-  // Simulate loading state - set to false when members are loaded
+  // Show the loading shimmer only the first time members load this session.
+  // On subsequent tab returns the data is already resolved, so render instantly.
   React.useEffect(() => {
+    if (membersLoadedOnce) {
+      setIsLoading(false);
+      return;
+    }
     if (resolvedMembers && resolvedMembers.length > 0) {
-      // Add a small delay to show shimmer effect
-      const timer = setTimeout(() => setIsLoading(false), 800);
+      // Add a small delay to show shimmer effect on the very first load
+      const timer = setTimeout(() => {
+        setIsLoading(false);
+        membersLoadedOnce = true;
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [resolvedMembers]);
@@ -2292,17 +2343,96 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
     };
   }, [lenisLoaded]);
 
-  // GSAP Entrance Animations for cards when query filters them
-  const filtered = (resolvedMembers || []).filter(member => `${member.name} ${member.city} ${member.vibe}`.toLowerCase().includes(query.toLowerCase()));
+  const normalizeCityName = (city) => {
+    const c = (city || '').trim().toLowerCase();
+    if (c === 'delhi ncr') return 'delhi';
+    return c;
+  };
 
+  const userCity = normalizeCityName(appState.profile?.city);
+
+  const cityFiltered = React.useMemo(() => {
+    const all = resolvedMembers || [];
+    if (!userCity) return all;
+    const sameCity = all.filter(member => normalizeCityName(member.city) === userCity);
+    // City is a preference, not a hard gate: if nobody shares the user's city
+    // (different city, naming variant, sparse area), fall back to showing all
+    // members so the People tab is never empty while members exist. Same-city
+    // members are surfaced first when there are any.
+    if (sameCity.length === 0) return all;
+    const otherCity = all.filter(member => normalizeCityName(member.city) !== userCity);
+    return [...sameCity, ...otherCity];
+  }, [resolvedMembers, userCity]);
+
+  const WEEKEND_TAGS = ['Coffee', 'Movie', 'Sports', 'Live music', 'Rooftop', 'Dinner', 'Gallery', 'Bookstore', 'Walk'];
+
+  const tagsListToDisplay = WEEKEND_TAGS;
+
+  const filtered = React.useMemo(() => {
+    return cityFiltered.filter(member => {
+      // 1. Tag Filter
+      if (selectedInterest) {
+        const tagLower = selectedInterest.toLowerCase();
+        const hasTagInArray = (member.weekendTags || []).some(t => t.toLowerCase() === tagLower);
+        const hasTagInStatus = (member.weekendStatus || '').toLowerCase().includes(tagLower);
+        if (!hasTagInArray && !hasTagInStatus) {
+          return false;
+        }
+      }
+      // 2. Gender Filter
+      if (selectedGender !== 'All' && member.gender !== selectedGender) {
+        return false;
+      }
+      // 3. Verification Filter
+      if (selectedVerification !== 'All') {
+        if (selectedVerification === 'highly_verified' && member.verification_level !== 'highly_verified') {
+          return false;
+        }
+        if (selectedVerification === 'identity' && member.verification_level !== 'identity' && member.verification_level !== 'highly_verified') {
+          return false;
+        }
+      }
+      // 4. Query Filter
+      if (query) {
+        const q = query.toLowerCase();
+        const matchText = `${member.name} ${member.city} ${member.vibe}`.toLowerCase().includes(q);
+        const matchInterests = (member.interests || []).some(interest => 
+          interest.toLowerCase().includes(q)
+        );
+        const matchTags = (member.weekendTags || []).some(tag => 
+          tag.toLowerCase().includes(q)
+        );
+        return matchText || matchInterests || matchTags;
+      }
+      return true;
+    });
+  }, [cityFiltered, query, selectedInterest, selectedGender, selectedVerification]);
+
+  // Distinguishes a real query change (should animate) from the entrance replay
+  // that fires on every tab return once members have already loaded this session.
+  const lastQueryRef = React.useRef(query);
+  const lastInterestRef = React.useRef(selectedInterest);
+  const lastGenderRef = React.useRef(selectedGender);
+  const lastVerificationRef = React.useRef(selectedVerification);
   React.useEffect(() => {
     if (!gsapLoaded || !window.gsap) return;
+    const queryChanged = 
+      lastQueryRef.current !== query || 
+      lastInterestRef.current !== selectedInterest ||
+      lastGenderRef.current !== selectedGender ||
+      lastVerificationRef.current !== selectedVerification;
+    lastQueryRef.current = query;
+    lastInterestRef.current = selectedInterest;
+    lastGenderRef.current = selectedGender;
+    lastVerificationRef.current = selectedVerification;
+    // Skip the entrance animation when simply returning to an already-loaded tab.
+    if (membersLoadedOnce && !queryChanged) return;
     window.gsap.killTweensOf(".gsap-member-card");
-    window.gsap.fromTo(".gsap-member-card", 
+    window.gsap.fromTo(".gsap-member-card",
       { opacity: 0, y: 40, scale: 0.95 },
       { opacity: 1, y: 0, scale: 1, stagger: 0.04, duration: 0.45, ease: "power2.out" }
     );
-  }, [gsapLoaded, query]);
+  }, [gsapLoaded, query, selectedInterest, selectedGender, selectedVerification]);
 
   // Initialize 3D Space (Three.js WebGL Particle System)
   React.useEffect(() => {
@@ -2544,44 +2674,216 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
         </div>
       </div>
 
-      {/* shadcn style glassmorphic Input Search bar */}
-      <label className="toolbar" style={{
-        display: 'flex',
-        alignItems: 'center',
-        background: 'rgba(14, 14, 20, 0.8)',
-        backdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '16px',
-        padding: '0.8rem 1.2rem',
-        gap: '0.75rem',
-        marginBottom: '2rem',
-        boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
-        position: 'relative'
-      }}>
-        <Search style={{ color: 'var(--pink)', width: '20px', height: '20px' }} />
-        <input 
-          value={query} 
-          onChange={event => setQuery(event.target.value)} 
-          placeholder="Filter by city, name, or vibe..." 
+      {/* shadcn style glassmorphic Input Search bar & Filter Button */}
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '1rem' }}>
+        <label className="toolbar" style={{
+          display: 'flex',
+          alignItems: 'center',
+          background: 'rgba(14, 14, 20, 0.8)',
+          backdropFilter: 'blur(16px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '16px',
+          padding: '0.8rem 1.2rem',
+          gap: '0.75rem',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
+          position: 'relative',
+          flex: 1
+        }}>
+          <Search style={{ color: 'var(--pink)', width: '20px', height: '20px' }} />
+          <input 
+            value={query} 
+            onChange={event => setQuery(event.target.value)} 
+            placeholder="Search by name, vibe, or interest..." 
+            style={{
+              background: 'transparent',
+              border: 0,
+              color: '#fff',
+              outline: 'none',
+              fontSize: '0.92rem',
+              width: '100%',
+              fontWeight: '500'
+            }}
+          />
+          {query && (
+            <button 
+              onClick={() => setQuery('')}
+              style={{ background: 'transparent', border: 0, color: 'var(--soft)', padding: '2px', cursor: 'pointer' }}
+            >
+              <X style={{ width: '16px', height: '16px' }} />
+            </button>
+          )}
+        </label>
+        
+        <button
+          onClick={() => setShowFilterPanel(!showFilterPanel)}
           style={{
-            background: 'transparent',
-            border: 0,
-            color: '#fff',
-            outline: 'none',
+            background: showFilterPanel ? 'rgba(255, 46, 147, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid ' + (showFilterPanel ? 'var(--pink)' : 'rgba(255, 255, 255, 0.1)'),
+            color: showFilterPanel ? 'var(--pink)' : '#fff',
+            borderRadius: '16px',
+            padding: '0.8rem 1.2rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
             fontSize: '0.92rem',
-            width: '100%',
-            fontWeight: '500'
+            fontWeight: '600',
+            cursor: 'pointer',
+            height: '52px',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
+            transition: 'all 0.2s',
+            whiteSpace: 'nowrap'
           }}
-        />
-        {query && (
-          <button 
-            onClick={() => setQuery('')}
-            style={{ background: 'transparent', border: 0, color: 'var(--soft)', padding: '2px' }}
+        >
+          <SlidersHorizontal style={{ width: '18px', height: '18px' }} />
+          <span>Filters</span>
+        </button>
+      </div>
+
+      {/* Expandable Glassmorphic Filter Options Panel */}
+      <AnimatePresence>
+        {showFilterPanel && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginTop: 0, marginBottom: 24 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
+            transition={{ duration: 0.25, ease: 'easeInOut' }}
+            style={{
+              background: 'rgba(18, 18, 28, 0.95)',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '20px',
+              padding: '1.25rem',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+              overflow: 'hidden',
+              display: 'grid',
+              gap: '1.25rem'
+            }}
           >
-            <X style={{ width: '16px', height: '16px' }} />
-          </button>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ font: '700 1rem Outfit, sans-serif', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <SlidersHorizontal style={{ width: '16px', height: '16px', color: 'var(--pink)' }} />
+                Filter Options
+              </h3>
+              <button 
+                onClick={() => {
+                  setSelectedInterest(null);
+                  setSelectedGender('All');
+                  setSelectedVerification('All');
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 0,
+                  color: 'var(--pink)',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  padding: '2px 6px'
+                }}
+              >
+                Reset All
+              </button>
+            </div>
+
+            {/* Weekend Plans / Tags Section */}
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>
+                Weekend Status Tags
+              </span>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {tagsListToDisplay.map(interest => {
+                  const active = selectedInterest === interest;
+                  return (
+                    <button
+                      key={interest}
+                      onClick={() => setSelectedInterest(active ? null : interest)}
+                      style={{
+                        borderRadius: '9999px',
+                        padding: '6px 12px',
+                        fontSize: '0.72rem',
+                        fontWeight: '700',
+                        border: '1px solid ' + (active ? 'var(--pink)' : 'rgba(255,255,255,0.06)'),
+                        background: active ? 'rgba(255, 46, 147, 0.15)' : 'rgba(255,255,255,0.03)',
+                        color: active ? '#fff' : 'rgba(255,255,255,0.7)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {interest}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Two Column Grid for Gender & Verification */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              {/* Gender Filter */}
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '6px' }}>
+                  Gender
+                </span>
+                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '10px', padding: '3px' }}>
+                  {['All', 'Female', 'Male'].map(gender => (
+                    <button
+                      key={gender}
+                      onClick={() => setSelectedGender(gender)}
+                      style={{
+                        flex: 1,
+                        background: selectedGender === gender ? 'var(--pink)' : 'transparent',
+                        border: 0,
+                        color: '#fff',
+                        borderRadius: '8px',
+                        padding: '6px',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {gender}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Verification Filter */}
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '6px' }}>
+                  Verification
+                </span>
+                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '10px', padding: '3px' }}>
+                  {[
+                    { val: 'All', label: 'All' },
+                    { val: 'highly_verified', label: 'Highly' },
+                    { val: 'identity', label: 'Identity' }
+                  ].map(opt => (
+                    <button
+                      key={opt.val}
+                      onClick={() => setSelectedVerification(opt.val)}
+                      style={{
+                        flex: 1,
+                        background: selectedVerification === opt.val ? 'var(--pink)' : 'transparent',
+                        border: 0,
+                        color: '#fff',
+                        borderRadius: '8px',
+                        padding: '6px',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+          </motion.div>
         )}
-      </label>
+      </AnimatePresence>
 
       {/* The Member Grid */}
       <div className="member-grid" style={{ minHeight: '300px' }}>
@@ -2601,13 +2903,18 @@ function MembersPage({ appState, resolvedMembers = [], onVibeClick, onProfileCli
         )}
       </div>
 
-      {filtered.length === 0 && (
+      {!isLoading && filtered.length === 0 && (
         <EmptyState
           type="discovery"
           title="No matches found"
           description="No active members match your search criteria. Try loosening your search keyword or checking other neighborhoods like Bandra or Juhu."
           actionText="Reset Search"
-          onAction={() => setQuery('')}
+          onAction={() => {
+            setQuery('');
+            setSelectedInterest(null);
+            setSelectedGender('All');
+            setSelectedVerification('All');
+          }}
         />
       )}
     </section>
@@ -3151,116 +3458,6 @@ function MemberProfileModal({ member, requested, onClose, onVibeClick, navigate 
   );
 }
 
-function ConnectionRequestsPage({ navigate }) {
-  const [requests, setRequests] = React.useState(null);
-  const [busyId, setBusyId] = React.useState(null);
-  // Sender id passed from a "View Request" notification tap (/requests?from=<id>).
-  const highlightFrom = React.useMemo(
-    () => new URLSearchParams(window.location.search).get('from'),
-    []
-  );
-  const highlightRef = React.useRef(null);
-
-  const load = React.useCallback(() => {
-    fetch('/api/connections/requests', { credentials: 'same-origin', cache: 'no-store' })
-      .then(res => res.json())
-      .then(data => setRequests(Array.isArray(data.requests) ? data.requests : []))
-      .catch(() => setRequests([]));
-  }, []);
-
-  React.useEffect(() => { load(); }, [load]);
-
-  // Once the list is loaded, bring the deep-linked sender's request into view.
-  React.useEffect(() => {
-    if (requests && requests.length && highlightFrom && highlightRef.current) {
-      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [requests, highlightFrom]);
-
-  const act = async (id, action) => {
-    setBusyId(id);
-    try {
-      const res = await fetch(`/api/connections/${id}/${action}`, {
-        method: 'POST', credentials: 'same-origin', cache: 'no-store',
-        headers: { 'content-type': 'application/json' }
-      });
-      if (res.ok) {
-        setRequests(prev => (prev || []).filter(r => r.id !== id));
-        if (action === 'accept') navigate('/chat');
-      }
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  return (
-    <section className="page-shell inbox-page">
-      <PageTitle eyebrow="Requests" title="Connection Requests" text="People who want to connect with you. Accept to start a chat, or decline." />
-      <div style={{ marginBottom: '1rem' }}>
-        <div className="vc-upgrade-notice" style={{
-          padding: '0.75rem 1rem', borderRadius: 14, fontSize: '0.85rem',
-          background: 'linear-gradient(135deg, rgba(255,46,147,0.08), rgba(155,48,255,0.08))',
-          border: '1px solid rgba(255,46,147,0.15)',
-          display: 'flex', alignItems: 'center', gap: 10
-        }}>
-          <Mic style={{ width: 18, height: 18, color: 'var(--pink)', flexShrink: 0 }} />
-          <span><strong>Vibe Checks</strong> are the new way to connect! Send a voice intro and unlock chat when they accept. <a href="/vibe-checks" style={{ color: 'var(--pink)', textDecoration: 'underline' }} onClick={e => { e.preventDefault(); navigate('/vibe-checks'); }}>View Vibe Check inbox →</a></span>
-        </div>
-      </div>
-      {requests === null ? (
-        <div className="inbox-list">
-          <Skeleton type="list" count={3} />
-        </div>
-      ) : requests.length === 0 ? (
-        <EmptyState
-          type="connections"
-          title="No pending requests"
-          description="When someone sends you a connection request, it will show up here."
-          actionText="Discover People"
-          onAction={() => navigate('/members')}
-        />
-      ) : (
-        <div className="inbox-list">
-          {requests.map(req => {
-            const isHighlighted = highlightFrom && req.from.id === highlightFrom;
-            return (
-            <div
-              key={req.id}
-              ref={isHighlighted ? highlightRef : null}
-              className="inbox-card"
-              style={{
-                alignItems: 'flex-start',
-                cursor: 'default',
-                ...(isHighlighted ? { boxShadow: '0 0 0 2px #ff7ac2', borderRadius: 16 } : {})
-              }}
-            >
-              <Avatar member={req.from} />
-              <div className="inbox-copy" style={{ flex: 1, minWidth: 0 }}>
-                <div className="inbox-row">
-                  <strong>{req.from.name}{req.from.age ? `, ${req.from.age}` : ''}</strong>
-                  <span>{req.from.city || ''}</span>
-                </div>
-                {req.note && <small style={{ display: 'block', color: 'var(--muted)', margin: '2px 0 8px' }}>“{req.note}”</small>}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn-main" style={{ minHeight: 34, borderRadius: 10, fontSize: '0.8rem', padding: '0 14px' }}
-                    disabled={busyId === req.id} onClick={() => act(req.id, 'accept')}>
-                    {busyId === req.id ? '…' : 'Accept'}
-                  </button>
-                  <button className="btn-quiet" style={{ minHeight: 34, borderRadius: 10, fontSize: '0.8rem', padding: '0 14px' }}
-                    disabled={busyId === req.id} onClick={() => act(req.id, 'reject')}>
-                    Decline
-                  </button>
-                </div>
-              </div>
-            </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
 // Parse a chat timestamp that may be SQLite ('YYYY-MM-DD HH:MM:SS', no zone) or ISO (with Z).
 function parseChatTs(ts) {
   if (!ts) return 0;
@@ -3541,9 +3738,16 @@ function ConciergePage({ appState, navigate, onLogout }) {
 }
 
 function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], navigate }) {
-  const hasNoChats = resolvedChats.length === 0;
   const vibeCheckCount = appState?.vibeChecks?.inbox?.length || 0;
-  const requestCount = appState?.notifications?.filter(n => n.type === 'connection_request' && !n.readAt)?.length || 0;
+  // Split 1:1 conversations from instant-plan group chats so they get their own tab.
+  const { directChats, planChats } = React.useMemo(() => {
+    const direct = [], plans = [];
+    for (const c of (resolvedChats || [])) (c.kind === 'group' ? plans : direct).push(c);
+    return { directChats: direct, planChats: plans };
+  }, [resolvedChats]);
+
+  const [tab, setTab] = React.useState('direct'); // 'direct' | 'plans'
+  const list = tab === 'plans' ? planChats : directChats;
 
   return (
     <section className="page-shell inbox-page">
@@ -3552,34 +3756,74 @@ function ChatInboxPage({ appState, resolvedChats = [], resolvedMembers = [], nav
         <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/vibe-checks')}>
           <Mic style={{ width: 16, height: 16 }} /> Vibe Checks{vibeCheckCount > 0 ? ` (${vibeCheckCount})` : ''}
         </button>
-        <button className="btn-quiet" style={{ minHeight: 38, borderRadius: 12, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/requests')}>
-          <Users style={{ width: 16, height: 16 }} /> Connection requests{requestCount > 0 ? ` (${requestCount})` : ''}
-        </button>
       </div>
-      {hasNoChats ? (
-        <EmptyState
-          type="chat"
-          title="No Conversations Yet"
-          description="You don't have any active chats yet. Connect with members in discovery to unlock voice verification and start real-time messaging!"
-          actionText="Find Connections"
-          onAction={() => navigate('/members')}
-        />
+
+      {/* Direct vs Plans tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
+        {[
+          { id: 'direct', label: `Direct (${directChats.length})` },
+          { id: 'plans', label: `Plans (${planChats.length})` }
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className="btn-quiet"
+            style={{
+              minHeight: 38, borderRadius: 12, padding: '0 16px', fontWeight: 800, fontSize: '0.82rem',
+              background: tab === t.id ? 'linear-gradient(135deg,#d926b2,#22d3ee)' : undefined,
+              color: tab === t.id ? '#fff' : undefined
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {list.length === 0 ? (
+        tab === 'plans' ? (
+          <EmptyState
+            type="chat"
+            title="No Plan Chats Yet"
+            description="Join or propose an instant outing and you'll get a private group chat here until 24h after the outing."
+            actionText="Browse Plans"
+            onAction={() => navigate('/events')}
+          />
+        ) : (
+          <EmptyState
+            type="chat"
+            title="No Conversations Yet"
+            description="You don't have any active chats yet. Send a Vibe Check — a voice intro — to someone in People; chat unlocks once they accept."
+            actionText="Find People"
+            onAction={() => navigate('/members')}
+          />
+        )
       ) : (
         <div className="inbox-list">
-          {[...(resolvedChats || [])]
+          {[...list]
             .sort((a, b) => parseChatTs(b.lastMessageAt) - parseChatTs(a.lastMessageAt))
             .map(chat => {
+            const isGroup = chat.kind === 'group';
             const profile = getChatProfile(chat, resolvedMembers);
             const msgs = appState.chatMessages[chat.slug] || chat.messages || [];
             const last = msgs.length ? msgs[msgs.length - 1] : null;
-            const previewRaw = last ? (last[4] ? '📎 Attachment' : last[1]) : 'Say hi 👋';
+            // Group previews prefix the sender name (tuple's 6th element) when present.
+            const lastBody = last ? (last[4] ? '📎 Attachment' : last[1]) : 'Say hi 👋';
+            const previewRaw = isGroup && last && last[5] && last[0] !== 'you' && last[0] !== 'system'
+              ? `${String(last[5]).split(' ')[0]}: ${lastBody}`
+              : lastBody;
             const preview = previewRaw && previewRaw.length > 40 ? `${previewRaw.slice(0, 40)}…` : previewRaw;
             const unread = chat.unreadCount || 0;
             return (
             <button key={chat.slug} className="inbox-card" onClick={() => navigate(`/chat/${chat.slug}`)}>
               <Avatar member={profile} />
               <div className="inbox-copy">
-                <div className="inbox-row"><strong>{profile.name}</strong><span>{formatInboxTime(chat.lastMessageAt)}</span></div>
+                <div className="inbox-row">
+                  <strong>
+                    {isGroup ? (chat.name || 'Instant Plan') : profile.name}
+                    {isGroup && <span style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 800, color: '#22d3ee', verticalAlign: 'middle' }}>· {chat.seatCount || (chat.members || []).length} in plan</span>}
+                  </strong>
+                  <span>{formatInboxTime(chat.lastMessageAt)}</span>
+                </div>
                 <small className="message-count-tag" style={unread > 0 ? { color: '#ff7ac2', fontWeight: 800 } : undefined}>
                   {unread > 0 ? `${unread} new message${unread > 1 ? 's' : ''}` : preview}
                 </small>
@@ -3615,9 +3859,19 @@ function formatLastSeen(lastActiveAt) {
   }
 }
 
-function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = [], route, navigate, onVerify, onSend, onProfileClick, onMeetupFeedbackClick }) {
+const chatMenuItemStyle = {
+  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+  padding: '10px 12px', borderRadius: 10, border: 0, background: 'transparent',
+  color: '#fff', font: '700 0.86rem Outfit, sans-serif', textAlign: 'left', cursor: 'pointer'
+};
+
+function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = [], route, navigate, onSend, onProfileClick, onMeetupFeedbackClick }) {
   const slug = route.split('/').pop();
-  const active = (resolvedChats || []).find(chat => chat.slug === slug) || resolvedChats[0];
+  // Match strictly by slug. Do NOT fall back to resolvedChats[0] — a missing
+  // slug (e.g. a plan group chat that's still being created, or that the user
+  // has left) must show a "not found" state, never silently open someone
+  // else's DM.
+  const active = (resolvedChats || []).find(chat => chat.slug === slug);
 
   if (!active) {
     return (
@@ -3641,8 +3895,12 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
   }
 
   const profile = getChatProfile(active, resolvedMembers);
-  const isVerified = appState?.verifiedChats?.[active.slug] || false;
-  
+  const isGroup = active.kind === 'group';
+  // A chat only exists once a Vibe Check was accepted (createConnection), and the
+  // server's assertCanSend already gates messaging on that accepted connection.
+  // So every chat reachable here is unlocked — full text + voice + attachments.
+  const isVerified = true;
+
   const [draft, setDraft] = React.useState('');
   const [liveMessages, setLiveMessages] = React.useState(() => appState.chatMessages[active.slug] || active.messages || []);
   const [peerOnline, setPeerOnline] = React.useState(false);
@@ -3650,6 +3908,69 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
 
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordingDuration, setRecordingDuration] = React.useState(0);
+
+  // Top-right safety menu: block / report / report-fake-profile.
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [moderating, setModerating] = React.useState(false);
+  const menuRef = React.useRef(null);
+
+  // The partner's real user id (sent by the server). Falls back to the resolved
+  // member id; never the chat slug, which is not a valid moderation target.
+  const targetUserId = active.otherUserId || (profile.id !== active.slug ? profile.id : null);
+
+  const toast = msg => window.dispatchEvent(new CustomEvent('app-toast', { detail: msg }));
+
+  // Close the menu on outside click / Escape.
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = e => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const onKey = e => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onKey); };
+  }, [menuOpen]);
+
+  const blockUser = async () => {
+    if (moderating) return;
+    setMenuOpen(false);
+    if (!targetUserId) { toast('Cannot block this conversation.'); return; }
+    if (!window.confirm(`Block ${active.name}? You will no longer see each other or be able to message.`)) return;
+    setModerating(true);
+    try {
+      const res = await fetch('/api/blocks', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ targetId: targetUserId })
+      });
+      if (!res.ok) throw new Error('block_failed');
+      toast(`${active.name} has been blocked.`);
+      navigate('/chat');
+    } catch {
+      toast('Could not block this user. Please try again.');
+    } finally {
+      setModerating(false);
+    }
+  };
+
+  const reportUser = async (reason, label) => {
+    if (moderating) return;
+    setMenuOpen(false);
+    if (!targetUserId) { toast('Cannot report this conversation.'); return; }
+    setModerating(true);
+    try {
+      const res = await fetch('/api/reports', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ targetType: 'user', targetId: targetUserId, reason })
+      });
+      if (!res.ok) throw new Error('report_failed');
+      toast(`${label} submitted. Our team will review it.`);
+    } catch {
+      toast('Could not submit your report. Please try again.');
+    } finally {
+      setModerating(false);
+    }
+  };
 
   const socketRef = React.useRef(null);
   const reconnectTimeoutRef = React.useRef(null);
@@ -3714,7 +4035,7 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
                 const have = new Set(curr.map(m => m[3]));
                 const merged = curr.slice();
                 for (const m of data.messages) {
-                  if (!have.has(m.id)) merged.push([m.role, m.body, 'sent', m.id, m.attachmentUrl]);
+                  if (!have.has(m.id)) merged.push([m.role, m.body, 'sent', m.id, m.attachmentUrl, m.senderName || '']);
                 }
                 return merged;
               });
@@ -3730,6 +4051,7 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
           const data = JSON.parse(event.data);
           if (data.type === 'message') {
             const senderRole = data.senderId === appState.profile.id ? 'you' : 'match';
+            const senderName = data.senderName || '';
             setLiveMessages(prev => {
               // If this echoes our own optimistic send, replace the temp bubble
               // (matched by clientMsgId) with the server-assigned id + 'sent'.
@@ -3737,14 +4059,14 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
                 const idx = prev.findIndex(([, , , msgId]) => msgId === data.clientMsgId);
                 if (idx !== -1) {
                   const next = prev.slice();
-                  next[idx] = [senderRole, data.message, 'sent', data.id, data.attachmentUrl];
+                  next[idx] = [senderRole, data.message, 'sent', data.id, data.attachmentUrl, senderName];
                   return next;
                 }
               }
               // Deduplicate same message id to prevent dual listing
               const isDuplicate = prev.some(([from, text, status, msgId]) => msgId === data.id);
               if (isDuplicate) return prev;
-              return [...prev, [senderRole, data.message, 'sent', data.id, data.attachmentUrl]];
+              return [...prev, [senderRole, data.message, 'sent', data.id, data.attachmentUrl, senderName]];
             });
             if (data.senderId !== appState.profile.id) {
               setPeerTyping(false);
@@ -3754,11 +4076,11 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
           } else if (data.type === 'ack') {
             // Idempotent dedup hit (server already had this clientMsgId): mark sent.
             setLiveMessages(prev => prev.map(msg =>
-              msg[3] === data.clientMsgId ? [msg[0], msg[1], 'sent', data.id, msg[4]] : msg
+              msg[3] === data.clientMsgId ? [msg[0], msg[1], 'sent', data.id, msg[4], msg[5]] : msg
             ));
           } else if (data.type === 'deleted') {
             setLiveMessages(prev => prev.map(msg =>
-              msg[3] === data.id ? [msg[0], '[message deleted]', msg[2], msg[3], null] : msg
+              msg[3] === data.id ? [msg[0], '[message deleted]', msg[2], msg[3], null, msg[5]] : msg
             ));
           } else if (data.type === 'typing') {
             if (data.userId !== appState.profile.id) {
@@ -3772,7 +4094,7 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
             if (data.userId !== appState.profile.id) {
               setLiveMessages(prev => prev.map(msg => {
                 if (msg[3] === data.messageId) {
-                  return [msg[0], msg[1], 'read', msg[3], msg[4]];
+                  return [msg[0], msg[1], 'read', msg[3], msg[4], msg[5]];
                 }
                 return msg;
               }));
@@ -3781,7 +4103,7 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
             if (data.userId !== appState.profile.id) {
               setLiveMessages(prev => prev.map(msg => {
                 if (msg[0] === 'you') {
-                  return [msg[0], msg[1], 'read', msg[3], msg[4]];
+                  return [msg[0], msg[1], 'read', msg[3], msg[4], msg[5]];
                 }
                 return msg;
               }));
@@ -4036,30 +4358,81 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
             <span>
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '5px', font: '800 1.15rem Outfit, sans-serif', color: '#fff' }}>
                 {active.name}
-                {active.verification_level === 'highly_verified' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#fbbf24', flexShrink: 0 }} title="Highly Verified VIP Passport" />}
-                {active.verification_level === 'identity' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#22d3ee', flexShrink: 0 }} title="Identity Verified Selfie Check Complete" />}
-                {active.verification_level === 'basic' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#3b82f6', flexShrink: 0 }} title="Basic Verified Phone Connected" />}
+                {!isGroup && active.verification_level === 'highly_verified' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#fbbf24', flexShrink: 0 }} title="Highly Verified VIP Passport" />}
+                {!isGroup && active.verification_level === 'identity' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#22d3ee', flexShrink: 0 }} title="Identity Verified Selfie Check Complete" />}
+                {!isGroup && active.verification_level === 'basic' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#3b82f6', flexShrink: 0 }} title="Basic Verified Phone Connected" />}
               </h2>
               <p style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {peerOnline ? (
+                {isGroup ? (
+                  <>
+                    <Users style={{ width: '12px', height: '12px', color: '#22d3ee' }} />
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                      {active.seatCount || (active.members || []).length} in plan
+                      {active.planTime ? ` • ${active.planTime}` : ''}
+                      {active.planLocation ? ` • ${active.planLocation}` : ''}
+                    </span>
+                  </>
+                ) : peerOnline ? (
                   <>
                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
                     <span style={{ color: '#22c55e', fontWeight: 'bold' }}>Active now</span>
+                    <span>• Trust: {active.trustScore || 94}%</span>
                   </>
                 ) : (
                   <>
                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.3)', display: 'inline-block' }} />
                     <span style={{ color: 'rgba(255,255,255,0.5)' }}>{formatLastSeen(active.lastActiveAt)}</span>
+                    <span>• Trust: {active.trustScore || 94}%</span>
                   </>
                 )}
-                <span>• Trust: {active.trustScore || 94}%</span>
               </p>
             </span>
           </button>
           <span className="expiry">6d 23h</span>
+          <div ref={menuRef} style={{ position: 'relative', marginLeft: 'auto', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(o => !o)}
+              aria-label="Conversation options"
+              aria-haspopup="true"
+              aria-expanded={menuOpen}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 38, height: 38, borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.04)', color: '#fff', cursor: 'pointer'
+              }}
+            >
+              <MoreVertical style={{ width: 18, height: 18 }} />
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                style={{
+                  position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 50,
+                  minWidth: 210, padding: 6, borderRadius: 14,
+                  background: 'rgba(20, 20, 28, 0.98)', border: '1px solid rgba(255,255,255,0.1)',
+                  boxShadow: '0 18px 40px rgba(0,0,0,0.5)', backdropFilter: 'blur(20px)'
+                }}
+              >
+                <button type="button" role="menuitem" disabled={moderating} onClick={blockUser} style={chatMenuItemStyle}>
+                  <Ban style={{ width: 16, height: 16, color: '#ff7ac2', flexShrink: 0 }} /> Block User
+                </button>
+                <button type="button" role="menuitem" disabled={moderating} onClick={() => reportUser('Inappropriate behavior', 'Report')} style={chatMenuItemStyle}>
+                  <Flag style={{ width: 16, height: 16, color: '#ffc107', flexShrink: 0 }} /> Report User
+                </button>
+                <button type="button" role="menuitem" disabled={moderating} onClick={() => reportUser('Fake profile', 'Fake profile report')} style={chatMenuItemStyle}>
+                  <UserX style={{ width: 16, height: 16, color: '#ff5f6d', flexShrink: 0 }} /> Report Fake Profile
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="chat-note"><Sparkles /> {active.message}</div>
-        {isVerified && (
+        {isGroup ? (
+          <div className="chat-note"><CalendarCheck style={{ width: 14, height: 14 }} /> Plan group chat · auto-expires 24h after the outing</div>
+        ) : (
+          <div className="chat-note"><Sparkles /> {active.message}</div>
+        )}
+        {!isGroup && isVerified && (
           <div style={{
             background: 'linear-gradient(135deg, rgba(255, 193, 7, 0.08), rgba(255, 46, 147, 0.08))',
             borderBottom: '1px solid rgba(255, 193, 7, 0.15)',
@@ -4094,8 +4467,13 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
           </div>
         )}
         <div className="message-thread">
-          {liveMessages.map(([from, text, status, msgId, attachmentUrl], index) => {
+          {liveMessages.map(([from, text, status, msgId, attachmentUrl, senderName], index) => {
             const isAudio = attachmentUrl && (attachmentUrl.endsWith('.webm') || attachmentUrl.endsWith('.ogg') || attachmentUrl.endsWith('.wav') || attachmentUrl.endsWith('.bin') || text === '[Voice Note]');
+            // In group chats, label incoming bubbles with the sender's name. Hide it
+            // when the previous bubble was from the same sender (consecutive run).
+            const prev = index > 0 ? liveMessages[index - 1] : null;
+            const showSenderName = isGroup && from === 'match' && senderName &&
+              !(prev && prev[0] === 'match' && prev[5] === senderName);
             return (
               <div key={`${from}-${index}`} style={{
                 display: 'flex',
@@ -4105,6 +4483,11 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
                 alignSelf: from === 'you' ? 'flex-end' : from === 'match' ? 'flex-start' : 'center',
                 width: 'fit-content'
               }}>
+                {showSenderName && (
+                  <span style={{ fontSize: '0.66rem', fontWeight: 800, color: '#22d3ee', marginLeft: '4px', marginBottom: '1px' }}>
+                    {senderName}
+                  </span>
+                )}
                 <div className={`message-bubble ${from}`} style={{ maxWidth: '100%', alignSelf: 'unset', padding: attachmentUrl ? (isAudio ? '8px 12px' : '4px') : '0.75rem 0.9rem', overflow: 'hidden' }}>
                   {attachmentUrl ? (
                     isAudio ? (
@@ -4144,10 +4527,6 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
             </div>
           )}
         </div>
-        <div className={`voice-lock compact-lock ${isVerified ? 'verified-lock' : ''}`}>
-          <Mic />
-          <div><h3>{isVerified ? 'Voice Verified' : 'Voice Connection Locked'}</h3><p>{isVerified ? 'You can now send messages in this chat.' : 'Record a voice note to unlock texting. Chat opens after they accept.'}</p></div>
-        </div>
         {isRecording ? (
           <div className="chat-composer recording-composer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '8px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4161,15 +4540,14 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
           </div>
         ) : (
           <form className="chat-composer" onSubmit={submitMessage}>
-            <button 
-              type="button" 
-              disabled={!isVerified} 
-              onClick={() => fileInputRef.current?.click()} 
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
               style={{
                 background: 'transparent',
                 border: 0,
-                color: isVerified ? 'var(--soft)' : 'rgba(255,255,255,0.1)',
-                cursor: isVerified ? 'pointer' : 'default',
+                color: 'var(--soft)',
+                cursor: 'pointer',
                 padding: '0 8px',
                 display: 'flex',
                 alignItems: 'center',
@@ -4205,8 +4583,8 @@ function ChatConversationPage({ appState, resolvedChats = [], resolvedMembers = 
               accept="image/*" 
               style={{ display: 'none' }} 
             />
-            <input value={draft} disabled={!isVerified} onChange={handleInputChange} placeholder={isVerified ? 'Write a message...' : 'Verify voice to send messages'} />
-            <button className="btn-main" type="submit" disabled={!isVerified || !draft.trim()} aria-label="Send message"><Send /></button>
+            <input value={draft} onChange={handleInputChange} placeholder="Write a message..." />
+            <button className="btn-main" type="submit" disabled={!draft.trim()} aria-label="Send message"><Send /></button>
           </form>
         )}
       </section>
@@ -4566,7 +4944,273 @@ function HostEventPage({ navigate, onCreateEvent }) {
   );
 }
 
-function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick, navigate, currentUserId }) {
+// --- INSTANT PLANS LOUNGE ---
+function InstantPlansLounge({ appState, onApiCall, navigate }) {
+  const [creatorOpen, setCreatorOpen] = React.useState(false);
+  const [newPlan, setNewPlan] = React.useState({
+    title: '',
+    activity: 'Coffee Meetup',
+    time: 'Tonight at 8 PM',
+    outingAt: '',
+    location: 'Bandra Brew Room',
+    capacity: 4
+  });
+
+  const activePlans = appState?.instantPlans || [];
+
+  // Joining/creating a plan enrolls you in its private group chat. The slug is
+  // deterministic ('plan-<id>'), so we can jump straight into the conversation
+  // without reading a slug back from the server.
+  async function handleJoin(planId) {
+    const slug = `plan-${planId}`;
+    const res = await onApiCall(`/api/instant-plans/${planId}/join`, { method: 'POST' });
+    // Only redirect once the server confirms the private group chat exists in the
+    // returned state. A capacity-reached / failed join leaves no chat, so we must
+    // NOT navigate into a non-existent slug (which would otherwise show empty).
+    const joined = (res?.chats || []).some(c => c.slug === slug);
+    if (joined) {
+      navigate?.(`/chat/${slug}`);
+    } else {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Could not join this plan — it may be full.' }));
+    }
+  }
+
+  async function handleLeave(planId) {
+    await onApiCall(`/api/instant-plans/${planId}/join`, { method: 'DELETE' });
+  }
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    if (!newPlan.title.trim()) return;
+    // outingAt (a datetime-local value) drives the 24h group-chat TTL on the
+    // server; `time` stays as the casual human-readable label.
+    const payload = { ...newPlan };
+    if (payload.outingAt) {
+      const ms = Date.parse(payload.outingAt);
+      payload.outingAt = Number.isNaN(ms) ? '' : new Date(ms).toISOString();
+    }
+    const res = await onApiCall('/api/instant-plans', { method: 'POST', body: JSON.stringify({ plan: payload }) });
+    const createdTitle = payload.title.trim();
+    setNewPlan({
+      title: '',
+      activity: 'Coffee Meetup',
+      time: 'Tonight at 8 PM',
+      outingAt: '',
+      location: 'Bandra Brew Room',
+      capacity: 4
+    });
+    setCreatorOpen(false);
+    // Drop the host straight into the freshly-spun-up group chat. onApiCall
+    // returns the merged app state (not the raw {planId}), so find the new plan
+    // by title + creator and route via its deterministic slug ('plan-<id>').
+    const myId = appState?.profile?.user_id || appState?.profile?.id;
+    const mine = (res?.instantPlans || []).find(p => p.title === createdTitle && p.creatorId === myId);
+    if (mine) navigate?.(`/chat/plan-${mine.id}`);
+  }
+
+  return (
+    <div className="mt-8 rounded-[32px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+      <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4">
+        <div>
+          <span className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">Instant Outings</span>
+          <h3 className="font-['Outfit'] text-2xl font-black text-white mt-1">Immediate Outing Plans</h3>
+        </div>
+        <button
+          onClick={() => setCreatorOpen(prev => !prev)}
+          className="inline-flex h-9 items-center justify-center rounded-xl bg-gradient-to-r from-cyan-400 to-[#9b30ff] px-4 text-xs font-black uppercase tracking-wider text-white shadow-[0_4px_12px_rgba(0,215,245,0.2)] transition active:scale-95 hover:brightness-105"
+        >
+          {creatorOpen ? 'Close Form' : 'Propose Plan 🚀'}
+        </button>
+      </div>
+
+      {creatorOpen && (
+        <form onSubmit={handleCreate} className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
+          <h4 className="font-['Outfit'] text-sm font-black text-white uppercase tracking-wider">Bespoke Outing Proposal</h4>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Activity</span>
+              <select 
+                value={newPlan.activity}
+                onChange={(e) => setNewPlan(prev => ({ ...prev, activity: e.target.value }))}
+                className="h-10 w-full rounded-xl bg-[#120f18] border border-white/10 text-white text-xs font-semibold px-3 outline-none"
+              >
+                {['Coffee Meetup', 'Movie Tonight', 'Road Trip', 'Pickleball Match', 'Night Out'].map(act => (
+                  <option key={act} value={act}>{act}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Catchphrase</span>
+              <input 
+                type="text"
+                placeholder="e.g. Flat white & indie bookstore chat"
+                value={newPlan.title}
+                onChange={(e) => setNewPlan(prev => ({ ...prev, title: e.target.value }))}
+                className="h-10 w-full rounded-xl bg-white/[0.03] border border-white/10 text-white text-xs font-semibold px-3 outline-none focus:border-cyan-300/30"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Time</span>
+              <input
+                type="text"
+                placeholder="e.g. Tonight after 8:30"
+                value={newPlan.time}
+                onChange={(e) => setNewPlan(prev => ({ ...prev, time: e.target.value }))}
+                className="h-10 w-full rounded-xl bg-white/[0.03] border border-white/10 text-white text-xs font-semibold px-3 outline-none focus:border-cyan-300/30"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Start (sets 24h chat expiry)</span>
+              <input
+                type="datetime-local"
+                value={newPlan.outingAt}
+                onChange={(e) => setNewPlan(prev => ({ ...prev, outingAt: e.target.value }))}
+                className="h-10 w-full rounded-xl bg-white/[0.03] border border-white/10 text-white text-xs font-semibold px-3 outline-none focus:border-cyan-300/30"
+              />
+              <span className="block text-[8.5px] text-white/30 mt-0.5">The group chat self-destructs 24h after this time. Defaults to 24h from now if left blank.</span>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Lounge / Spot Location</span>
+              <input 
+                type="text"
+                placeholder="e.g. Subko Bandra West"
+                value={newPlan.location}
+                onChange={(e) => setNewPlan(prev => ({ ...prev, location: e.target.value }))}
+                className="h-10 w-full rounded-xl bg-white/[0.03] border border-white/10 text-white text-xs font-semibold px-3 outline-none focus:border-cyan-300/30"
+              />
+            </div>
+
+            <div className="space-y-1 sm:col-span-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Capacity (Size Limit)</span>
+                <span className="text-[10px] font-mono text-cyan-300 font-bold">{newPlan.capacity} seats</span>
+              </div>
+              <input 
+                type="range"
+                min="2"
+                max="12"
+                value={newPlan.capacity}
+                onChange={(e) => setNewPlan(prev => ({ ...prev, capacity: Number(e.target.value) }))}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400 mt-2"
+              />
+            </div>
+          </div>
+
+          <button 
+            type="submit"
+            className="w-full flex min-h-[38px] items-center justify-center rounded-xl bg-gradient-to-r from-cyan-400 to-[#ff2e93] text-xs font-black uppercase tracking-wider text-white shadow-lg active:scale-95"
+          >
+            Broadcast Proposal 📡
+          </button>
+        </form>
+      )}
+
+      {/* Plans feed */}
+      {activePlans.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center bg-black/10">
+          <CalendarCheck className="mx-auto h-8 w-8 text-white/20 animate-bounce" />
+          <h4 className="mt-3 font-semibold text-sm text-white/60">No Instant Plans Tonight</h4>
+          <p className="text-xs text-white/40 max-w-xs mx-auto mt-1">Be the first to propose a movie, coffee mixer, road trip, or night out tonight!</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {activePlans.map(plan => {
+            const hasJoined = plan.members.some(m => m.id === appState?.profile?.user_id || m.id === appState?.profile?.id);
+            const isCreator = plan.creatorId === appState?.profile?.user_id || plan.creatorId === appState?.profile?.id;
+            
+            return (
+              <div 
+                key={plan.id}
+                className="rounded-2xl border border-white/5 bg-white/[0.015] hover:border-white/10 hover:bg-white/[0.025] transition duration-300 p-4 flex flex-col justify-between"
+              >
+                <div className="flex justify-between items-start gap-4">
+                  <div>
+                    <span className="inline-flex rounded-lg bg-cyan-900/30 border border-cyan-400/20 px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-cyan-200">
+                      {plan.activity}
+                    </span>
+                    {plan.score > 50 && (
+                      <span className="ml-2 inline-flex rounded-lg bg-purple-900/30 border border-purple-400/20 px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-purple-200">
+                        Match Score {plan.score}%
+                      </span>
+                    )}
+                    <h4 className="font-['Outfit'] text-base font-black text-white mt-1.5 leading-tight">{plan.title}</h4>
+                    <p className="text-[11px] text-white/60 font-semibold mt-1 flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-cyan-300 shrink-0" /> {plan.time} • <MapPin className="h-3.5 w-3.5 text-fuchsia-300 shrink-0" /> {plan.location}
+                    </p>
+                  </div>
+
+                  {/* Creator detail */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right">
+                      <p className="text-[9px] font-black uppercase tracking-wider text-white/30">Host</p>
+                      <p className="text-[10px] font-bold text-white/70 leading-none mt-0.5">{plan.creatorName}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-full border border-white/10 overflow-hidden bg-white/[0.04] flex items-center justify-center font-['Outfit'] text-xs font-black">
+                      {plan.creatorAvatar ? <img src={plan.creatorAvatar} alt="" className="h-full w-full object-cover" /> : plan.creatorName.slice(0, 1)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-explanations if match score is high */}
+                {plan.explanations && plan.explanations.length > 0 && (
+                  <div className="mt-2.5 rounded-lg bg-white/[0.02] p-2 flex items-center gap-1.5 text-[9px] font-bold text-[#ff2e93]">
+                    <span>✓</span> <span>{plan.explanations[0]}</span>
+                  </div>
+                )}
+
+                {/* Attending checklist and join action */}
+                <div className="mt-4 pt-3.5 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-white/30">Seat Count</span>
+                    <span className="text-xs text-white font-black">{plan.attendeeCount} / {plan.capacity} joined</span>
+                    
+                    {/* Tiny member avatars */}
+                    <div className="flex -space-x-1.5 ml-2">
+                      {plan.members.map((m, idx) => (
+                        <div key={idx} className="w-5 h-5 rounded-full border border-[#08060d] overflow-hidden bg-white/[0.04] shrink-0" title={m.fullName}>
+                          {m.avatarUrl ? <img src={m.avatarUrl} alt="" className="h-full w-full object-cover" /> : <div className="h-full w-full flex items-center justify-center text-[7px] font-black uppercase">{m.fullName.slice(0, 1)}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {isCreator ? (
+                    <span className="inline-flex min-h-[30px] px-3.5 items-center justify-center gap-1.5 rounded-lg border border-cyan-400/20 bg-cyan-950/20 text-cyan-300 text-[10px] font-black uppercase tracking-wider">
+                      ★ Hosting Outing
+                    </span>
+                  ) : hasJoined ? (
+                    <button
+                      onClick={() => handleLeave(plan.id)}
+                      className="inline-flex min-h-[30px] px-3.5 items-center justify-center rounded-lg border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/15 text-rose-300 text-[10px] font-black uppercase tracking-wider transition active:scale-95"
+                    >
+                      Leave Plan ✖
+                    </button>
+                  ) : plan.attendeeCount >= plan.capacity ? (
+                    <span className="text-[10px] font-black uppercase tracking-wider text-white/30">Lounge Full</span>
+                  ) : (
+                    <button
+                      onClick={() => handleJoin(plan.id)}
+                      className="inline-flex min-h-[30px] px-3.5 items-center justify-center rounded-lg bg-white hover:bg-white/90 text-[#050506] text-[10px] font-black uppercase tracking-wider transition active:scale-95 shadow-[0_4px_12px_rgba(255,255,255,0.1)]"
+                    >
+                      Join Instantly ⚡
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick, navigate, currentUserId, onApiCall }) {
   const [filter, setFilter] = React.useState('all'); // 'all', 'plans', 'mixers', 'invite'
   const [query, setQuery] = React.useState('');
   const [threeLoaded, setThreeLoaded] = React.useState(false);
@@ -4817,6 +5461,7 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
     if (filter === 'plans') targetColor = 0x25d366;
     if (filter === 'mixers') targetColor = 0xff2e93;
     if (filter === 'invite') targetColor = 0x00d7f5;
+    if (filter === 'instant') targetColor = 0xff5500;
 
     if (window.gsap) {
       window.gsap.to(torus.material.color, {
@@ -4964,26 +5609,31 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
         </label>
 
         {/* Tab Filters */}
-        <div style={{
+        <div className="no-scrollbar" style={{
           display: 'flex',
           background: 'rgba(255, 255, 255, 0.02)',
           border: '1px solid rgba(255, 255, 255, 0.04)',
           borderRadius: '12px',
           padding: '3px',
-          width: '100%'
+          width: '100%',
+          overflowX: 'auto',
+          gap: '4px',
+          WebkitOverflowScrolling: 'touch'
         }}>
           <button 
             onClick={() => setFilter('all')}
             style={{
               flex: 1,
+              flexShrink: 0,
               background: filter === 'all' ? 'linear-gradient(135deg, rgba(155, 48, 255, 0.15), rgba(255, 46, 147, 0.15))' : 'transparent',
               border: filter === 'all' ? '1px solid rgba(155, 48, 255, 0.2)' : '1px solid transparent',
               borderRadius: '9px',
               color: filter === 'all' ? '#fff' : 'var(--muted)',
-              padding: '6px 4px',
+              padding: '6px 12px',
               fontSize: '0.76rem',
               fontWeight: 'bold',
-              transition: 'all 0.3s ease'
+              transition: 'all 0.3s ease',
+              whiteSpace: 'nowrap'
             }}
           >
             All Scheduled ({allEvents.length})
@@ -4992,14 +5642,16 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
             onClick={() => setFilter('plans')}
             style={{
               flex: 1,
+              flexShrink: 0,
               background: filter === 'plans' ? 'linear-gradient(135deg, rgba(37, 211, 102, 0.14), rgba(0, 215, 245, 0.1))' : 'transparent',
               border: filter === 'plans' ? '1px solid rgba(37, 211, 102, 0.2)' : '1px solid transparent',
               borderRadius: '9px',
               color: filter === 'plans' ? '#fff' : 'var(--muted)',
-              padding: '6px 4px',
+              padding: '6px 12px',
               fontSize: '0.76rem',
               fontWeight: 'bold',
-              transition: 'all 0.3s ease'
+              transition: 'all 0.3s ease',
+              whiteSpace: 'nowrap'
             }}
           >
             Plans ({hostedEvents.length})
@@ -5008,14 +5660,16 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
             onClick={() => setFilter('mixers')}
             style={{
               flex: 1,
+              flexShrink: 0,
               background: filter === 'mixers' ? 'linear-gradient(135deg, rgba(255, 46, 147, 0.15), rgba(155, 48, 255, 0.15))' : 'transparent',
               border: filter === 'mixers' ? '1px solid rgba(255, 46, 147, 0.2)' : '1px solid transparent',
               borderRadius: '9px',
               color: filter === 'mixers' ? '#fff' : 'var(--muted)',
-              padding: '6px 4px',
+              padding: '6px 12px',
               fontSize: '0.76rem',
               fontWeight: 'bold',
-              transition: 'all 0.3s ease'
+              transition: 'all 0.3s ease',
+              whiteSpace: 'nowrap'
             }}
           >
             Social Mixers
@@ -5024,45 +5678,71 @@ function EventsPage({ appState, resolvedEvents = [], onToggleRsvp, onReviewClick
             onClick={() => setFilter('invite')}
             style={{
               flex: 1,
+              flexShrink: 0,
               background: filter === 'invite' ? 'linear-gradient(135deg, rgba(0, 215, 245, 0.12), rgba(155, 48, 255, 0.12))' : 'transparent',
               border: filter === 'invite' ? '1px solid rgba(0, 215, 245, 0.2)' : '1px solid transparent',
               borderRadius: '9px',
               color: filter === 'invite' ? '#fff' : 'var(--muted)',
-              padding: '6px 4px',
+              padding: '6px 12px',
               fontSize: '0.76rem',
               fontWeight: 'bold',
-              transition: 'all 0.3s ease'
+              transition: 'all 0.3s ease',
+              whiteSpace: 'nowrap'
             }}
           >
             VIP Exclusive
           </button>
+          <button 
+            onClick={() => setFilter('instant')}
+            style={{
+              flex: 1,
+              flexShrink: 0,
+              background: filter === 'instant' ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(217, 70, 239, 0.15))' : 'transparent',
+              border: filter === 'instant' ? '1px solid rgba(6, 182, 212, 0.25)' : '1px solid transparent',
+              borderRadius: '9px',
+              color: filter === 'instant' ? '#fff' : 'var(--muted)',
+              padding: '6px 12px',
+              fontSize: '0.76rem',
+              fontWeight: 'bold',
+              transition: 'all 0.3s ease',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Immediate Plans ({appState?.instantPlans?.length || 0})
+          </button>
         </div>
       </div>
 
-      {/* Staggered Event Grid */}
-      <div className="event-grid" style={{ minHeight: '300px' }}>
-        {filteredEvents.map(event => (
-          <div key={event.id} className="gsap-event-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <EventCard
-              event={event}
-              isRsvped={Boolean(appState.rsvps[event.id])}
-              onToggleRsvp={onToggleRsvp}
-              onReviewClick={onReviewClick}
-              currentUserId={currentUserId}
-              navigate={navigate}
-            />
+      {filter === 'instant' ? (
+        <InstantPlansLounge appState={appState} onApiCall={onApiCall} navigate={navigate} />
+      ) : (
+        <>
+          {/* Staggered Event Grid */}
+          <div className="event-grid" style={{ minHeight: '300px' }}>
+            {filteredEvents.map(event => (
+              <div key={event.id} className="gsap-event-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <EventCard
+                  event={event}
+                  isRsvped={Boolean(appState.rsvps[event.id])}
+                  onToggleRsvp={onToggleRsvp}
+                  onReviewClick={onReviewClick}
+                  currentUserId={currentUserId}
+                  navigate={navigate}
+                />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {filteredEvents.length === 0 && (
-        <EmptyState
-          type="events"
-          title="No events found"
-          description="Try searching another term, or switch categories to explore active scheduled mixers."
-          actionText="Host Your Outing"
-          onAction={() => navigate('/host')}
-        />
+          {filteredEvents.length === 0 && (
+            <EmptyState
+              type="events"
+              title="No events found"
+              description="Try searching another term, or switch categories to explore active scheduled mixers."
+              actionText="Host Your Outing"
+              onAction={() => navigate('/host')}
+            />
+          )}
+        </>
       )}
     </section>
   );
@@ -5654,9 +6334,12 @@ function ProfilePage({ initialProfile, appState, onSave, onToggleRsvp, navigate 
             <select value={profile.city} onChange={event => update('city', event.target.value)}>
               <option value="">Select city</option>
               <option>Mumbai</option>
-              <option>Delhi NCR</option>
+              <option>Delhi</option>
               <option>Bangalore</option>
               <option>Pune</option>
+              <option>Hyderabad</option>
+              <option>Ahmedabad</option>
+              <option>Chennai</option>
               <option>Goa</option>
             </select>
           </Field>
@@ -5723,16 +6406,58 @@ function Field({ label, error, children }) {
 
 // ============ VIBE CHECK SEND PAGE ============
 // Voice recording screen for sending a vibe check to a specific user.
-function VibeCheckSendPage({ route, navigate, appState }) {
+function VibeCheckSendPage({ route, navigate, appState, resolvedMembers = [] }) {
   const userId = route.split('/').pop();
   const member = React.useMemo(() => {
-    const allMembers = appState?.discovery?.members || appState?.discovery || [];
+    // 1. Resolve from vibe checks inbox
     const fromInbox = (appState?.vibeChecks?.inbox || []).find(vc => vc.from?.id === userId)?.from;
-    if (fromInbox) return { id: userId, name: fromInbox.name, age: fromInbox.age, city: fromInbox.city, avatar: fromInbox.avatar, photos: fromInbox.photos, gradient: fromInbox.gradient };
-    const fromMembers = allMembers.find(m => m.id === userId);
-    if (fromMembers) return fromMembers;
+    if (fromInbox) {
+      return {
+        id: userId,
+        name: fromInbox.name,
+        age: fromInbox.age,
+        city: fromInbox.city,
+        avatar: fromInbox.avatar,
+        photos: fromInbox.photos,
+        gradient: fromInbox.gradient,
+        verification_level: fromInbox.verification_level || 'none'
+      };
+    }
+
+    // 2. Resolve from globally loaded resolvedMembers list
+    const fromResolved = (resolvedMembers || []).find(m => m.id === userId);
+    if (fromResolved) return fromResolved;
+
+    // 3. Resolve from discovery feeds
+    if (appState?.discovery) {
+      if (Array.isArray(appState.discovery)) {
+        const found = appState.discovery.find(m => m.id === userId);
+        if (found) return found;
+      } else {
+        const feeds = ['topMatches', 'nearYou', 'similarVibes', 'activeMembers', 'newMembers', 'trendingMembers', 'highlyCompatible', 'mostReliable', 'recentlyAttended', 'verifiedMembers'];
+        for (const feed of feeds) {
+          const feedList = appState.discovery[feed] || [];
+          const foundItem = feedList.find(item => item.id === userId);
+          if (foundItem) {
+            const p = foundItem.profile || {};
+            return {
+              id: foundItem.id,
+              name: p.fullName || foundItem.name || 'Someone',
+              age: p.age || foundItem.age || '',
+              city: p.city || foundItem.city || '',
+              avatar: (p.fullName || foundItem.name || 'Someone').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+              photos: p.photos || (p.photo ? [p.photo] : []),
+              gradient: foundItem.gradient || 'pink',
+              verification_level: p.verification_level || 'none'
+            };
+          }
+        }
+      }
+    }
+
+    // 4. Fallback
     return { id: userId, name: 'Someone', avatar: 'S', gradient: 'pink' };
-  }, [userId, appState]);
+  }, [userId, appState, resolvedMembers]);
 
   const [recordingState, setRecordingState] = React.useState('idle'); // idle | recording | preview | sending
   const [duration, setDuration] = React.useState(0);
@@ -5841,84 +6566,128 @@ function VibeCheckSendPage({ route, navigate, appState }) {
 
   const formatTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-  const photoUrl = member.photos?.[0] || member.photo;
-
+  // The send experience IS the chat screen, but locked: text input is disabled
+  // and the only way to start a conversation is to record a voice note (the
+  // Vibe Check). Mirrors ChatConversationPage's layout so it reads as the same
+  // surface, pre-acceptance.
   return (
-    <section className="page-shell vc-send-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '3rem' }}>
-      <button className="vibe-secondary" style={{ alignSelf: 'flex-start', marginBottom: '1rem' }} onClick={() => { window.history.back(); window.setTimeout(() => navigate('/members'), 100); }}>
-        ← Back
-      </button>
-
-      <div className="vc-send-avatar">
-        {photoUrl ? <img src={photoUrl} alt="" /> : <div className="vc-send-avatar-fallback">{member.avatar || 'S'}</div>}
-      </div>
-      <h2 className="vc-send-name">{member.name}{member.age ? `, ${member.age}` : ''}</h2>
-      <p className="vc-send-city">{member.city || ''}</p>
-
-      <div className="vc-recorder-card">
-        {recordingState === 'idle' && (
-          <div className="vc-idle-state">
-            <div className="vc-mic-icon-wrap">
-              <Mic style={{ width: 40, height: 40 }} />
-            </div>
-            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', textAlign: 'center', margin: '1rem 0' }}>
-              Record a voice message (max 30 seconds)<br/>to introduce yourself and break the ice!
-            </p>
-            {dailyQuota && (
-              <small style={{ color: 'var(--soft)', display: 'block', textAlign: 'center', marginBottom: '1rem' }}>
-                {dailyQuota.remaining} of {dailyQuota.total} vibe checks remaining today
-              </small>
-            )}
-            <button className="vc-record-btn" onClick={startRecording} disabled={dailyQuota?.remaining === 0}>
-              <div className="vc-record-btn-inner">
-                <Mic style={{ width: 28, height: 28 }} />
-              </div>
-              <span>Tap to Record</span>
-            </button>
+    <section className="conversation-page">
+      <section className="chat-panel chat-detail">
+        <div className="chat-profile">
+          <button className="back-btn" onClick={() => navigate('/members')} aria-label="Back to people"><ArrowLeft /></button>
+          <div className="chat-profile-identity" style={{ background: 'transparent', border: 0, textAlign: 'left' }}>
+            <Avatar member={member} />
+            <span>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '5px', font: '800 1.15rem Outfit, sans-serif', color: '#fff' }}>
+                {member.name}{member.age ? `, ${member.age}` : ''}
+                {member.verification_level === 'highly_verified' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#fbbf24', flexShrink: 0 }} title="Highly Verified VIP Passport" />}
+                {member.verification_level === 'identity' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#22d3ee', flexShrink: 0 }} title="Identity Verified Selfie Check Complete" />}
+                {member.verification_level === 'basic' && <ShieldCheck style={{ width: '15px', height: '15px', color: '#3b82f6', flexShrink: 0 }} title="Basic Verified Phone Connected" />}
+              </h2>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.5)' }}>
+                <Mic style={{ width: 12, height: 12, color: 'var(--pink)' }} />
+                <span>Locked · voice intro required</span>
+                {member.city && <span>• {member.city}</span>}
+              </p>
+            </span>
           </div>
-        )}
-
-        {recordingState === 'recording' && (
-          <div className="vc-recording-state">
-            <div className="vc-pulse-dot" />
-            <span className="vc-timer">{formatTime(duration)} / 00:30</span>
-            <div className="vc-waveform-bar">
-              <div className="vc-waveform-fill" style={{ width: `${(duration / 30) * 100}%` }} />
-            </div>
-            <button className="vc-stop-btn" onClick={stopRecording}>
-              <Square style={{ width: 20, height: 20 }} /> Stop Recording
-            </button>
-          </div>
-        )}
-
-        {recordingState === 'preview' && (
-          <div className="vc-preview-state">
-            <p style={{ textAlign: 'center', color: 'var(--muted)', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
-              Preview your recording ({formatTime(duration)})
-            </p>
-            <audio ref={audioPreviewRef} src={audioUrl} controls style={{ width: '100%', borderRadius: 12, marginBottom: '1rem' }} />
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-              <button className="vibe-secondary" onClick={cancelPreview}>Record Again</button>
-              <button className="vc-send-btn" onClick={sendVibeCheck}>
-                <Send style={{ width: 18, height: 18 }} /> Send Vibe Check
-              </button>
-            </div>
-          </div>
-        )}
-
-        {recordingState === 'sending' && (
-          <div className="vc-sending-state">
-            <div className="vc-spinner" />
-            <p>Sending your Vibe Check...</p>
-          </div>
-        )}
-      </div>
-
-      {error && (
-        <div className="vc-error" style={{ color: 'var(--pink)', fontSize: '0.85rem', marginTop: '1rem', textAlign: 'center', maxWidth: 360 }}>
-          {error}
         </div>
-      )}
+
+        <div className="chat-note"><Sparkles /> Send a voice note to introduce yourself. Text chat unlocks only after {member.name} accepts.</div>
+
+        <div className="message-thread" style={{ display: 'flex', flexDirection: 'column' }}>
+          {recordingState === 'preview' && audioUrl ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignSelf: 'flex-end', maxWidth: 'min(520px, 88%)' }}>
+              <div className="message-bubble you" style={{ maxWidth: '100%', alignSelf: 'unset', padding: '8px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '220px' }}>
+                  <audio ref={audioPreviewRef} src={audioUrl} controls style={{ width: '100%', height: '36px', filter: 'invert(1)' }} />
+                </div>
+              </div>
+              <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', alignSelf: 'flex-end', marginTop: '2px' }}>Preview · {formatTime(duration)}</span>
+            </div>
+          ) : (
+            <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--muted)', maxWidth: 360, padding: '2rem 1rem' }}>
+              <div className="vc-mic-icon-wrap" style={{ margin: '0 auto 1rem' }}>
+                <Mic style={{ width: 34, height: 34 }} />
+              </div>
+              <p style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>
+                This chat is locked. Record a short voice note (max 30s) to break the ice — {member.name} will listen and decide whether to unlock the chat.
+              </p>
+              {dailyQuota && (
+                <small style={{ color: 'var(--soft)', display: 'block', marginTop: '0.85rem' }}>
+                  {dailyQuota.remaining} of {dailyQuota.total} vibe checks remaining today
+                </small>
+              )}
+            </div>
+          )}
+        </div>
+
+        {recordingState === 'recording' ? (
+          <div className="chat-composer recording-composer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '8px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="pulsing-red-dot" style={{ width: '10px', height: '10px', backgroundColor: '#ef4444', borderRadius: '50%', display: 'inline-block' }} />
+              <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 'bold' }}>Recording... {formatTime(duration)} / 00:30</span>
+            </div>
+            <button type="button" className="btn-main" onClick={stopRecording} style={{ background: '#ef4444', border: 0, padding: '6px 16px', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.86rem' }}>
+              <Square style={{ width: 14, height: 14, display: 'inline', verticalAlign: '-2px', marginRight: 4 }} /> Stop
+            </button>
+          </div>
+        ) : recordingState === 'preview' ? (
+          <div className="chat-composer" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button type="button" className="vibe-secondary" onClick={cancelPreview} style={{ flexShrink: 0 }}>Record again</button>
+            <button type="button" className="btn-main" onClick={sendVibeCheck} style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Send style={{ width: 18, height: 18 }} /> Send Vibe Check
+            </button>
+          </div>
+        ) : recordingState === 'sending' ? (
+          <div className="chat-composer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--muted)' }}>
+            <div className="vc-spinner" /> <span>Sending your Vibe Check…</span>
+          </div>
+        ) : (
+          <div className="chat-composer" style={{ flexDirection: 'column', gap: 10, alignItems: 'stretch' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                value=""
+                disabled
+                readOnly
+                inputMode="none"
+                tabIndex={-1}
+                placeholder="Send a voice note to introduce yourself. Text chat unlocks only after acceptance."
+                style={{ flex: 1, cursor: 'not-allowed' }}
+              />
+              <button className="btn-main" type="button" disabled aria-label="Send message" style={{ opacity: 0.4, cursor: 'not-allowed' }}><Send /></button>
+            </div>
+            <button
+              type="button"
+              onClick={startRecording}
+              disabled={dailyQuota?.remaining === 0}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                width: '100%', minHeight: 48, borderRadius: 14, border: 0, cursor: dailyQuota?.remaining === 0 ? 'not-allowed' : 'pointer',
+                background: dailyQuota?.remaining === 0 ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #ff2e93, #9b30ff)',
+                color: '#fff', font: '800 0.95rem Outfit, sans-serif', boxShadow: '0 8px 24px rgba(255,46,147,0.25)'
+              }}
+              aria-label="Record voice note"
+            >
+              <Mic style={{ width: 20, height: 20 }} /> Send Voice Note
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="vc-error" style={{ color: 'var(--pink)', fontSize: '0.85rem', padding: '0.5rem 1rem 1rem', textAlign: 'center' }}>
+            {error}
+          </div>
+        )}
+      </section>
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes pulsing-dot {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.3); opacity: 0.4; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .pulsing-red-dot { animation: pulsing-dot 1.2s infinite ease-in-out; }
+      `}} />
     </section>
   );
 }
@@ -6018,8 +6787,13 @@ function VibeCheckInboxPage({ appState, navigate }) {
                       <strong>{vc.from.name}{vc.from.age ? `, ${vc.from.age}` : ''}</strong>
                       <span>{vc.from.city || ''}</span>
                     </div>
-                    <small style={{ color: 'var(--muted)' }}>
-                      {vc.voiceDuration ? `${vc.voiceDuration}s voice intro` : 'Voice intro'} · {formatInboxTime(vc.createdAt)}
+                    <small style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span>{vc.voiceDuration ? `${vc.voiceDuration}s voice intro` : 'Voice intro'} · {formatInboxTime(vc.createdAt)}</span>
+                      {typeof vc.from.trustScore === 'number' && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#22d3ee', fontWeight: 700 }}>
+                          <ShieldCheck style={{ width: 12, height: 12 }} /> Trust {Math.round(vc.from.trustScore)}%
+                        </span>
+                      )}
                     </small>
                   </div>
                 </div>
@@ -6069,7 +6843,7 @@ function VibeCheckInboxPage({ appState, navigate }) {
                     disabled={busyId === vc.id}
                     onClick={() => act(vc.id, 'decline')}
                   >
-                    Pass
+                    Reject
                   </button>
                 </div>
               </div>
@@ -6081,7 +6855,7 @@ function VibeCheckInboxPage({ appState, navigate }) {
   );
 }
 
-function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
+function VibeRequestModal({ member, requested, onClose, navigate }) {
   const handleSendVibeCheck = () => {
     onClose();
     navigate(`/vibe-check/send/${member.id}`);
@@ -6102,9 +6876,9 @@ function VibeRequestModal({ member, requested, onClose, onSend, navigate }) {
         <div className="vibe-sheet-head">
           <Avatar member={member} />
           <div>
-            <span>{requested ? 'Request queued' : 'Verified intro'}</span>
-            <h2>{requested ? 'Vibe Check Sent' : `Connect with ${member.name}`}</h2>
-            <p>{requested ? 'Your vibe check is already pending.' : 'Send a voice note to connect. Chat unlocks after they accept.'}</p>
+            <span>{requested ? 'Vibe check pending' : 'Voice intro'}</span>
+            <h2>{requested ? 'Vibe Check Sent' : `Send ${member.name} a Vibe Check`}</h2>
+            <p>{requested ? 'Your voice intro is already pending.' : 'Record a voice note to introduce yourself. Chat unlocks only after they accept.'}</p>
           </div>
         </div>
 

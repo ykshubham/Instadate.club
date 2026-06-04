@@ -72,24 +72,26 @@ test.describe('connection flow', () => {
       await connection.openVibeRequestModalFromProfile();
       await connection.sendVibeRequest('Coffee this week? Loved your vibe.');
 
-      // UI confirmation: the request is recorded optimistically, so the vibe sheet
-      // flips to its "sent" state — heading "Vibe Check Sent" and a disabled
-      // "Already Sent" button. (The success toast is intentionally NOT asserted: it
-      // auto-dismisses in ~2.4s and, under the known state-assembly 500, the app may
-      // show the offline/degraded fallback toast instead — both are too transient to
-      // assert reliably. The stable sheet state + the persisted-effect check below
-      // are the durable signals.)
+      // Record and send the voice note
+      await connection.recordAndSendVoiceNote();
+
+      // Reopen modal to verify it shows the sent state
+      await connection.openMemberProfileByName(uniqueName);
+      await connection.openVibeRequestModalFromProfile();
+
       await expect(connection.vibeAlreadySentButton()).toBeVisible();
+      await expect(connection.vibeAlreadySentButton()).toBeDisabled();
       await expect(connection.vibeSheet().getByRole('heading', { name: /vibe check sent/i }))
         .toBeVisible();
 
-      // Real outcome: the target now has a pending request from the seeded member
-      // (canonical read path, unaffected by the state-assembly bug).
+      // Real outcome: the target now has a pending vibe check from the seeded member
+      // (canonical read path).
       await expect
         .poll(async () => {
-          const r = await ctxT.request.get('/api/connections/requests');
-          const requests = (await r.json()).requests as Array<{ from?: { id?: string } }>;
-          return requests.some(req => Boolean(req.from?.id));
+          const r = await ctxT.request.get('/api/vibe-checks/inbox');
+          const data = await r.json();
+          const list = (data.vibeChecks || []) as Array<{ from?: { id?: string } }>;
+          return list.some(item => Boolean(item.from?.id));
         })
         .toBe(true);
     } finally {
@@ -114,39 +116,57 @@ test.describe('connection flow', () => {
     try {
       const { userId: peerBId } = await otpLogin(ctxB.request);
       await completeProfileViaApi(ctxB.request);
-
-      // A note unique to this run so we can pick B's card out of the inbox even if
-      // other fresh test users share the default display name ("E2E Tester").
-      const note = `connect-me-${Date.now()}`;
-      await ctxB.request.post('/api/connections/request', {
-        data: { toUserId: seededUserId, note }
+      
+      const uniqueName = `Btestpeer${String(Date.now()).slice(-7)}`;
+      await ctxB.request.patch('/api/profile', {
+        data: {
+          profile: {
+            fullName: uniqueName,
+            age: '27',
+            gender: 'female',
+            intent: 'Friendship',
+            city: 'Mumbai',
+            bio: 'Automated end-to-end test peer B.'
+          }
+        }
       });
-      // NOTE: this endpoint currently 500s for a freshly-created peer (the request
-      // row IS written, but assembling the response state throws — see report).
-      // So we assert the precondition through the canonical read path instead of
-      // trusting the POST status: the request must now be pending for the seeded user.
+
+      // Peer B sends a Vibe Check to the seeded user via the API:
+      const vcRes = await ctxB.request.post('/api/vibe-checks', {
+        multipart: {
+          toUserId: seededUserId,
+          duration: '10',
+          file: {
+            name: 'vibe-check.webm',
+            mimeType: 'audio/webm',
+            buffer: Buffer.from('dummy audio content')
+          }
+        }
+      });
+      expect(vcRes.ok()).toBeTruthy();
+
+      // Assert the vibe check is now pending for the seeded user.
       await expect
         .poll(async () => {
-          const r = await seededContext.request.get('/api/connections/requests');
-          const requests = (await r.json()).requests as Array<{ note: string }>;
-          return requests.some(req => req.note === note);
+          const r = await seededContext.request.get('/api/vibe-checks/inbox');
+          const data = await r.json();
+          const list = (data.vibeChecks || []) as Array<{ from?: { id?: string } }>;
+          return list.some(vc => vc.from?.id === peerBId);
         })
         .toBe(true);
 
       // Act in the seeded UI: open the requests inbox, find B's request, accept it.
       const connection = new ConnectionPage(seededPage);
+      await seededPage.goto('/');
       await connection.gotoRequests();
 
-      const card = connection.requestCardByName(note);
+      const card = connection.requestCardByName(uniqueName);
       await expect(card).toBeVisible();
-      await expect(card.getByText('E2E Tester')).toBeVisible();
+      await expect(card.getByText(uniqueName)).toBeVisible();
 
-      await connection.acceptRequestByName(note);
+      await connection.acceptRequestByName(uniqueName);
 
-      // The accept write succeeds server-side (the request flips to 'accepted' and a
-      // connection + chat are created). NOTE: the endpoint currently 500s while
-      // assembling the response (see report); the client only navigates to /chat on a
-      // 2xx, so we verify the outcome through the canonical read paths instead.
+      // The accept write succeeds server-side (connection created).
       await expect
         .poll(async () => {
           const conns = await seededContext.request.get('/api/connections');
@@ -157,7 +177,7 @@ test.describe('connection flow', () => {
 
       // And the request is no longer pending: a reloaded inbox shows the card gone.
       await connection.gotoRequests();
-      await expect(connection.requestCardByName(note)).toHaveCount(0);
+      await expect(connection.requestCardByName(uniqueName)).toHaveCount(0);
     } finally {
       await ctxB.close();
     }

@@ -43,7 +43,8 @@ import {
   getRecommendedEventsV2
 } from './services/events';
 import {
-  calculateCompatibilityV2
+  calculateCompatibilityV2,
+  extractWeekendTags
 } from './services/compatibility';
 import {
   getCoordinatesForCity
@@ -218,6 +219,7 @@ type ProfileDto = {
   weekendStatus: string;
   currentWeekendStatus?: string;
   weekendStatusUpdatedAt?: string;
+  weekendTags?: string[];
   bio: string;
   vibe: string;
   plan: string;
@@ -293,6 +295,24 @@ function withCors(response: Response) {
 
 function id(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+// Normalize a client-supplied date/time (e.g. an <input type="datetime-local">
+// value) to an ISO string, or null if absent/unparseable.
+function parseIsoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
+// Parse a timestamp that may be SQLite-style ("YYYY-MM-DD HH:MM:SS", UTC, no zone)
+// or a full ISO string ("…T…Z") into epoch millis (UTC). Returns 0 on junk.
+function tsMsUtc(s: string | null | undefined): number {
+  if (!s) return 0;
+  const str = String(s);
+  const norm = str.includes('T') ? str : str.replace(' ', 'T');
+  const zoned = /[zZ]|[+-]\d\d:?\d\d$/.test(norm) ? norm : `${norm}Z`;
+  return Date.parse(zoned) || 0;
 }
 
 async function readJson<T>(request: Request): Promise<T> {
@@ -377,6 +397,7 @@ function profileDto(row: Record<string, unknown> | null, photos: Array<Record<st
       return 'Coffee';
     })(),
     weekendStatusUpdatedAt: (row?.updated_at as string) || new Date().toISOString(),
+    weekendTags: extractWeekendTags((row?.weekend_status as string) || ''),
     bio: (row?.bio as string) || '',
     vibe: (row?.vibe as string) || '',
     plan: (row?.plan as string) || 'Instadate Plus',
@@ -536,11 +557,53 @@ async function getRecommendedEvents(db: D1Database, userId: string) {
 
 
 // --- INSTANT PLANS ---
+// Idempotently ensure a plan's private group chat exists, enrolling the given
+// user as a participant. Used by createInstantPlan AND joinInstantPlan so that
+// plans which predate the group-chat feature (or were seeded directly) still
+// spin up a chat on first join instead of silently dropping the member. Returns
+// the chat id. Deterministic ids/slug ('plan-<id>') let the client redirect
+// without reading a slug back from the server.
+async function ensurePlanGroupChat(db: D1Database, planId: string, userId: string): Promise<string> {
+  const chatId = `chat-plan-${planId}`;
+  const slug = `plan-${planId}`;
+
+  const existing = await db.prepare('SELECT id FROM chats WHERE instant_plan_id = ?').bind(planId).first<{ id: string }>();
+  if (!existing) {
+    // Pull the plan's display title (falls back to its activity) and creator so
+    // the new chat row is well-formed even when join — not create — births it.
+    const plan = await db.prepare(
+      'SELECT creator_user_id, title, activity FROM instant_plans WHERE id = ?'
+    ).bind(planId).first<{ creator_user_id: string; title: string; activity: string }>();
+    const chatTitle = (plan?.title || plan?.activity || 'Instant Plan');
+    await db.prepare(`
+      INSERT OR IGNORE INTO chats (id, slug, kind, title, instant_plan_id, participant_a_user_id)
+      VALUES (?, ?, 'group', ?, ?, ?)
+    `).bind(chatId, slug, chatTitle, planId, plan?.creator_user_id || userId).run();
+
+    // System welcome line so the thread isn't blank on open.
+    await db.prepare(
+      "INSERT INTO chat_messages (id, chat_id, sender_user_id, sender_role, body) VALUES (?, ?, NULL, 'system', ?)"
+    ).bind(id('msg'), chatId, `Group chat for "${chatTitle}" is live. Say hi 👋`).run();
+  }
+
+  await db.prepare(
+    'INSERT OR IGNORE INTO chat_participants (chat_id, user_id) VALUES (?, ?)'
+  ).bind(chatId, userId).run();
+
+  return chatId;
+}
+
 async function createInstantPlan(db: D1Database, userId: string, plan: Record<string, any>) {
   const planId = id('plan');
+
+  // Real outing timestamp drives the 24h group-chat TTL. When the client doesn't
+  // supply one, fall back to "now + 24h" as the outing time so expiry stays sane.
+  const outingAt = parseIsoOrNull(plan.outingAt) || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.parse(outingAt) + 24 * 60 * 60 * 1000).toISOString();
+
   await db.prepare(`
-    INSERT INTO instant_plans (id, creator_user_id, title, activity, time, location, capacity)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO instant_plans (id, creator_user_id, title, activity, time, location, capacity, outing_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     planId,
     userId,
@@ -548,12 +611,18 @@ async function createInstantPlan(db: D1Database, userId: string, plan: Record<st
     plan.activity || 'Coffee Meetup',
     plan.time || 'Tonight',
     plan.location || 'Cafe',
-    Number(plan.capacity || 5)
+    Number(plan.capacity || 5),
+    outingAt,
+    expiresAt
   ).run();
 
   await db.prepare(`
     INSERT INTO instant_plan_members (plan_id, user_id) VALUES (?, ?)
   `).bind(planId, userId).run();
+
+  // Spin up the plan's private group chat and enroll the creator (idempotent;
+  // shared with the join path so seeded/legacy plans heal on first join).
+  await ensurePlanGroupChat(db, planId, userId);
 
   return planId;
 }
@@ -574,6 +643,11 @@ async function joinInstantPlan(db: D1Database, userId: string, planId: string) {
     INSERT OR IGNORE INTO instant_plan_members (plan_id, user_id) VALUES (?, ?)
   `).bind(planId, userId).run();
 
+  // Mirror the membership into the plan's group chat so the user gets access.
+  // Self-healing: if the chat doesn't exist yet (seeded/legacy plans created
+  // before the group-chat feature), this creates it and enrolls the user.
+  await ensurePlanGroupChat(db, planId, userId);
+
   return null;
 }
 
@@ -581,6 +655,40 @@ async function leaveInstantPlan(db: D1Database, userId: string, planId: string) 
   await db.prepare(`
     DELETE FROM instant_plan_members WHERE plan_id = ? AND user_id = ?
   `).bind(planId, userId).run();
+
+  // Remove them from the group chat too — leaving the plan leaves the group.
+  const chat = await db.prepare('SELECT id FROM chats WHERE instant_plan_id = ?').bind(planId).first<{ id: string }>();
+  if (chat) {
+    await db.prepare(
+      'DELETE FROM chat_participants WHERE chat_id = ? AND user_id = ?'
+    ).bind(chat.id, userId).run();
+  }
+}
+
+// Unified chat-access check covering both 1:1 (participant_a/b) and group chats
+// (chat_participants membership + not-expired). Returns the chat row and whether
+// the caller may read/send. Used by the WS, read, since, and attachment routes.
+async function resolveChatAccess(db: D1Database, slug: string, userId: string): Promise<{ chat: Record<string, any> | null; allowed: boolean }> {
+  const chat = await db.prepare(
+    `SELECT c.id, c.kind, c.instant_plan_id, c.participant_a_user_id, c.participant_b_user_id, ip.expires_at
+       FROM chats c
+       LEFT JOIN instant_plans ip ON ip.id = c.instant_plan_id
+      WHERE c.slug = ?`
+  ).bind(slug).first<Record<string, any>>();
+  if (!chat) return { chat: null, allowed: false };
+
+  if (chat.kind === 'group') {
+    const exp = tsMsUtc(chat.expires_at);
+    if (exp && exp < Date.now()) {
+      return { chat, allowed: false };
+    }
+    const member = await db.prepare(
+      'SELECT 1 FROM chat_participants WHERE chat_id = ? AND user_id = ?'
+    ).bind(chat.id, userId).first();
+    return { chat, allowed: Boolean(member) };
+  }
+
+  return { chat, allowed: userId === chat.participant_a_user_id || userId === chat.participant_b_user_id };
 }
 
 async function getInstantPlans(db: D1Database, userId: string) {
@@ -737,9 +845,11 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
      LEFT JOIN users u ON u.id = e.host_user_id
      LEFT JOIN event_attendees ea ON ea.event_id = e.id
      WHERE e.deleted_at IS NULL AND e.moderation_status = 'active'
+       AND e.host_user_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = ?1)
+       AND e.host_user_id NOT IN (SELECT user_id FROM user_blocks WHERE blocked_user_id = ?1)
      GROUP BY e.id
      ORDER BY e.created_at DESC`
-  ).all<Record<string, unknown>>();
+  ).bind(userId).all<Record<string, unknown>>();
 
   const enrichedHostedEvents: any[] = [];
   for (const row of events) {
@@ -889,6 +999,24 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     }
   ]));
 
+  const { results: vcRows } = await db.prepare(
+    `SELECT vc.to_user_id, vc.created_at, p.full_name
+     FROM vibe_checks vc
+     LEFT JOIN profiles p ON p.user_id = vc.to_user_id
+     WHERE vc.from_user_id = ? AND vc.status IN ('pending', 'listened')`
+  ).bind(userId).all<Record<string, unknown>>();
+
+  for (const row of vcRows) {
+    const targetId = row.to_user_id as string;
+    vibeRequests[targetId] = {
+      memberId: targetId,
+      memberName: (row.full_name as string) || 'Someone',
+      note: 'Voice Vibe Check',
+      sentAt: row.created_at as string
+    };
+  }
+
+
   const { results: chatRows } = await db.prepare(`
     SELECT c.*,
            CASE
@@ -900,19 +1028,27 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
              ELSE ua.id
            END as other_user_id,
            CASE
+             WHEN c.participant_a_user_id = ? THEN ub.avatar_url
+             ELSE ua.avatar_url
+           END as other_user_avatar,
+           CASE
              WHEN c.participant_a_user_id = ? THEN ub.last_active_at
              ELSE ua.last_active_at
            END as last_active_at
     FROM chats c
     LEFT JOIN users ua ON c.participant_a_user_id = ua.id
     LEFT JOIN users ub ON c.participant_b_user_id = ub.id
-    WHERE c.participant_a_user_id = ? OR c.participant_b_user_id = ?
+    WHERE c.kind = 'direct'
+      AND (c.participant_a_user_id = ? OR c.participant_b_user_id = ?)
+      AND c.participant_a_user_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = c.participant_b_user_id)
+      AND c.participant_b_user_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = c.participant_a_user_id)
     ORDER BY c.created_at ASC
-  `).bind(userId, userId, userId, userId, userId).all<Record<string, unknown>>();
+  `).bind(userId, userId, userId, userId, userId, userId).all<Record<string, unknown>>();
   const chatMessages: Record<string, Array<[string, string, string?, string?, string?]>> = {};
   const verifiedChats: Record<string, boolean> = {};
   const lastMessageAtBySlug: Record<string, string | null> = {};
   const unreadBySlug: Record<string, number> = {};
+  const photoBySlug: Record<string, string> = {};
 
   for (const chat of chatRows) {
     const { results: messages } = await db.prepare(`
@@ -945,6 +1081,14 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     );
 
     verifiedChats[chat.slug as string] = parseJson<string[]>(chat.verified_by_user_ids_json as string, []).includes(userId);
+
+    // Resolve the partner's display photo for the inbox/avatar: prefer their
+    // primary profile photo, then the next uploaded one, then their account
+    // (Google) avatar. Without this the chat object only carries initials.
+    const primaryPhoto = await db.prepare(
+      'SELECT url FROM profile_photos WHERE user_id = ? ORDER BY is_primary DESC, position ASC, created_at ASC LIMIT 1'
+    ).bind(chat.other_user_id).first<{ url: string }>();
+    photoBySlug[chat.slug as string] = primaryPhoto?.url || (chat.other_user_avatar as string) || '';
   }
 
   // 3. Find pending meetup reviews
@@ -987,28 +1131,104 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     }))
   };
 
-  const tsMs = (s: string | null | undefined) => {
-    if (!s) return 0;
-    const str = String(s);
-    const norm = str.includes('T') ? str : str.replace(' ', 'T');
-    const zoned = /[zZ]|[+-]\d\d:?\d\d$/.test(norm) ? norm : `${norm}Z`;
-    return Date.parse(zoned) || 0;
-  };
+  const tsMs = (s: string | null | undefined) => tsMsUtc(s);
 
-  const liveChats = chatRows.map(row => {
+  const directChats = chatRows.map(row => {
     const messages = chatMessages[row.slug as string] || [];
     return {
       id: row.id,
       slug: row.slug as string,
+      kind: 'direct',
       name: row.name as string || 'Unknown',
+      otherUserId: (row.other_user_id as string) || null,
       avatar: ((row.name as string) || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+      photo: photoBySlug[row.slug as string] || '',
+      photos: photoBySlug[row.slug as string] ? [photoBySlug[row.slug as string]] : [],
       gradient: 'cyan',
       messages,
       lastActiveAt: row.last_active_at as string || null,
       lastMessageAt: lastMessageAtBySlug[row.slug as string] || null,
       unreadCount: unreadBySlug[row.slug as string] || 0
     };
-  }).sort((a, b) => tsMs(b.lastMessageAt) - tsMs(a.lastMessageAt)); // most recent first
+  });
+
+  // --- INSTANT-PLAN GROUP CHATS (chat inbox "Plans" tab) ---
+  // Lazy TTL: purge plans whose group has passed its 24h window. FK cascades drop
+  // the chat, its members, and messages — no scheduled job required.
+  await db.prepare("DELETE FROM instant_plans WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP").run();
+
+  const { results: groupRows } = await db.prepare(`
+    SELECT c.id, c.slug, c.title, c.instant_plan_id, ip.capacity, ip.time AS plan_time, ip.location AS plan_location
+      FROM chat_participants cp
+      JOIN chats c ON c.id = cp.chat_id AND c.kind = 'group'
+      LEFT JOIN instant_plans ip ON ip.id = c.instant_plan_id
+     WHERE cp.user_id = ?
+     ORDER BY c.created_at DESC
+  `).bind(userId).all<Record<string, any>>();
+
+  const groupChats = [];
+  for (const row of groupRows) {
+    const chatId = row.id as string;
+    const slug = row.slug as string;
+
+    const { results: gmsgs } = await db.prepare(`
+      SELECT cm.sender_user_id, cm.sender_role, cm.body, cm.id AS message_id, cm.attachment_url, cm.created_at,
+             u.full_name AS sender_name,
+             (SELECT 1 FROM message_reads mr WHERE mr.message_id = cm.id AND mr.user_id = ?1) AS read_by_me
+        FROM chat_messages cm
+        LEFT JOIN users u ON u.id = cm.sender_user_id
+       WHERE cm.chat_id = ?2 AND cm.deleted_at IS NULL
+       ORDER BY cm.created_at ASC
+    `).bind(userId, chatId).all<Record<string, any>>();
+
+    // Group tuples carry a 6th element (sender name) the 1:1 UI safely ignores.
+    chatMessages[slug] = gmsgs.map(m => {
+      const role = m.sender_role === 'system'
+        ? 'system'
+        : (m.sender_user_id === userId ? 'you' : 'match');
+      return [role, m.body as string, 'sent', (m.message_id as string) || '', (m.attachment_url as string) || '', (m.sender_name as string) || ''];
+    }) as any;
+
+    lastMessageAtBySlug[slug] = gmsgs.length
+      ? (gmsgs[gmsgs.length - 1].created_at as string)
+      : null;
+    unreadBySlug[slug] = gmsgs.reduce(
+      (n, m) => n + ((m.sender_user_id && m.sender_user_id !== userId && !m.read_by_me) ? 1 : 0),
+      0
+    );
+
+    const { results: gmembers } = await db.prepare(`
+      SELECT u.id, u.full_name, u.avatar_url
+        FROM chat_participants cp
+        JOIN users u ON u.id = cp.user_id
+       WHERE cp.chat_id = ?
+    `).bind(chatId).all<{ id: string; full_name: string; avatar_url: string }>();
+
+    groupChats.push({
+      id: chatId,
+      slug,
+      kind: 'group',
+      name: (row.title as string) || 'Instant Plan',
+      otherUserId: null,
+      avatar: ((row.title as string) || 'PL').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+      photo: '',
+      photos: [],
+      gradient: 'violet',
+      planId: row.instant_plan_id as string,
+      planTime: (row.plan_time as string) || '',
+      planLocation: (row.plan_location as string) || '',
+      capacity: Number(row.capacity || 0),
+      seatCount: gmembers.length,
+      members: gmembers.map(m => ({ id: m.id, name: m.full_name, avatar: m.avatar_url })),
+      messages: chatMessages[slug] || [],
+      lastActiveAt: null,
+      lastMessageAt: lastMessageAtBySlug[slug] || null,
+      unreadCount: unreadBySlug[slug] || 0
+    });
+  }
+
+  const liveChats = [...directChats, ...groupChats]
+    .sort((a, b) => tsMs(b.lastMessageAt) - tsMs(a.lastMessageAt)); // most recent first
 
   const { results: outingRows } = await db.prepare(`
     SELECT mo.id, mo.status, mo.updated_at,
@@ -1019,7 +1239,9 @@ async function getState(db: D1Database, userId: string): Promise<AppState> {
     JOIN users u ON u.id = CASE WHEN mo.user_id_a = ?1 THEN mo.user_id_b ELSE mo.user_id_a END
     JOIN profiles p ON p.user_id = u.id
     LEFT JOIN trust_metrics tm ON tm.user_id = u.id
-    WHERE mo.user_id_a = ?1 OR mo.user_id_b = ?1
+    WHERE (mo.user_id_a = ?1 OR mo.user_id_b = ?1)
+      AND u.id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = ?1)
+      AND u.id NOT IN (SELECT user_id FROM user_blocks WHERE blocked_user_id = ?1)
     ORDER BY mo.updated_at DESC
   `).bind(userId).all<any>();
 
@@ -1226,7 +1448,7 @@ async function createEvent(db: D1Database, userId: string, event: Record<string,
       image, status, capacity, entry_type, price, approval_type, source,
       category, activity_type, approval_required, gender_ratio_preference, visibility,
       venue_name, formatted_address, latitude, longitude, place_id, place_provider
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     eventId,
     userId,
@@ -1264,6 +1486,14 @@ async function joinEvent(db: D1Database, userId: string, eventId: string) {
   await ensureUser(db, userId);
   const event = await db.prepare('SELECT capacity, is_closed, host_user_id, title FROM events WHERE id = ? AND deleted_at IS NULL').bind(eventId).first<{ capacity: number; is_closed: number; host_user_id: string; title: string }>();
   if (!event) return json({ error: 'Event not found' }, { status: 404 });
+  if (event.host_user_id) {
+    const blocked = await db.prepare(`
+      SELECT 1 FROM user_blocks 
+      WHERE (user_id = ?1 AND blocked_user_id = ?2) 
+         OR (user_id = ?2 AND blocked_user_id = ?1)
+    `).bind(userId, event.host_user_id).first<{ 1: number }>();
+    if (blocked) return json({ error: 'Event not found' }, { status: 404 });
+  }
   if (event.is_closed) return json({ error: 'Event is closed' }, { status: 409 });
 
   const countRow = await db.prepare(
@@ -1302,13 +1532,14 @@ async function createGoogleAuthUrl(request: Request, env: Env) {
 
   const url = new URL(request.url);
   const redirectTo = url.searchParams.get('redirectTo') || '/profile';
+  const platform = url.searchParams.get('platform') || 'web';
   const state = randomToken('state-');
   const codeVerifier = randomToken();
   const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
 
   await env.DB.prepare(
-    'INSERT INTO oauth_states (state, code_verifier, redirect_to, expires_at) VALUES (?, ?, ?, datetime(CURRENT_TIMESTAMP, ?))'
-  ).bind(state, codeVerifier, redirectTo, '+10 minutes').run();
+    'INSERT INTO oauth_states (state, code_verifier, redirect_to, platform, expires_at) VALUES (?, ?, ?, ?, datetime(CURRENT_TIMESTAMP, ?))'
+  ).bind(state, codeVerifier, redirectTo, platform, '+10 minutes').run();
 
   const callbackUrl = `${url.origin}/api/auth/google/callback`;
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -1523,6 +1754,24 @@ async function handleGoogleCallback(request: Request, env: Env) {
 
   const userId = await upsertGoogleUser(env.DB, googleProfile);
   const redirectTo = (oauthState.redirect_to as string) || '/profile';
+  const platform = (oauthState.platform as string) || 'web';
+
+  if (platform === 'capacitor') {
+    // Mobile app: Chrome Custom Tabs completed OAuth but the session cookie
+    // would land in Chrome's jar, not the WebView's. Generate a one-time
+    // transfer token and deep-link back into the app.
+    const transferToken = randomToken('xfer-');
+    await env.DB.prepare(
+      'INSERT INTO auth_transfer_tokens (token, user_id, expires_at) VALUES (?, ?, datetime(CURRENT_TIMESTAMP, ?))'
+    ).bind(transferToken, userId, '+60 seconds').run();
+
+    const deepLink = `instadateclub://auth?token=${encodeURIComponent(transferToken)}&redirectTo=${encodeURIComponent(redirectTo)}`;
+    return new Response(null, {
+      status: 302,
+      headers: { location: deepLink }
+    });
+  }
+
   return createSessionResponse(request, env, userId, redirectTo);
 }
 
@@ -1704,11 +1953,9 @@ async function uploadChatAttachment(request: Request, env: Env, userId: string, 
 }
 
 async function serveChatAttachment(request: Request, env: Env, userId: string, slug: string, attachmentId: string) {
-  const chat = await env.DB.prepare('SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?').bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+  const { chat, allowed } = await resolveChatAccess(env.DB, slug, userId);
   if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
-  if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
-    return json({ error: 'Forbidden' }, { status: 403 });
-  }
+  if (!allowed) return json({ error: 'Forbidden' }, { status: 403 });
 
   const listResult = await env.PROFILE_IMAGES.list({
     prefix: `chats/${chat.id}/${attachmentId}.`,
@@ -1837,6 +2084,46 @@ async function routeApi(request: Request, env: Env) {
 
   if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
     return logout(request, env);
+  }
+
+  // --- Capacitor transfer token (mobile app OAuth handoff) ---
+  // Chrome Custom Tabs completes Google OAuth but the session cookie lands
+  // in Chrome's jar, not the WebView's. The app receives a one-time token via
+  // deep link and POSTs it here to get a session cookie in the WebView.
+  if (url.pathname === '/api/auth/transfer' && request.method === 'POST') {
+    const body = await readJson<{ transferToken?: string }>(request);
+    const transferToken = body.transferToken || '';
+    if (!transferToken) return json({ error: 'transfer_token_required' }, { status: 400 });
+
+    const row = await env.DB.prepare(
+      `SELECT t.user_id, t.expires_at, u.id AS uid
+         FROM auth_transfer_tokens t
+         JOIN users u ON u.id = t.user_id
+        WHERE t.token = ?`
+    ).bind(transferToken).first<{ user_id: string; expires_at: string; uid: string }>();
+
+    if (!row?.uid) return json({ error: 'invalid_transfer_token' }, { status: 401 });
+
+    const expiryMs = Date.parse(row.expires_at + (row.expires_at.includes('T') ? '' : row.expires_at.includes('Z') ? '' : 'Z'));
+    if (isNaN(expiryMs) || Date.now() > expiryMs) {
+      return json({ error: 'transfer_token_expired' }, { status: 401 });
+    }
+
+    // Consume the token (single-use) and create a session.
+    await env.DB.prepare('DELETE FROM auth_transfer_tokens WHERE token = ?').bind(transferToken).run();
+
+    const sessionId = randomToken('sess-');
+    await env.DB.prepare(
+      'INSERT INTO auth_sessions (id, user_id, expires_at) VALUES (?, ?, datetime(CURRENT_TIMESTAMP, ?))'
+    ).bind(sessionId, row.uid, '+30 days').run();
+
+    const user = await env.DB.prepare(
+      'SELECT id, email, full_name, avatar_url, auth_provider, status, status_reason, status_until, role, onboarding_step, onboarding_completed_at, completed FROM users WHERE id = ?'
+    ).bind(row.uid).first<Record<string, unknown>>();
+
+    return json({ user: user ? userDto(user) : null, profile: await getProfile(env.DB, row.uid) }, {
+      headers: { 'set-cookie': sessionCookie(request, sessionId) }
+    });
   }
 
   // --- ACCOUNT LIFECYCLE pre-gate routes (Task 8) ---
@@ -2434,13 +2721,11 @@ async function routeApi(request: Request, env: Env) {
     }
 
     const slug = chatWsMatch[1];
-    
-    // Check if the chat exists and user is a participant
-    const chat = await env.DB.prepare('SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?').bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+
+    // Check if the chat exists and user is a participant (direct or group).
+    const { chat, allowed } = await resolveChatAccess(env.DB, slug, userId);
     if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
-    if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
-      return json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!allowed) return json({ error: 'Forbidden' }, { status: 403 });
 
     const id = env.CHAT_ROOM.idFromName(chat.id);
     const stub = env.CHAT_ROOM.get(id);
@@ -2460,12 +2745,10 @@ async function routeApi(request: Request, env: Env) {
   if (chatReadMatch && request.method === 'POST') {
     const pub = await requirePublished(env, userId); if (pub) return pub;
     const slug = chatReadMatch[1];
-    
-    const chat = await env.DB.prepare('SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?').bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+
+    const { chat, allowed } = await resolveChatAccess(env.DB, slug, userId);
     if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
-    if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
-      return json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!allowed) return json({ error: 'Forbidden' }, { status: 403 });
 
     // Insert read receipts for all messages in this chat not sent by current user
     await env.DB.prepare(`
@@ -2535,13 +2818,11 @@ async function routeApi(request: Request, env: Env) {
   const chatSinceMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/since$/);
   if (chatSinceMatch && request.method === 'GET') {
     const slug = chatSinceMatch[1];
-    const chat = await env.DB.prepare(
-      'SELECT id, participant_a_user_id, participant_b_user_id FROM chats WHERE slug = ?'
-    ).bind(slug).first<{ id: string; participant_a_user_id: string; participant_b_user_id: string }>();
+    // Unified access check handles both 1:1 (participant_a/b) and group chats
+    // (chat_participants membership + not expired).
+    const { chat, allowed } = await resolveChatAccess(env.DB, slug, userId);
     if (!chat) return json({ error: 'Chat not found' }, { status: 404 });
-    if (userId !== chat.participant_a_user_id && userId !== chat.participant_b_user_id) {
-      return json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!allowed) return json({ error: 'Forbidden' }, { status: 403 });
 
     const cursor = url.searchParams.get('cursor') || '';
     // Resolve the cursor to a created_at lower bound. A message id is preferred
@@ -2554,19 +2835,27 @@ async function routeApi(request: Request, env: Env) {
       sinceTs = cursorRow?.created_at || cursor;
     }
 
+    // Group conversations render per-message sender names, so join users for the
+    // display name. Direct threads ignore it (the peer is already known client-side).
     const { results } = await env.DB.prepare(
-      `SELECT id, sender_user_id, sender_role, body, attachment_url, created_at
-         FROM chat_messages
-        WHERE chat_id = ?1
-          AND deleted_at IS NULL
-          AND (?2 = '' OR created_at > ?2)
-        ORDER BY created_at ASC
+      `SELECT m.id, m.sender_user_id, m.sender_role, m.body, m.attachment_url, m.created_at,
+              u.full_name AS sender_name
+         FROM chat_messages m
+         LEFT JOIN users u ON u.id = m.sender_user_id
+        WHERE m.chat_id = ?1
+          AND m.deleted_at IS NULL
+          AND (?2 = '' OR m.created_at > ?2)
+        ORDER BY m.created_at ASC
         LIMIT 200`
     ).bind(chat.id, sinceTs).all<Record<string, unknown>>();
 
     const messages = results.map(m => ({
       id: m.id as string,
-      role: m.sender_user_id === userId ? 'you' : 'match',
+      role: m.sender_role === 'system'
+        ? 'system'
+        : (m.sender_user_id === userId ? 'you' : 'match'),
+      senderId: m.sender_user_id as string,
+      senderName: ((m.sender_name as string) || '').trim() || 'Someone',
       body: m.body as string,
       attachmentUrl: (m.attachment_url as string) || '',
       createdAt: m.created_at as string
@@ -2890,12 +3179,32 @@ async function routeApi(request: Request, env: Env) {
     `).bind(userId).all<any>();
 
     const resolvedMembers = [];
+    const profileIds = profiles.map(p => p.user_id);
+    const photosMap = new Map<string, string[]>();
+    const interestsMap = new Map<string, string[]>();
+
+    if (profileIds.length > 0) {
+      const placeholders = profileIds.map(() => '?').join(',');
+      const [photosRes, interestsRes] = await Promise.all([
+        env.DB.prepare(`SELECT user_id, url FROM profile_photos WHERE user_id IN (${placeholders}) ORDER BY position ASC`).bind(...profileIds).all<any>(),
+        env.DB.prepare(`SELECT user_id, interest FROM user_interests WHERE user_id IN (${placeholders})`).bind(...profileIds).all<any>()
+      ]);
+
+      for (const ph of photosRes.results) {
+        if (!photosMap.has(ph.user_id)) photosMap.set(ph.user_id, []);
+        photosMap.get(ph.user_id)!.push(ph.url);
+      }
+
+      for (const intr of interestsRes.results) {
+        if (!interestsMap.has(intr.user_id)) interestsMap.set(intr.user_id, []);
+        interestsMap.get(intr.user_id)!.push(intr.interest);
+      }
+    }
+
     for (const p of profiles) {
       const trust = await getOrInitializeTrustMetrics(env.DB, p.user_id, true);
-      const { results: photos } = await env.DB.prepare(
-        'SELECT url FROM profile_photos WHERE user_id = ? ORDER BY position ASC'
-      ).bind(p.user_id).all<{ url: string }>();
-      const photoUrls = photos.map(ph => ph.url);
+      const photoUrls = photosMap.get(p.user_id) || [];
+      const interestsList = interestsMap.get(p.user_id) || [];
 
       resolvedMembers.push({
         id: p.user_id,
@@ -2910,6 +3219,8 @@ async function routeApi(request: Request, env: Env) {
         avatar: (p.full_name || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
         photos: photoUrls.length > 0 ? photoUrls : [p.avatar_url || ''],
         weekendStatus: p.weekend_status || '',
+        weekendTags: extractWeekendTags(p.weekend_status || ''),
+        interests: interestsList,
         currentWeekendStatus: (() => {
           const status = (p.weekend_status || '').toLowerCase();
           if (status.includes('movie') || status.includes('film')) return 'Movie';
@@ -2927,6 +3238,7 @@ async function routeApi(request: Request, env: Env) {
         trustMetrics: trust,
         trustScore: trust.trust_score,
         isVerified: trust.is_verified,
+        gender: p.gender,
         phone_verified: p.phone_verified,
         instagram_verified: p.instagram_verified,
         profile_verified: p.profile_verified,
@@ -3195,6 +3507,16 @@ async function routeApi(request: Request, env: Env) {
     const pub = await requirePublished(env, userId); if (pub) return pub;
     const parts = url.pathname.split('/');
     const eventId = parts[3];
+    const event = await env.DB.prepare('SELECT host_user_id FROM events WHERE id = ? AND deleted_at IS NULL').bind(eventId).first<{ host_user_id: string }>();
+    if (!event) return json({ error: 'Event not found' }, { status: 404 });
+    if (event.host_user_id) {
+      const blocked = await env.DB.prepare(`
+        SELECT 1 FROM user_blocks 
+        WHERE (user_id = ?1 AND blocked_user_id = ?2) 
+           OR (user_id = ?2 AND blocked_user_id = ?1)
+      `).bind(userId, event.host_user_id).first<{ 1: number }>();
+      if (blocked) return json({ error: 'Event not found' }, { status: 404 });
+    }
     const body = await readJson<any>(request);
     const { eventRating, hostRating, wouldAttendAgain, feedback } = body;
 
@@ -3326,6 +3648,14 @@ export class ChatRoom {
   async handleSession(ws: WebSocket, userId: string, chatId: string, chatSlug: string) {
     ws.accept();
 
+    // Resolve the sender's display name once per session. Group conversations
+    // render "Alice: hi", so each broadcast must carry a senderName; caching it
+    // here avoids a users lookup on every message. Falls back to a friendly stub.
+    const senderRow = await this.env.DB.prepare(
+      'SELECT full_name FROM users WHERE id = ?'
+    ).bind(userId).first<{ full_name: string | null }>();
+    const senderName = (senderRow?.full_name || '').trim() || 'Someone';
+
     let userSessions = this.sessions.get(userId);
     if (!userSessions) {
       userSessions = [];
@@ -3422,6 +3752,7 @@ export class ChatRoom {
             type: "message",
             id: msgId,
             senderId: userId,
+            senderName,
             message: text,
             clientMsgId,
             createdAt: new Date().toISOString()

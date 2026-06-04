@@ -8,12 +8,12 @@ import type { APIRequestContext, BrowserContext, Page } from '@playwright/test';
 // repeated logins never collide on one bucket. Always create contexts via
 // `uniqueIpHeaders()` (the fixtures do this automatically).
 
-let ipCounter = 0;
-/** A distinct, deterministic-per-process cf-connecting-ip for a context. */
+/** A distinct, randomized cf-connecting-ip for a context. */
 export function uniqueIp(): string {
-  ipCounter += 1;
-  const n = 100000 + ipCounter;
-  return `10.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}`;
+  const r1 = Math.floor(Math.random() * 16) + 16; // 172.16 to 172.31
+  const r2 = Math.floor(Math.random() * 256);
+  const r3 = Math.floor(Math.random() * 256);
+  return `172.${r1}.${r2}.${r3}`;
 }
 
 export function uniqueIpHeaders(): Record<string, string> {

@@ -63,8 +63,33 @@ export function AuthProvider({ children }) {
     checkSession();
   }, [checkSession]);
 
-  const signIn = React.useCallback((redirectTo = '/profile') => {
-    window.location.href = `/api/auth/google/start?redirectTo=${encodeURIComponent(redirectTo)}`;
+  const signIn = React.useCallback(async (redirectTo = '/profile') => {
+    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform());
+    const platformParam = isCapacitor ? '&platform=capacitor' : '';
+    try {
+      const response = await fetch(`/api/auth/google/url?redirectTo=${encodeURIComponent(redirectTo)}${platformParam}`, {
+        cache: 'no-store',
+        credentials: 'same-origin'
+      });
+      const payload = response.headers.get('content-type')?.includes('application/json')
+        ? await response.json()
+        : { error: 'Auth service unavailable' };
+      if (!response.ok || payload.error) throw new Error(payload.error || 'Google login could not start');
+      if (!payload.url) throw new Error('Google login URL missing');
+
+      if (isCapacitor) {
+        // Chrome Custom Tabs — Google allows this, blocks WebView.
+        // Dynamic import: only load @capacitor/browser when on native platform.
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: payload.url });
+        return;
+      }
+      // Web: navigate in-browser
+      window.location.assign(payload.url);
+    } catch (error) {
+      authLog('signIn:error', { message: error?.message });
+      throw error;
+    }
   }, []);
 
   const signInWithGoogleToken = React.useCallback(async idToken => {
@@ -116,11 +141,35 @@ export function AuthProvider({ children }) {
     return readJsonResponse(response, 'Could not request magic link');
   }, []);
 
+  // Capacitor mobile app: exchange a one-time transfer token (received via deep
+  // link after Chrome Custom Tabs Google OAuth) for a session cookie in the WebView.
+  const exchangeTransferToken = React.useCallback(async (transferToken) => {
+    const response = await fetch('/api/auth/transfer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ transferToken })
+    });
+    const payload = await readJsonResponse(response, 'Login transfer failed');
+    setUser(payload.user || null);
+    authLog('transfer', {
+      ok: Boolean(payload.user),
+      userId: payload.user?.id ?? null
+    });
+    return payload;
+  }, []);
+
   const signOut = React.useCallback(async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
     } finally {
       sessionStorage.removeItem('instadate_profile_cache');
+      // Clear all cached local data to prevent showing chats/profiles after signing out
+      localStorage.removeItem('instadate_cached_state');
+      localStorage.removeItem('instadate_pending_actions');
+      localStorage.removeItem('onboarding_step');
+      localStorage.removeItem('onboarding_draft');
       // Land on the login screen, NOT guest-browse. Removing the key would default
       // guestMode back to true (getItem !== 'false'), which re-enables the auth-only
       // /api/state poll → 401 → api-unauthorized → signOut → reload → loop (flicker).
@@ -144,9 +193,10 @@ export function AuthProvider({ children }) {
     startPhoneOtp,
     verifyPhoneOtp,
     startEmailMagicLink,
+    exchangeTransferToken,
     signOut,
     refreshAuth: checkSession
-  }), [user, isLoading, authError, signIn, signInWithGoogleToken, startPhoneOtp, verifyPhoneOtp, startEmailMagicLink, signOut, checkSession]);
+  }), [user, isLoading, authError, signIn, signInWithGoogleToken, startPhoneOtp, verifyPhoneOtp, startEmailMagicLink, exchangeTransferToken, signOut, checkSession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

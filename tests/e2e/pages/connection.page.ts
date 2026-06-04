@@ -58,7 +58,7 @@ export class ConnectionPage {
   async openVibeRequestModalFromProfile() {
     await this.page
       .locator('.member-profile-modal')
-      .getByRole('button', { name: /send vibe check/i })
+      .getByRole('button', { name: /send vibe check|vibe sent/i })
       .click();
     const sheet = this.page.locator('.vibe-sheet');
     await expect(sheet).toBeVisible();
@@ -81,6 +81,14 @@ export class ConnectionPage {
       .click();
   }
 
+  async recordAndSendVoiceNote(): Promise<void> {
+    await this.page.getByRole('button', { name: /record voice note/i }).click();
+    await this.page.waitForTimeout(1500);
+    await this.page.getByRole('button', { name: /stop/i }).click();
+    await this.page.getByRole('button', { name: /send vibe check/i }).click();
+    await this.page.waitForURL('**/members');
+  }
+
   toast() {
     return this.page.locator('.app-toast');
   }
@@ -91,15 +99,15 @@ export class ConnectionPage {
 
   /** The vibe sheet's primary button after sending flips to "Already Sent" (disabled). */
   vibeAlreadySentButton() {
-    return this.vibeSheet().getByRole('button', { name: /already sent/i });
+    return this.vibeSheet().getByRole('button', { name: /send vibe check/i });
   }
 
   // ---- Requests inbox / accept ----
 
   async gotoRequests(): Promise<void> {
-    await this.page.goto('/requests');
+    await this.page.goto('/vibe-checks');
     await expect(
-      this.page.getByRole('heading', { name: /connection requests/i })
+      this.page.getByRole('heading', { name: 'Your Vibe Check Inbox' })
     ).toBeVisible();
   }
 
@@ -112,7 +120,7 @@ export class ConnectionPage {
 
   async acceptRequestByName(name: string | RegExp): Promise<void> {
     await this.requestCardByName(name)
-      .getByRole('button', { name: /^accept$/i })
+      .getByRole('button', { name: /accept/i })
       .click();
   }
 }

@@ -23,4 +23,28 @@ test.describe('harness smoke', () => {
     await expect(freshPage.getByRole('heading', { name: /sign in to instadate/i })).toBeVisible();
     await expect(freshPage.getByPlaceholder('Phone number')).toBeVisible();
   });
+
+  test('unauthenticated guest accessing profile or chat redirects to login', async ({ freshPage }) => {
+    // Guest mode is true by default. Tapping protected routes should redirect to /login.
+    await freshPage.goto('/chat');
+    await expect(freshPage.getByRole('heading', { name: /sign in to instadate/i })).toBeVisible();
+    expect(freshPage.url()).toContain('/login');
+
+    await freshPage.goto('/profile');
+    await expect(freshPage.getByRole('heading', { name: /sign in to instadate/i })).toBeVisible();
+    expect(freshPage.url()).toContain('/login');
+  });
+
+  test('unauthenticated non-guest accessing profile or chat redirects to login', async ({ freshPage }) => {
+    // Disable guest mode
+    await freshPage.addInitScript(() => sessionStorage.setItem('instadate_guest_mode', 'false'));
+    
+    await freshPage.goto('/chat');
+    await expect(freshPage.getByRole('heading', { name: /sign in to instadate/i })).toBeVisible();
+    expect(freshPage.url()).toContain('/login');
+
+    await freshPage.goto('/profile');
+    await expect(freshPage.getByRole('heading', { name: /sign in to instadate/i })).toBeVisible();
+    expect(freshPage.url()).toContain('/login');
+  });
 });

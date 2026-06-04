@@ -34,7 +34,7 @@ export class DiscoveryPage {
     // Resilient card locator: the article carries class `member-card` and
     // role="button"; scope counts to these to avoid the skeleton shimmer.
     this.cards = page.locator('article.member-card');
-    this.search = page.getByPlaceholder('Filter by city, name, or vibe...');
+    this.search = page.getByPlaceholder('Search by name, vibe, or interest...');
     this.modal = page.locator('[role="dialog"][aria-modal="true"]');
   }
 

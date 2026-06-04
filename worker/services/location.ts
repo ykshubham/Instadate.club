@@ -6,6 +6,7 @@ export interface Coordinates {
 export const INDIAN_CITIES_COORDS: Record<string, Coordinates> = {
   'mumbai': { lat: 19.0760, lon: 72.8777 },
   'delhi ncr': { lat: 28.7041, lon: 77.1025 },
+  'delhi': { lat: 28.7041, lon: 77.1025 },
   'bangalore': { lat: 12.9716, lon: 77.5946 },
   'pune': { lat: 18.5204, lon: 73.8567 },
   'goa': { lat: 15.2993, lon: 74.1240 },
@@ -58,6 +59,7 @@ export function getProfileCoords(profile: {
   profile_longitude?: number | null;
   profileLatitude?: number | null;
   profileLongitude?: number | null;
+  profile_coords?: Coordinates | null;
 }): Coordinates | null {
   // Try direct coordinates
   const lat = profile.profile_latitude ?? profile.profileLatitude;
@@ -96,8 +98,13 @@ export function calculateLocationScore(
   }
 
   // City-only fallback if coords are completely unavailable
-  const cityA = (profileA.city || '').trim().toLowerCase();
-  const cityB = (profileB.city || '').trim().toLowerCase();
+  const normalizeCityName = (city: string | null | undefined): string => {
+    const c = (city || '').trim().toLowerCase();
+    if (c === 'delhi ncr') return 'delhi';
+    return c;
+  };
+  const cityA = normalizeCityName(profileA.city);
+  const cityB = normalizeCityName(profileB.city);
 
   if (cityA && cityB && cityA === cityB) {
     return { score: 100, distanceKm: null, explanation: `Both in ${profileA.city}` };

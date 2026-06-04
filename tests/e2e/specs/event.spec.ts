@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures';
 import { EventPage } from '../pages/event.page';
+import { otpLogin, completeProfileViaApi, uniqueIpHeaders } from '../support/auth';
 
 // E2E for the EVENT flow (see tests/e2e/README.md "Event" selector map).
 //
@@ -85,29 +86,54 @@ test.describe('event flow', () => {
     await expect(events.rsvpButton(card)).toBeVisible();
   });
 
-  test('RSVP toggles on and off', async ({ seededPage, seededContext }) => {
-    const events = new EventPage(seededPage);
-    const { card } = await hostAndOpenList(events, seededContext, 'RSVP Toggle Mixer');
+  test('RSVP toggles on and off', async ({ seededPage, browser }) => {
+    const ctxB = await browser.newContext({ extraHTTPHeaders: uniqueIpHeaders() });
+    try {
+      await otpLogin(ctxB.request);
+      await completeProfileViaApi(ctxB.request);
+      await EventPage.verifyForHosting(ctxB.request);
 
-    const rsvp = events.rsvpButton(card);
-    // Fresh event → not RSVP'd yet.
-    await expect(rsvp).toHaveText(/Join Plan Tonight|Reserve Spot Securely/i);
+      const fields = eventFields('RSVP Toggle Mixer');
+      const createRes = await ctxB.request.post('/api/events', {
+        data: {
+          event: {
+            title: fields.title,
+            description: fields.description,
+            place: fields.location,
+            date: fields.date,
+            time: fields.time,
+            capacity: Number(fields.capacity),
+            entry: 'Free',
+            approval: 'Host Approval',
+            type: 'Host Party Plan'
+          }
+        }
+      });
+      expect(createRes.ok()).toBeTruthy();
 
-    // The RSVP toast (`/RSVP confirmed/`, `/RSVP removed/`) and the button-state
-    // flip are two signals of the same toggle; the README permits asserting either.
-    // We assert the DURABLE button-state transition (the toast is transient — a
-    // 2.4s auto-dismissing `.app-toast`), and opportunistically confirm the toast
-    // when it is still on screen, without making the toggle assertion flaky.
+      const events = new EventPage(seededPage);
+      await seededPage.goto('/');
+      await events.openEventsViaNav();
+      await events.waitForCards();
+      const card = events.cards.filter({ hasText: fields.title }).first();
+      await expect(card).toBeVisible();
 
-    // --- Join: button flips to its joined ("Leave Plan") state. ---
-    await rsvp.click();
-    await expect(rsvp).toHaveText(/Leave Plan/i);
-    await expectToastIfPresent(seededPage, /RSVP confirmed/i);
+      const rsvp = events.rsvpButton(card);
+      // Fresh event → not RSVP'd yet.
+      await expect(rsvp).toHaveText(/Join Plan Tonight|Reserve Spot Securely/i);
 
-    // --- Leave: button reverts to its join state. ---
-    await rsvp.click();
-    await expect(rsvp).toHaveText(/Join Plan Tonight|Reserve Spot Securely/i);
-    await expectToastIfPresent(seededPage, /RSVP removed/i);
+      // --- Join: button flips to its joined ("Leave Plan") state. ---
+      await rsvp.click();
+      await expect(rsvp).toHaveText(/Leave Plan/i);
+      await expectToastIfPresent(seededPage, /RSVP confirmed/i);
+
+      // --- Leave: button reverts to its join state. ---
+      await rsvp.click();
+      await expect(rsvp).toHaveText(/Join Plan Tonight|Reserve Spot Securely/i);
+      await expectToastIfPresent(seededPage, /RSVP removed/i);
+    } finally {
+      await ctxB.close();
+    }
   });
 
   test('host an event end-to-end and see it in the events list', async ({ seededPage, seededContext }) => {

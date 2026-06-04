@@ -500,7 +500,9 @@ export default function OnboardingFlow({ onExplore, onComplete }) {
               // the app fully unloads here and re-mounts on the OAuth return.
               try { localStorage.setItem(STEP_KEY, String(index)); } catch { /* ignore */ }
               onbLog('oauth:redirect', { stepBeforeRedirect: index });
-              signIn('/onboarding');
+              signIn('/onboarding').catch(() => {
+                onbLog('oauth:redirect:error');
+              });
             }}>
               <Crown className="h-4 w-4 text-cyan-200" /> Continue with Google
             </button>

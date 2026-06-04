@@ -91,8 +91,10 @@ export async function getRecommendedEventsV2(db: D1Database, userId: string): Pr
     LEFT JOIN users u ON u.id = e.host_user_id
     LEFT JOIN event_attendees ea ON ea.event_id = e.id
     WHERE e.deleted_at IS NULL AND e.is_closed = 0 AND e.moderation_status = 'active'
+      AND e.host_user_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = ?1)
+      AND e.host_user_id NOT IN (SELECT user_id FROM user_blocks WHERE blocked_user_id = ?1)
     GROUP BY e.id
-  `).all<any>();
+  `).bind(userId).all<any>();
 
   const scoredEvents: EventRecommendation[] = [];
 

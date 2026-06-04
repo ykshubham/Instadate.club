@@ -42,8 +42,11 @@ export interface PublicMemberDto {
   weekendStatus: string;
   currentWeekendStatus: string;
   weekendStatusUpdatedAt: string;
+  weekendTags?: string[];
+  interests?: string[];
   trustScore: number;
   isVerified: boolean;
+  gender?: string;
   verification_level: string;
   phone_verified: number;
   instagram_verified: number;

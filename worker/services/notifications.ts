@@ -43,6 +43,11 @@ export async function createNotification(
  * Retrieves the latest 50 notifications for a user.
  */
 export async function getNotifications(db: D1Database, userId: string): Promise<any[]> {
+  const { results: blocks } = await db.prepare(
+    'SELECT blocked_user_id AS id FROM user_blocks WHERE user_id = ?1 UNION SELECT user_id AS id FROM user_blocks WHERE blocked_user_id = ?1'
+  ).bind(userId).all<{ id: string }>();
+  const blockedSet = new Set(blocks.map(b => b.id));
+
   const { results } = await db.prepare(
     `SELECT id, user_id, type, payload_json, read_at, created_at
      FROM notifications
@@ -51,7 +56,7 @@ export async function getNotifications(db: D1Database, userId: string): Promise<
      LIMIT 50`
   ).bind(userId).all<Notification>();
 
-  return results.map(row => ({
+  const mapped = results.map(row => ({
     id: row.id,
     userId: row.user_id,
     type: row.type,
@@ -59,6 +64,12 @@ export async function getNotifications(db: D1Database, userId: string): Promise<
     readAt: row.read_at,
     createdAt: row.created_at
   }));
+
+  return mapped.filter(n => {
+    const senderId = n.payload?.senderId;
+    if (senderId && blockedSet.has(senderId)) return false;
+    return true;
+  });
 }
 
 /**

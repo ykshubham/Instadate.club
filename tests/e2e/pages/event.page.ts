@@ -127,7 +127,7 @@ export class EventPage {
     await this.page
       .getByPlaceholder('What are you doing, who should join, and why will it be fun?')
       .fill(fields.description);
-    await this.page.getByPlaceholder('Venue name or Google Maps location').fill(fields.location);
+    await this.page.getByPlaceholder('Search a venue — cafe, bar, restaurant, park…').fill(fields.location);
     await this.page.locator('input[type="date"]').fill(fields.date);
     await this.page.locator('input[type="time"]').fill(fields.time);
     if (fields.capacity) {

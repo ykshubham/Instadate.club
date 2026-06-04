@@ -4,8 +4,8 @@ import {
   ArrowLeft, ArrowRight, Award, BadgeCheck, Ban, Bell, Briefcase, Calendar, CalendarCheck, Camera,
   CheckCircle2, ChevronRight, Clock, CreditCard, Crown, Download, Eye, Flame, Gem, Gift,
   Headphones, Heart, HeartHandshake, HelpCircle, History, ImagePlus, Instagram,
-  Lock, LogOut, MapPin, MapPinned, Menu, MessageCircle, PauseCircle, Pencil, Radio, ReceiptText,
-  RotateCcw, Settings, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Star, Trash2,
+  Lock, LogOut, MapPin, MapPinned, Menu, MessageCircle, Mic, Monitor, PauseCircle, Pencil, Radio, ReceiptText,
+  RotateCcw, Settings, Shield, ShieldCheck, SlidersHorizontal, Smartphone, Sparkles, Star, Trash2,
   TrendingUp, UserCheck, Users, Wallet, WandSparkles, X, Zap
 } from 'lucide-react';
 import { EmptyState } from './components/FeedbackState.jsx';
@@ -257,7 +257,7 @@ export default function ProfileDashboard({
   onReviewClick,
   onMeetupFeedbackClick
 }) {
-  const isGuest = false;
+  const isGuest = !authUser;
 
   const [localState, setLocalState] = React.useState(appState);
   React.useEffect(() => {
@@ -456,11 +456,11 @@ export default function ProfileDashboard({
       <div className="min-h-screen scroll-smooth bg-[#050506] text-white">
         <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_20%_4%,rgba(255,46,147,.18),transparent_28rem),radial-gradient(circle_at_92%_2%,rgba(0,215,245,.13),transparent_22rem),linear-gradient(180deg,#08060d_0%,#050506_42%,#08040a_100%)]" />
         <motion.div className="mx-auto w-full max-w-2xl px-4 pb-28 pt-6 sm:px-6" variants={container} initial="hidden" animate="show">
-          <GatekeeperAdmissions onApply={() => setEditOpen(true)} onDemoLogin={() => updateProfile(profileDefaults)} authUser={authUser} onGoogleLogin={onGoogleLogin} />
+          <GatekeeperAdmissions onApply={onGoogleLogin} onDemoLogin={onGoogleLogin} authUser={authUser} onGoogleLogin={onGoogleLogin} />
         </motion.div>
 
         <AnimatePresence>
-          {editOpen && (
+          {authUser && editOpen && (
             <EditProfileSheet
               profile={profile}
               saving={saving}
@@ -486,7 +486,7 @@ export default function ProfileDashboard({
     <div className="min-h-screen scroll-smooth bg-[#050506] text-white">
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_20%_4%,rgba(255,46,147,.18),transparent_28rem),radial-gradient(circle_at_92%_2%,rgba(0,215,245,.13),transparent_22rem),linear-gradient(180deg,#08060d_0%,#050506_42%,#08040a_100%)]" />
       <motion.div 
-        className="mx-auto w-full max-w-2xl px-4 pb-28 sm:px-6 animate-none" 
+        className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 pb-36 sm:px-6 animate-none" 
         style={{ paddingTop: '1rem' }} 
         variants={container} 
         initial="hidden" 
@@ -670,6 +670,7 @@ export default function ProfileDashboard({
                   photos: rec.profile.photos || [rec.profile.photo],
                   currentWeekendStatus: rec.profile.currentWeekendStatus,
                   weekendStatus: rec.profile.weekendStatus,
+                  weekendTags: rec.profile.weekendTags || [],
                   trustScore: rec.profile.trustMetrics?.trustScore || 94,
                   trustMetrics: rec.profile.trustMetrics,
                   verification_level: rec.profile.verification_level || 'none'
@@ -697,6 +698,7 @@ export default function ProfileDashboard({
                     photos: item.profile.photos || [item.profile.photo],
                     currentWeekendStatus: item.profile.currentWeekendStatus,
                     weekendStatus: item.profile.weekendStatus,
+                    weekendTags: item.profile.weekendTags || [],
                     trustScore: item.trustScore || 94,
                     trustMetrics: item.profile.trustMetrics,
                     verification_level: item.profile.verification_level || 'none'
@@ -778,15 +780,12 @@ export default function ProfileDashboard({
         {/* Dynamic Matchmaking intelligence Hub */}
         <MatchmakingHub appState={localState} onApiCall={apiCall} />
 
-        {/* Instant Plans Lounge */}
-        <InstantPlansLounge appState={localState} onApiCall={apiCall} />
-
         {/* Curated Events Recommendation intelligence */}
         <RecommendedEventsSection appState={localState} onApiCall={apiCall} />
 
         <ActiveOutingsSection activeTab={datesTab} setActiveTab={setDatesTab} hostedEvents={localState?.hostedEvents || []} outcomes={localState?.outcomes || []} navigate={navigate} />
 
-        <SimplifiedSettings onLogout={onLogout} profile={profile} upgrade={upgrade} authUser={authUser} onGoogleLogin={onGoogleLogin} />
+        <SimplifiedSettings onLogout={onLogout} profile={profile} upgrade={upgrade} authUser={authUser} onGoogleLogin={onGoogleLogin} onOpenSettings={() => setSettingsOpen(true)} />
       </motion.div>
 
       <AnimatePresence>
@@ -810,9 +809,10 @@ export default function ProfileDashboard({
         {weekendEditOpen && (
           <WeekendStatusSheet
             value={profile.weekendStatus || ''}
+            tags={profile.weekendTags || []}
             onClose={() => setWeekendEditOpen(false)}
-            onSave={weekendStatus => {
-              updateProfile({ weekendStatus });
+            onSave={(weekendStatus, weekendTags) => {
+              updateProfile({ weekendStatus, weekendTags });
               setWeekendEditOpen(false);
             }}
           />
@@ -844,18 +844,18 @@ export default function ProfileDashboard({
 function StickyProfileNav({ completion, navigate, onOpenDrawer, unreadCount, onOpenNotifications }) {
   return (
     <motion.div variants={fadeUp} className="-mx-4 mb-4 border-b border-white/10 bg-[#050506]/78 px-4 py-3 backdrop-blur-2xl sm:mx-0 sm:rounded-[28px] sm:border" data-profile-card>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-[11px] font-bold uppercase tracking-[0.24em] text-fuchsia-300/80">Relationship Identity</p>
           <h1 className="font-['Outfit'] text-2xl font-black leading-none text-white">Profile</h1>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button onClick={onOpenDrawer} className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95" aria-label="Open drawer">
+        <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2">
+          <button onClick={onOpenDrawer} className="grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95 sm:h-11 sm:w-11" aria-label="Open drawer">
             <Menu className="h-5 w-5" />
           </button>
           <button 
             onClick={onOpenNotifications} 
-            className="relative grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95 animate-none"
+            className="relative grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95 animate-none sm:h-11 sm:w-11"
             aria-label="Open notifications"
           >
             <Bell className="h-5 w-5" />
@@ -865,12 +865,12 @@ function StickyProfileNav({ completion, navigate, onOpenDrawer, unreadCount, onO
               </span>
             )}
           </button>
-          <button onClick={() => navigate?.('/chat')} className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95" aria-label="Open chat">
+          <button onClick={() => navigate?.('/chat')} className="grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] transition active:scale-95 sm:h-11 sm:w-11" aria-label="Open chat">
             <MessageCircle className="h-5 w-5" />
           </button>
-          <div className="rounded-2xl border border-fuchsia-400/25 bg-fuchsia-400/10 px-3 py-2 text-right">
-            <p className="text-[10px] uppercase text-white/45">Strength</p>
-            <p className="text-sm font-black text-fuchsia-100">{completion}%</p>
+          <div className="min-w-[64px] rounded-2xl border border-fuchsia-400/25 bg-fuchsia-400/10 px-2.5 py-1.5 text-right sm:px-3 sm:py-2">
+            <p className="text-[8px] uppercase leading-none text-white/45 sm:text-[10px]">Strength</p>
+            <p className="mt-1 text-sm font-black leading-none text-[var(--text)]">{completion}%</p>
           </div>
         </div>
       </div>
@@ -898,11 +898,13 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
     ? profile.photos
     : profile.photo ? [profile.photo] : [];
   const primaryPhoto = photos[0] || profile.photo;
-  const selectedWeekendTags = weekendTags.filter(tag => (profile.weekendStatus || '').toLowerCase().includes(tag.toLowerCase()));
+  const selectedWeekendTags = Array.isArray(profile.weekendTags) && profile.weekendTags.length
+    ? profile.weekendTags
+    : weekendTags.filter(tag => (profile.weekendStatus || '').toLowerCase().includes(tag.toLowerCase()));
 
   return (
-    <MotionSection className="overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.055] shadow-[0_30px_110px_rgba(0,0,0,.55)] backdrop-blur-2xl" data-profile-card>
-      <div className="relative p-5 sm:p-6">
+    <MotionSection className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.055] shadow-[0_30px_110px_rgba(0,0,0,.55)] backdrop-blur-2xl sm:rounded-[32px]" data-profile-card>
+      <div className="relative p-4 sm:p-6">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(255,46,147,.2),transparent_16rem),radial-gradient(circle_at_86%_12%,rgba(0,215,245,.1),transparent_14rem)]" />
         <div className="relative flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
           
@@ -918,7 +920,7 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
           </label>
 
           {/* Core Info */}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 self-stretch">
             <div className="mb-2 flex flex-wrap justify-center sm:justify-start items-center gap-1.5">
               {profile.verification_level === 'highly_verified' && <Badge icon={ShieldCheck} text="Highly Verified" tone="gold" />}
               {profile.verification_level === 'identity' && <Badge icon={ShieldCheck} text="Identity Verified" tone="cyan" />}
@@ -927,22 +929,22 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
               {isPremium && <Badge icon={Gem} text="Elite VIP" tone="gold" />}
             </div>
             
-            <h2 className="flex min-w-0 items-center gap-2 font-['Outfit'] text-3xl font-black leading-none text-white flex-wrap">
-              <span className="min-w-0 break-words">{(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}</span>
+            <h2 className="flex min-w-0 flex-wrap items-center justify-center gap-1.5 text-center font-['Outfit'] text-[clamp(1.55rem,7vw,1.9rem)] font-black leading-tight text-white sm:justify-start sm:text-left sm:text-3xl">
+              <span className="min-w-0 max-w-full break-words [overflow-wrap:anywhere]">{(profile.fullName || '').split(',')[0].trim() || 'Complete profile'}, {profile.age || (profile.fullName || '').split(',')[1]?.trim() || '22'}</span>
               {renderVerificationBadge(profile.verification_level, "w-6 h-6")}
             </h2>
             
             <div className="mt-2.5 flex flex-wrap justify-center sm:justify-start items-center gap-x-3 gap-y-1.5 text-xs text-white/60">
-              <span className="inline-flex items-center gap-1.5"><Briefcase className="h-3.5 w-3.5 text-fuchsia-200" />{profile.profession || 'Creative Professional'} at {profile.college || 'verified college'}</span>
-              <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-cyan-200" />{profile.city || 'Mumbai'}</span>
+              <span className="inline-flex min-w-0 max-w-full items-center gap-1.5"><Briefcase className="h-3.5 w-3.5 shrink-0 text-fuchsia-200" /><span className="truncate">{profile.profession || 'Creative Professional'} at {profile.college || 'verified college'}</span></span>
+              <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 shrink-0 text-cyan-200" />{profile.city || 'Mumbai'}</span>
             </div>
 
             {/* Quick 1-line stats bar */}
-            <div className="no-scrollbar mt-4 flex justify-center sm:justify-start gap-3 overflow-x-auto py-1">
+            <div className="no-scrollbar mt-4 grid grid-cols-2 gap-2 sm:flex sm:justify-start sm:gap-3 sm:overflow-x-auto sm:py-1">
               {reputation.map(([label, val]) => (
-                <div key={label} className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-center shrink-0">
+                <div key={label} className="min-w-0 rounded-xl border border-white/5 bg-white/[0.03] px-2 py-1.5 text-center sm:shrink-0 sm:px-3">
                   <p className="font-['Outfit'] text-xs font-black text-white">{val}</p>
-                  <p className="text-[9px] text-white/40 uppercase font-bold mt-0.5">{label}</p>
+                  <p className="mt-0.5 truncate text-[8px] font-bold uppercase text-white/40 sm:text-[9px]">{label}</p>
                 </div>
               ))}
             </div>
@@ -956,7 +958,7 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
                 <button
                   type="button"
                   onClick={onWeekendEdit}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.055] px-3 py-1.5 text-[10px] font-black text-white/80 transition hover:bg-white/[0.09] active:scale-95"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1.5 text-[10px] font-black text-white/80 transition hover:bg-white/[0.09] active:scale-95 sm:px-3"
                 >
                   <Pencil className="h-3 w-3 text-fuchsia-200" />
                   Edit
@@ -976,7 +978,7 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
               )}
             </div>
 
-            <div className="mt-4 grid grid-cols-6 gap-1.5">
+            <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-1.5">
               {Array.from({ length: 6 }).map((_, index) => {
                 const image = photos[index];
                 return image ? (
@@ -996,8 +998,8 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
         </div>
 
         {/* Shimmer VIP Elite Banner embedded directly */}
-        <div className="mt-5 border-t border-white/10 pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2">
+        <div className="mt-5 flex flex-col items-stretch justify-between gap-3 border-t border-white/10 pt-4 text-xs sm:flex-row sm:items-center">
+          <div className="flex min-w-0 items-start gap-2 sm:items-center">
             <Crown className="h-4.5 w-4.5 text-amber-300 animate-pulse" />
             <span className="text-white/70 font-semibold">
               {isPremium ? (
@@ -1018,8 +1020,8 @@ function ProfileHero({ profile, completion, isPremium, onEdit, onWeekendEdit, on
         </div>
 
         {/* Clean Edit Profile Trigger Button */}
-        <div className="mt-4 pt-4 border-t border-white/5 flex gap-2">
-          <TapButton onClick={onEdit} className="flex-1 bg-gradient-to-r from-fuchsia-500 to-cyan-400 text-white min-h-[44px] rounded-xl text-xs font-black">
+        <div className="mt-4 flex gap-2 border-t border-white/5 pt-4">
+          <TapButton onClick={onEdit} className="min-h-[44px] flex-1 rounded-xl bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-3 text-xs font-black text-white">
             Edit Profile & Value Preferences 📝
           </TapButton>
         </div>
@@ -1198,8 +1200,11 @@ function ActiveOutingsSection({ activeTab, setActiveTab, hostedEvents = [], outc
   );
 }
 
-function WeekendStatusSheet({ value, onClose, onSave }) {
+function WeekendStatusSheet({ value, tags, onClose, onSave }) {
   const [draft, setDraft] = React.useState(value);
+  const [selectedTags, setSelectedTags] = React.useState(() =>
+    Array.isArray(tags) ? tags : []
+  );
   const templates = [
     'Coffee, live music, or a slow Sunday walk this weekend.',
     'Open to a gallery date, bookstore stroll, or rooftop mocktail.',
@@ -1207,16 +1212,12 @@ function WeekendStatusSheet({ value, onClose, onSave }) {
     'Free for a low-key cafe date and a real values chat.'
   ];
 
-  function addTag(tag) {
-    const cleanTag = tag.toLowerCase();
-    if (draft.toLowerCase().includes(cleanTag)) return;
-
-    const base = draft.trim().replace(/[.]+$/, '');
-    const next = base
-      ? `${base}, ${cleanTag}.`
-      : `Open to ${cleanTag} this weekend.`;
-
-    setDraft(next.slice(0, 140));
+  function toggleTag(tag) {
+    setSelectedTags(prev =>
+      prev.some(t => t.toLowerCase() === tag.toLowerCase())
+        ? prev.filter(t => t.toLowerCase() !== tag.toLowerCase())
+        : [...prev, tag]
+    );
   }
 
   return (
@@ -1271,12 +1272,12 @@ function WeekendStatusSheet({ value, onClose, onSave }) {
             <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-white/42">Quick tags</p>
             <div className="flex flex-wrap gap-2">
               {weekendTags.map(tag => {
-                const active = draft.toLowerCase().includes(tag.toLowerCase());
+                const active = selectedTags.some(t => t.toLowerCase() === tag.toLowerCase());
                 return (
                   <button
                     key={tag}
                     type="button"
-                    onClick={() => addTag(tag)}
+                    onClick={() => toggleTag(tag)}
                     className={`rounded-full border px-2.5 py-1.5 text-[10px] font-black transition active:scale-95 ${
                       active
                         ? 'border-cyan-200/35 bg-cyan-300/15 text-cyan-100'
@@ -1313,7 +1314,7 @@ function WeekendStatusSheet({ value, onClose, onSave }) {
             </button>
             <button
               type="button"
-              onClick={() => onSave(draft.trim())}
+              onClick={() => onSave(draft.trim(), selectedTags)}
               disabled={!draft.trim()}
               className="min-h-12 rounded-2xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 text-sm font-black text-white shadow-[0_14px_34px_rgba(255,46,147,.22)] transition active:scale-95 disabled:opacity-40"
             >
@@ -1376,7 +1377,7 @@ function NotificationsSheet({ notifications = [], onClose, onMarkRead, onMarkAll
             <EmptyState
               type="notifications"
               title="All caught up!"
-              description="You will see updates about connection requests and events here."
+              description="You will see updates about vibe checks and events here."
             />
           ) : (
             notifications.map(n => {
@@ -1385,14 +1386,22 @@ function NotificationsSheet({ notifications = [], onClose, onMarkRead, onMarkAll
               let iconColor = "text-fuchsia-400";
               let bgClass = "bg-fuchsia-500/10";
               
-              if (n.type === 'connection_request') {
-                Icon = Heart;
-                iconColor = "text-rose-400";
-                bgClass = "bg-rose-500/10";
-              } else if (n.type === 'connection_accept') {
+              if (n.type === 'vibe_check_received') {
+                Icon = Mic;
+                iconColor = "text-fuchsia-400";
+                bgClass = "bg-fuchsia-500/10";
+              } else if (n.type === 'vibe_check_accepted' || n.type === 'connection_accept') {
                 Icon = BadgeCheck;
                 iconColor = "text-cyan-400";
                 bgClass = "bg-cyan-500/10";
+              } else if (n.type === 'vibe_check_declined') {
+                Icon = Bell;
+                iconColor = "text-white/40";
+                bgClass = "bg-white/5";
+              } else if (n.type === 'connection_request') {
+                Icon = Heart;
+                iconColor = "text-rose-400";
+                bgClass = "bg-rose-500/10";
               } else if (n.type === 'event_rsvp') {
                 Icon = Calendar;
                 iconColor = "text-amber-400";
@@ -1432,7 +1441,7 @@ function NotificationsSheet({ notifications = [], onClose, onMarkRead, onMarkAll
 
                     {/* Action buttons inside notifications */}
                     <div className="flex gap-2 mt-2.5">
-                      {n.type === 'connection_request' && (
+                      {(n.type === 'vibe_check_received' || n.type === 'connection_request') && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1441,17 +1450,15 @@ function NotificationsSheet({ notifications = [], onClose, onMarkRead, onMarkAll
                             // refreshes without a reload.
                             if (!n.readAt) onMarkRead(n.id);
                             onClose();
-                            // Go straight to the Connection Requests screen, carrying the
-                            // sender id so that screen can surface the relevant request.
-                            const senderId = n.payload?.senderId;
-                            navigate?.(senderId ? `/requests?from=${encodeURIComponent(senderId)}` : '/requests');
+                            // Open the Vibe Checks inbox to listen and accept/reject.
+                            navigate?.('/vibe-checks');
                           }}
-                          className="rounded-lg bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-rose-300 hover:bg-rose-500/20 transition"
+                          className="rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-fuchsia-300 hover:bg-fuchsia-500/20 transition"
                         >
-                          View Request
+                          Listen
                         </button>
                       )}
-                      {n.type === 'connection_accept' && (
+                      {(n.type === 'vibe_check_accepted' || n.type === 'connection_accept') && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1586,6 +1593,9 @@ function SettingsSheet({ profile, settings, onClose, onUpdateSettings, onVerifyA
     { id: 'blocks', label: 'Block List', icon: Ban }
   ];
 
+  const verifiedCount = [profile.phone_verified, profile.instagram_verified, profile.profile_verified].filter(Boolean).length;
+  const progressPercent = Math.round((verifiedCount / 3) * 100);
+
   return (
     <motion.div
       className="fixed inset-0 z-[92] flex items-end justify-center bg-black/70 px-4 pb-4 backdrop-blur-xl sm:items-center animate-none"
@@ -1594,287 +1604,428 @@ function SettingsSheet({ profile, settings, onClose, onUpdateSettings, onVerifyA
       exit={{ opacity: 0 }}
       role="dialog"
       aria-modal="true"
+      onClick={onClose}
     >
       <motion.div
-        className="w-full max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col rounded-[30px] border border-white/10 bg-[#08070d] shadow-[0_30px_90px_rgba(0,0,0,.7)] overflow-hidden"
+        className="w-full max-w-3xl h-[600px] max-h-[calc(100dvh-2rem)] flex flex-col rounded-[32px] border border-white/10 bg-[#08070d]/92 shadow-[0_30px_90px_rgba(0,0,0,.85)] overflow-hidden relative"
         initial={{ y: 36, opacity: 0, scale: 0.97 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ y: 36, opacity: 0, scale: 0.97 }}
         transition={{ type: "spring", damping: 25, stiffness: 280 }}
+        onClick={event => event.stopPropagation()}
+        style={{
+          backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px)',
+          backgroundSize: '20px 20px',
+        }}
       >
-        {/* Header */}
-        <div className="relative flex items-center justify-between border-b border-white/5 p-5">
+        {/* Glow Header Accent */}
+        <div className="absolute top-0 left-1/4 right-1/4 h-[1px] bg-gradient-to-r from-transparent via-fuchsia-500 to-transparent blur-[1px]" />
+
+        {/* Top Header */}
+        <div className="relative flex items-center justify-between border-b border-white/5 px-6 py-5 shrink-0 bg-black/10 backdrop-blur-md">
           <div>
-            <h3 className="text-base font-black text-white flex items-center gap-2">
+            <h3 className="text-base font-black text-white flex items-center gap-2 font-['Outfit']">
               <Settings className="h-5 w-5 text-fuchsia-400" /> Settings & Vetting
             </h3>
-            <p className="text-[10px] text-white/50 mt-0.5">Control your privacy, alerts, and active connections</p>
+            <p className="text-[10px] text-white/40 mt-0.5 font-semibold">Configure your privacy, alerts, sessions, and VIP checkouts</p>
           </div>
           
-          <button
-            onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.04] text-white/70 hover:text-white transition"
-            aria-label="Close settings"
-          >
-            <X className="h-4 w-4" />
-          </button>
-
-          {successMsg && (
-            <div className="absolute right-12 top-5 flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-[10px] font-black text-emerald-300 shadow-md">
-              <CheckCircle2 className="h-3 w-3" /> {successMsg}
-            </div>
-          )}
-        </div>
-
-        {/* Tab Selector */}
-        <div className="flex border-b border-white/5 bg-white/[0.01] px-4 py-2 overflow-x-auto no-scrollbar gap-1.5">
-          {tabItems.map(item => {
-            const isActive = activeTab === item.id;
-            const TabIcon = item.icon;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition shrink-0 ${
-                  isActive 
-                    ? 'bg-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20' 
-                    : 'text-white/50 hover:text-white/70 hover:bg-white/[0.03]'
-                }`}
+          <div className="flex items-center gap-3">
+            {successMsg && (
+              <motion.div 
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex items-center gap-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-[10px] font-black text-emerald-300 shadow-md"
               >
-                <TabIcon className="h-3.5 w-3.5" />
-                {item.label}
-              </button>
-            );
-          })}
+                <CheckCircle2 className="h-3.5 w-3.5" /> {successMsg}
+              </motion.div>
+            )}
+            <button
+              onClick={onClose}
+              className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.04] text-white/70 hover:text-white transition active:scale-95"
+              aria-label="Close settings"
+            >
+              <X className="h-4.5 w-4.5" />
+            </button>
+          </div>
         </div>
 
-        {/* Content body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 max-h-[380px] no-scrollbar">
-          {activeTab === 'privacy' && (
-            <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Privacy Controls</p>
-              
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white">Show Age</h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Toggle visibility of your age on profile cards</p>
-                </div>
+        {/* Main Body Layout */}
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+          
+          {/* Navigation Sidebar (Desktop: left, Mobile: top scrollable list) */}
+          <div className="md:w-60 border-b md:border-b-0 md:border-r border-white/5 bg-[#050508]/30 p-4 shrink-0 flex overflow-x-auto md:overflow-x-visible md:flex-col gap-1.5 no-scrollbar">
+            {tabItems.map(item => {
+              const isActive = activeTab === item.id;
+              const TabIcon = item.icon;
+              return (
                 <button
-                  onClick={() => handleToggle('showAge', settings.showAge)}
-                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.showAge ? 'bg-fuchsia-500' : 'bg-white/10'}`}
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left transition shrink-0 w-auto md:w-full border ${
+                    isActive 
+                      ? 'bg-fuchsia-500/10 border-fuchsia-500/30 text-white shadow-[0_0_15px_rgba(168,85,247,0.08)]' 
+                      : 'border-transparent text-white/50 hover:text-white/80 hover:bg-white/[0.03]'
+                  }`}
                 >
-                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.showAge ? 'translate-x-4' : ''}`} />
+                  <span className={`grid h-7 w-7 place-items-center rounded-lg transition ${
+                    isActive ? 'bg-fuchsia-500 text-white shadow-md' : 'bg-white/[0.04] text-white/40'
+                  }`}>
+                    <TabIcon className="h-4 w-4" />
+                  </span>
+                  <div className="hidden md:block">
+                    <h4 className="text-[11px] font-black leading-none">{item.label}</h4>
+                    <p className="text-[8px] text-white/30 mt-0.5 font-semibold">
+                      {item.id === 'privacy' && 'Visibility levels'}
+                      {item.id === 'notifications' && 'Configure alerts'}
+                      {item.id === 'verification' && 'Vetting checklist'}
+                      {item.id === 'sessions' && 'Active logins'}
+                      {item.id === 'blocks' && 'Manage restrictions'}
+                    </p>
+                  </div>
+                  {/* For mobile view labels */}
+                  <span className="md:hidden text-xs font-bold leading-none">{item.label}</span>
                 </button>
-              </div>
+              );
+            })}
+          </div>
 
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
+          {/* Settings Panels Content */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-black/[0.12] no-scrollbar">
+            
+            {activeTab === 'privacy' && (
+              <div className="space-y-4">
                 <div>
-                  <h4 className="text-xs font-black text-white">Show Distance</h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Toggle showing city proximity to matched users</p>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-fuchsia-400 font-['Outfit']">Privacy & Visibility Controls</h4>
+                  <p className="text-[10px] text-white/40 mt-0.5">Manage how your profile basics and location proximity are seen by the club members.</p>
                 </div>
-                <button
-                  onClick={() => handleToggle('showDistance', settings.showDistance)}
-                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.showDistance ? 'bg-fuchsia-500' : 'bg-white/10'}`}
-                >
-                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.showDistance ? 'translate-x-4' : ''}`} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white">Incognito Mode</h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Hide your profile from feeds; only visible to active chats</p>
-                </div>
-                <button
-                  onClick={() => handleToggle('incognitoMode', settings.incognitoMode)}
-                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.incognitoMode ? 'bg-fuchsia-500' : 'bg-white/10'}`}
-                >
-                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.incognitoMode ? 'translate-x-4' : ''}`} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'notifications' && (
-            <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Notification Preferences</p>
-              
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white">Email Alerts</h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Receive magic links, security updates, and digests</p>
-                </div>
-                <button
-                  onClick={() => handleToggle('emailNotifications', settings.emailNotifications)}
-                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.emailNotifications ? 'bg-fuchsia-500' : 'bg-white/10'}`}
-                >
-                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.emailNotifications ? 'translate-x-4' : ''}`} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white">Connection Updates</h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Get notified for connections and chat verification events</p>
-                </div>
-                <button
-                  onClick={() => handleToggle('connectionNotifications', settings.connectionNotifications)}
-                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.connectionNotifications ? 'bg-fuchsia-500' : 'bg-white/10'}`}
-                >
-                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.connectionNotifications ? 'translate-x-4' : ''}`} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white">Outing Reminders</h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Alerts when hosting plans get RSVPs or RSVPs are approved</p>
-                </div>
-                <button
-                  onClick={() => handleToggle('eventNotifications', settings.eventNotifications)}
-                  className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition ${settings.eventNotifications ? 'bg-fuchsia-500' : 'bg-white/10'}`}
-                >
-                  <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-300 ${settings.eventNotifications ? 'translate-x-4' : ''}`} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'verification' && (
-            <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Verification Checklist</p>
-              
-              {/* Phone Verification */}
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
-                    Phone Verification
-                    {profile.phone_verified ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : null}
-                  </h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Basic phone verification for login credentials</p>
-                </div>
-                {profile.phone_verified ? (
-                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">Verified</span>
-                ) : (
-                  <button
-                    onClick={() => handleVerify('phone')}
-                    disabled={loading}
-                    className="rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-fuchsia-300 hover:bg-fuchsia-500/20 transition disabled:opacity-40"
-                  >
-                    Verify
-                  </button>
-                )}
-              </div>
-
-              {/* Instagram */}
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
-                    Linked Instagram
-                    {profile.instagram_verified ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : null}
-                  </h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Integrates your IG handle with your club vetting</p>
-                </div>
-                {profile.instagram_verified ? (
-                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">Linked</span>
-                ) : (
-                  <button
-                    onClick={() => handleVerify('instagram')}
-                    disabled={loading}
-                    className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition disabled:opacity-40"
-                  >
-                    Link IG
-                  </button>
-                )}
-              </div>
-
-              {/* Selfie Check */}
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                <div>
-                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
-                    Selfie Identity Vetting
-                    {profile.profile_verified ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : null}
-                  </h4>
-                  <p className="text-[10px] text-white/50 mt-0.5">Concierge selfie vetting to lock your VIP passport status</p>
-                </div>
-                {profile.profile_verified ? (
-                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">Highly Verified</span>
-                ) : (
-                  <button
-                    onClick={() => handleVerify('selfie')}
-                    disabled={loading}
-                    className="rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-fuchsia-300 hover:bg-fuchsia-500/20 transition disabled:opacity-40"
-                  >
-                    Submit Selfie
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'sessions' && (
-            <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Active Sessions</p>
-              
-              <div className="space-y-2">
-                {sessions.map(s => (
-                  <div key={s.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                    <div>
-                      <h4 className="text-xs font-black text-white flex items-center gap-1.5">
-                        Device Session
-                        {s.isCurrent && <span className="rounded bg-fuchsia-500/10 border border-fuchsia-500/20 px-1.5 py-0.5 text-[8px] font-black uppercase text-fuchsia-300">This Device</span>}
-                      </h4>
-                      <p className="text-[9px] text-white/40 mt-1">
-                        Active: {new Date(s.createdAt).toLocaleDateString()} at {new Date(s.createdAt).toLocaleTimeString()}
-                      </p>
+                
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.045]">
+                    <div className="pr-4">
+                      <h4 className="text-xs font-black text-white">Show Age</h4>
+                      <p className="text-[10px] text-white/50 mt-1 leading-normal">Display your age on your profile cards in member feeds.</p>
                     </div>
-                    
                     <button
-                      onClick={() => handleRevokeSession(s.id)}
-                      disabled={loading}
-                      className={`rounded-lg px-2.5 py-1 text-[9px] font-black uppercase tracking-wider transition ${
-                        s.isCurrent 
-                          ? 'bg-rose-500/10 border border-rose-500/20 text-rose-300 hover:bg-rose-500/20' 
-                          : 'bg-white/[0.04] border border-white/5 text-white/50 hover:bg-white/[0.08]'
-                      }`}
+                      onClick={() => handleToggle('showAge', settings.showAge)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-all duration-300 shrink-0 ${settings.showAge ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(255,46,147,0.3)]' : 'bg-white/10'}`}
                     >
-                      {s.isCurrent ? 'Sign Out' : 'Revoke'}
+                      <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all duration-300 ${settings.showAge ? 'translate-x-5' : ''}`} />
                     </button>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {activeTab === 'blocks' && (
-            <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-wider text-white/35">Blocked Profiles</p>
-              
-              {blocks.length === 0 ? (
-                <div className="text-center py-6 text-white/30 text-xs">
-                  Your block list is currently empty.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {blocks.map(b => (
-                    <div key={b.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-4">
-                      <div>
-                        <h4 className="text-xs font-black text-white">{b.name}</h4>
-                        <p className="text-[9px] text-white/40 mt-0.5">Profile ID: {b.id}</p>
-                      </div>
-                      <button
-                        onClick={() => handleUnblock(b.id)}
-                        disabled={loading}
-                        className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition disabled:opacity-40"
-                      >
-                        Unblock
-                      </button>
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.045]">
+                    <div className="pr-4">
+                      <h4 className="text-xs font-black text-white">Show Distance</h4>
+                      <p className="text-[10px] text-white/50 mt-1 leading-normal">Toggle showing approximate city distance to other members.</p>
                     </div>
-                  ))}
+                    <button
+                      onClick={() => handleToggle('showDistance', settings.showDistance)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-all duration-300 shrink-0 ${settings.showDistance ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(255,46,147,0.3)]' : 'bg-white/10'}`}
+                    >
+                      <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all duration-300 ${settings.showDistance ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.045] relative overflow-hidden">
+                    {settings.incognitoMode && (
+                      <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b from-fuchsia-500 to-cyan-500" />
+                    )}
+                    <div className="pr-4">
+                      <h4 className="text-xs font-black text-white flex items-center gap-1.5 font-['Outfit']">
+                        Incognito Mode
+                        {settings.incognitoMode && <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.5 text-[8px] font-black uppercase text-cyan-300">Active</span>}
+                      </h4>
+                      <p className="text-[10px] text-white/50 mt-1 leading-normal">Temporarily hide your card from all open discover feeds. Only members you have an active chat with can see you.</p>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('incognitoMode', settings.incognitoMode)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-all duration-300 shrink-0 ${settings.incognitoMode ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(255,46,147,0.3)]' : 'bg-white/10'}`}
+                    >
+                      <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all duration-300 ${settings.incognitoMode ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+
+            {activeTab === 'notifications' && (
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-fuchsia-400 font-['Outfit']">Alerts & Notification Preferences</h4>
+                  <p className="text-[10px] text-white/40 mt-0.5">Control how and when you receive updates about connection approvals and outings.</p>
+                </div>
+                
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.045]">
+                    <div className="pr-4">
+                      <h4 className="text-xs font-black text-white">Email Notification Digests</h4>
+                      <p className="text-[10px] text-white/50 mt-1 leading-normal">Receive updates for new connection messages and secure profile verification alerts.</p>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('emailNotifications', settings.emailNotifications)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-all duration-300 shrink-0 ${settings.emailNotifications ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(255,46,147,0.3)]' : 'bg-white/10'}`}
+                    >
+                      <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all duration-300 ${settings.emailNotifications ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.045]">
+                    <div className="pr-4">
+                      <h4 className="text-xs font-black text-white">Connection Approvals</h4>
+                      <p className="text-[10px] text-white/50 mt-1 leading-normal">Receive instant pushes when connection requests or vibe check introductions are accepted.</p>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('connectionNotifications', settings.connectionNotifications)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-all duration-300 shrink-0 ${settings.connectionNotifications ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(255,46,147,0.3)]' : 'bg-white/10'}`}
+                    >
+                      <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all duration-300 ${settings.connectionNotifications ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.045]">
+                    <div className="pr-4">
+                      <h4 className="text-xs font-black text-white">Outing Reminders</h4>
+                      <p className="text-[10px] text-white/50 mt-1 leading-normal">Get notified when someone joins your hosted mixers or your passes are checked in.</p>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('eventNotifications', settings.eventNotifications)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-all duration-300 shrink-0 ${settings.eventNotifications ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(255,46,147,0.3)]' : 'bg-white/10'}`}
+                    >
+                      <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all duration-300 ${settings.eventNotifications ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'verification' && (
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-fuchsia-400 font-['Outfit']">Trust & Verification Passport</h4>
+                  <p className="text-[10px] text-white/40 mt-0.5">Fulfill verification levels to stand out in feeds, increase matchmaking quality, and access premium mixers.</p>
+                </div>
+                
+                {/* Visual Progress Dashboard */}
+                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.03] to-transparent p-4">
+                  <div className="absolute top-0 right-0 p-3 opacity-[0.03] pointer-events-none">
+                    <ShieldCheck className="h-24 w-24 text-white" />
+                  </div>
+                  <div className="relative flex justify-between items-center mb-2.5">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.18em] text-[#00d7f5]">PASSPORT COMPLETION</span>
+                      <h4 className="text-sm font-black text-white mt-0.5 font-['Outfit'] flex items-center gap-1.5">
+                        {verifiedCount === 3 ? (
+                          <>👑 Elite VIP Vetted Passport</>
+                        ) : verifiedCount === 2 ? (
+                          <>🛡️ Identity Verified Shield</>
+                        ) : (
+                          <>🔒 Basic Verified Connected</>
+                        )}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-black text-white/60">{verifiedCount} of 3 completed</span>
+                  </div>
+                  <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mb-2">
+                    <div 
+                      className="h-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 transition-all duration-500" 
+                      style={{ width: `${progressPercent}%` }} 
+                    />
+                  </div>
+                  <p className="text-[9px] text-white/40 leading-normal">
+                    {verifiedCount === 3 
+                      ? "Congratulations! You have maximum visibility boosts and full access to VIP invite-only coffee meetups and premium mixers."
+                      : "Complete all verification tiers to unlock your premium status and earn the Golden VIP checkmark badge."}
+                  </p>
+                </div>
+
+                {/* Checklist Cards */}
+                <div className="grid gap-2.5">
+                  
+                  {/* Phone */}
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-3.5">
+                    <div className="flex items-start gap-3">
+                      <span className={`grid h-8 w-8 place-items-center rounded-xl ${profile.phone_verified ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-white/40'}`}>
+                        <CheckCircle2 className="h-4.5 w-4.5" />
+                      </span>
+                      <div>
+                        <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                          Phone Authenticated
+                          {profile.phone_verified && <span className="text-[8px] font-black text-emerald-400 uppercase bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 tracking-wider">Active</span>}
+                        </h4>
+                        <p className="text-[9px] text-white/50 mt-0.5 leading-normal">Linked to a secure unique mobile credentials register.</p>
+                      </div>
+                    </div>
+                    {profile.phone_verified ? (
+                      <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">Verified</span>
+                    ) : (
+                      <button
+                        onClick={() => handleVerify('phone')}
+                        disabled={loading}
+                        className="rounded-xl bg-fuchsia-500/10 border border-fuchsia-500/20 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-fuchsia-300 hover:bg-fuchsia-500/20 transition disabled:opacity-40"
+                      >
+                        Verify Phone
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Instagram */}
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-3.5">
+                    <div className="flex items-start gap-3">
+                      <span className={`grid h-8 w-8 place-items-center rounded-xl ${profile.instagram_verified ? 'bg-fuchsia-500/10 text-fuchsia-400' : 'bg-white/5 text-white/40'}`}>
+                        <Instagram className="h-4.5 w-4.5" />
+                      </span>
+                      <div>
+                        <h4 className="text-xs font-black text-white flex items-center gap-1.5 font-['Outfit']">
+                          Linked Instagram
+                          {profile.instagram_verified && <span className="text-[8px] font-black text-fuchsia-400 uppercase bg-fuchsia-500/10 px-1.5 py-0.5 rounded border border-fuchsia-500/20 tracking-wider">Linked</span>}
+                        </h4>
+                        <p className="text-[9px] text-white/50 mt-0.5 leading-normal">Verifies your social context and identity safety credentials.</p>
+                      </div>
+                    </div>
+                    {profile.instagram_verified ? (
+                      <span className="text-[10px] font-black text-fuchsia-400 uppercase tracking-wider bg-fuchsia-500/10 px-2.5 py-1 rounded-lg border border-fuchsia-500/20">Linked</span>
+                    ) : (
+                      <button
+                        onClick={() => handleVerify('instagram')}
+                        disabled={loading}
+                        className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition disabled:opacity-40"
+                      >
+                        Link IG
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Selfie Identity Lock */}
+                  <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-3.5 relative overflow-hidden">
+                    {profile.profile_verified && (
+                      <div className="absolute top-0 right-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 via-orange-500 to-transparent" />
+                    )}
+                    <div className="flex items-start gap-3">
+                      <span className={`grid h-8 w-8 place-items-center rounded-xl ${profile.profile_verified ? 'bg-amber-500/10 text-amber-400' : 'bg-white/5 text-white/40'}`}>
+                        <ShieldCheck className="h-4.5 w-4.5" />
+                      </span>
+                      <div>
+                        <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                          Selfie Vetting Check
+                          {profile.profile_verified && <span className="text-[8px] font-black text-amber-400 uppercase bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 tracking-wider">Highly Verified</span>}
+                        </h4>
+                        <p className="text-[9px] text-white/50 mt-0.5 leading-normal">Compares your selfie with uploaded photos to fully lock your profile and secure your VIP status.</p>
+                      </div>
+                    </div>
+                    {profile.profile_verified ? (
+                      <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">Active</span>
+                    ) : (
+                      <button
+                        onClick={() => handleVerify('selfie')}
+                        disabled={loading}
+                        className="rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-amber-300 hover:from-amber-500/20 hover:to-orange-500/20 transition disabled:opacity-40"
+                      >
+                        Submit Selfie
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'sessions' && (
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-fuchsia-400 font-['Outfit']">Active Device Sessions</h4>
+                  <p className="text-[10px] text-white/40 mt-0.5">View all devices currently signed in to your Instadate account. Revoke any session to sign it out.</p>
+                </div>
+                
+                <div className="space-y-2.5">
+                  {sessions.length === 0 ? (
+                    <div className="text-center py-8 text-white/30 text-xs">
+                      Loading session details…
+                    </div>
+                  ) : (
+                    sessions.map(s => {
+                      const isMobile = (s.userAgent || '').toLowerCase().includes('mobile') || (s.userAgent || '').toLowerCase().includes('android') || (s.userAgent || '').toLowerCase().includes('iphone');
+                      const SessionIcon = isMobile ? Smartphone : Monitor;
+                      return (
+                        <div key={s.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-3.5 transition-all hover:bg-white/[0.025] hover:border-white/10">
+                          <div className="flex items-start gap-3">
+                            <span className={`grid h-8 w-8 place-items-center rounded-xl bg-white/[0.04] ${s.isCurrent ? 'text-fuchsia-400' : 'text-white/40'}`}>
+                              <SessionIcon className="h-4.5 w-4.5" />
+                            </span>
+                            <div>
+                              <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                                {isMobile ? 'Mobile App' : 'Browser Session'}
+                                {s.isCurrent && <span className="rounded bg-fuchsia-500/10 border border-fuchsia-500/20 px-1.5 py-0.5 text-[8px] font-black uppercase text-fuchsia-300">This Device</span>}
+                              </h4>
+                              <p className="text-[9px] text-white/40 mt-1 font-semibold leading-normal">
+                                Active: {new Date(s.createdAt).toLocaleDateString()} at {new Date(s.createdAt).toLocaleTimeString()}
+                              </p>
+                              <p className="text-[8px] text-white/20 mt-0.5 truncate max-w-[150px] md:max-w-xs">{s.userAgent || 'Unknown browser details'}</p>
+                            </div>
+                          </div>
+                          
+                          <button
+                            onClick={() => handleRevokeSession(s.id)}
+                            disabled={loading}
+                            className={`rounded-xl px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider transition ${
+                              s.isCurrent 
+                                ? 'bg-rose-500/10 border border-rose-500/20 text-rose-300 hover:bg-rose-500/20 active:scale-95' 
+                                : 'bg-white/[0.04] border border-white/5 text-white/50 hover:bg-white/[0.08] active:scale-95'
+                            }`}
+                          >
+                            {s.isCurrent ? 'Sign Out' : 'Revoke'}
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'blocks' && (
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-fuchsia-400 font-['Outfit']">Blocked Profiles Management</h4>
+                  <p className="text-[10px] text-white/40 mt-0.5">Profiles listed here are completely restricted: they cannot see you, message you, view your events, or interact with your account.</p>
+                </div>
+                
+                {blocks.length === 0 ? (
+                  <div className="text-center py-10 rounded-2xl border border-dashed border-white/5 bg-white/[0.005] p-5">
+                    <Ban className="mx-auto h-8 w-8 text-white/12 mb-2" />
+                    <h5 className="text-xs font-black text-white/50 font-['Outfit']">Your block list is empty</h5>
+                    <p className="text-[10px] text-white/35 mt-1">You haven't blocked any members yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {blocks.map(b => {
+                      const avatarLetter = (b.name || 'M').charAt(0).toUpperCase();
+                      return (
+                        <div key={b.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] p-3.5 transition-all hover:bg-white/[0.025] hover:border-white/10">
+                          <div className="flex items-center gap-3">
+                            <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 text-cyan-200 border border-white/5 font-['Outfit'] font-black text-xs">
+                              {avatarLetter}
+                            </span>
+                            <div>
+                              <h4 className="text-xs font-black text-white">{b.name}</h4>
+                              <p className="text-[9px] text-white/35 mt-0.5 font-mono">ID: {b.id}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleUnblock(b.id)}
+                            disabled={loading}
+                            className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-3.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition active:scale-95 disabled:opacity-40"
+                          >
+                            Unblock
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </motion.div>
     </motion.div>
@@ -2027,7 +2178,7 @@ function DangerZone({ onLogout }) {
   );
 }
 
-function SimplifiedSettings({ onLogout, profile, upgrade, authUser, onGoogleLogin }) {
+function SimplifiedSettings({ onLogout, profile, upgrade, authUser, onGoogleLogin, onOpenSettings }) {
   const [activeDialog, setActiveDialog] = React.useState(null);
   const sections = [
     {
@@ -2088,7 +2239,7 @@ function SimplifiedSettings({ onLogout, profile, upgrade, authUser, onGoogleLogi
 
         {/* Settings, Security & Verification button */}
         <button 
-          onClick={() => setSettingsOpen(true)}
+          onClick={onOpenSettings}
           className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200 transition active:scale-95 hover:bg-fuchsia-500/15"
         >
           <Settings className="h-4 w-4 text-fuchsia-400" /> Settings & Verification
@@ -2167,10 +2318,10 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
   // Validate fields in current step before moving forward
   const canContinue = () => {
     if (step === 1) {
-      return hasPhotos && Boolean(profile?.fullName) && Boolean(profile?.age) && Boolean(profile?.instagram);
+      return hasPhotos && Boolean(profile?.fullName) && Boolean(profile?.age);
     }
     if (step === 2) {
-      return Boolean(profile?.profession) && Boolean(profile?.college) && Boolean(profile?.city);
+      return Boolean(profile?.city);
     }
     return true;
   };
@@ -2178,9 +2329,12 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
   // Cities List for card selector
   const citiesList = [
     { name: 'Mumbai', vibe: 'Bandra Sunsets & Cafes ☕', code: 'BOM' },
-    { name: 'Delhi NCR', vibe: 'GK Cafes & Khan Market 🍂', code: 'DEL' },
+    { name: 'Delhi', vibe: 'GK Cafes & Khan Market 🍂', code: 'DEL' },
     { name: 'Bangalore', vibe: 'Bookstores & Brews 📖', code: 'BLR' },
     { name: 'Pune', vibe: 'KP Greenery & Jazz 🎷', code: 'PNQ' },
+    { name: 'Hyderabad', vibe: 'Jubilee Hills Cafes & Biryani ☕', code: 'HYD' },
+    { name: 'Ahmedabad', vibe: 'Sindhu Bhavan Road Vibes 🍂', code: 'AMD' },
+    { name: 'Chennai', vibe: 'ECR Drives & Filter Coffee ☕', code: 'MAA' },
     { name: 'Goa', vibe: 'Beachside Coworking & Sunsets 🌊', code: 'GOA' }
   ];
 
@@ -2365,7 +2519,7 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
                 {/* Node 2 */}
                 <button 
                   onClick={() => canContinue() || step > 2 ? setStep(2) : null}
-                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.instagram}
+                  disabled={!hasPhotos || !profile.fullName || !profile.age}
                   type="button"
                   className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs border transition-all ${
                     step === 2 
@@ -2381,8 +2535,8 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
 
                 {/* Node 3 */}
                 <button 
-                  onClick={() => (hasPhotos && profile.fullName && profile.age && profile.instagram && profile.profession && profile.college && profile.city) ? setStep(3) : null}
-                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.instagram || !profile.profession || !profile.college || !profile.city}
+                  onClick={() => (hasPhotos && profile.fullName && profile.age && profile.city) ? setStep(3) : null}
+                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.city}
                   type="button"
                   className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs border transition-all ${
                     step === 3 
@@ -2398,8 +2552,8 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
 
                 {/* Node 4 */}
                 <button 
-                  onClick={() => (hasPhotos && profile.fullName && profile.age && profile.instagram && profile.profession && profile.college && profile.city && profile.bio) ? setStep(4) : null}
-                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.instagram || !profile.profession || !profile.college || !profile.city || !profile.bio}
+                  onClick={() => (hasPhotos && profile.fullName && profile.age && profile.city) ? setStep(4) : null}
+                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.city}
                   type="button"
                   className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs border transition-all ${
                     step === 4 
@@ -2415,8 +2569,8 @@ function EditProfileSheet({ profile, saving, onClose, onChange, onSave, onPhoto 
 
                 {/* Node 5 */}
                 <button 
-                  onClick={() => (hasPhotos && profile.fullName && profile.age && profile.instagram && profile.profession && profile.college && profile.city && profile.bio && (profile.interests || []).length) ? setStep(5) : null}
-                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.instagram || !profile.profession || !profile.college || !profile.city || !profile.bio}
+                  onClick={() => (hasPhotos && profile.fullName && profile.age && profile.city) ? setStep(5) : null}
+                  disabled={!hasPhotos || !profile.fullName || !profile.age || !profile.city}
                   type="button"
                   className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs border transition-all ${
                     step === 5 
@@ -3266,7 +3420,7 @@ function GatekeeperAdmissions({ onApply, onDemoLogin, authUser, onGoogleLogin })
       
       {/* 1. TOP HERO SECTION */}
       <motion.div 
-        className="relative overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-b from-white/[0.065] to-white/[0.01] p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl"
+        className="guest-admissions-card relative overflow-hidden rounded-[32px] border border-white/10 bg-[#08070d] p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl"
         initial={{ opacity: 0, y: 25 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 120 }}
@@ -3336,7 +3490,7 @@ function GatekeeperAdmissions({ onApply, onDemoLogin, authUser, onGoogleLogin })
             onClick={onDemoLogin}
             className="mt-3 text-[10px] font-black tracking-wider text-amber-200 hover:text-amber-300 transition uppercase underline decoration-dashed shrink-0"
           >
-            Already an Approved Member? Concierge Login
+            Already approved? Sign in
           </button>
         </div>
       </motion.div>
@@ -3469,10 +3623,10 @@ function GatekeeperAdmissions({ onApply, onDemoLogin, authUser, onGoogleLogin })
           {inviteStatus === 'valid' && (
             <p className="text-[10px] text-emerald-400 mt-1.5 font-bold">Lounge unlocked! Opening admissions studio...</p>
           )}
-          <div className="mt-3 flex items-center justify-between text-[10.5px] font-bold text-white/40">
-            <span>Tip: Try bypass code "VIP777"</span>
-            <button onClick={onDemoLogin} className="text-amber-200 hover:text-amber-300 transition">
-              Concierge Login 🔑
+          <div className="mt-3 flex items-center justify-between gap-3 text-[10.5px] font-bold text-white/45">
+            <span>Invite access is verified before profile setup.</span>
+            <button onClick={onDemoLogin} className="shrink-0 text-amber-200 transition hover:text-amber-300">
+              Sign in
             </button>
           </div>
         </div>
@@ -3690,232 +3844,6 @@ function MatchmakingHub({ appState, onApiCall }) {
                       </>
                     )}
                   </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- INSTANT PLANS LOUNGE ---
-function InstantPlansLounge({ appState, onApiCall }) {
-  const [creatorOpen, setCreatorOpen] = React.useState(false);
-  const [newPlan, setNewPlan] = React.useState({
-    title: '',
-    activity: 'Coffee Meetup',
-    time: 'Tonight at 8 PM',
-    location: 'Bandra Brew Room',
-    capacity: 4
-  });
-
-  const activePlans = appState?.instantPlans || [];
-
-  async function handleJoin(planId) {
-    await onApiCall(`/api/instant-plans/${planId}/join`, 'POST');
-  }
-
-  async function handleLeave(planId) {
-    await onApiCall(`/api/instant-plans/${planId}/join`, 'DELETE');
-  }
-
-  async function handleCreate(e) {
-    e.preventDefault();
-    if (!newPlan.title.trim()) return;
-    await onApiCall('/api/instant-plans', 'POST', { plan: newPlan });
-    setNewPlan({
-      title: '',
-      activity: 'Coffee Meetup',
-      time: 'Tonight at 8 PM',
-      location: 'Bandra Brew Room',
-      capacity: 4
-    });
-    setCreatorOpen(false);
-  }
-
-  return (
-    <div className="mt-8 rounded-[32px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
-      <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4">
-        <div>
-          <span className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">Instant Outings</span>
-          <h3 className="font-['Outfit'] text-2xl font-black text-white mt-1">Immediate Outing Plans</h3>
-        </div>
-        <button
-          onClick={() => setCreatorOpen(prev => !prev)}
-          className="inline-flex h-9 items-center justify-center rounded-xl bg-gradient-to-r from-cyan-400 to-[#9b30ff] px-4 text-xs font-black uppercase tracking-wider text-white shadow-[0_4px_12px_rgba(0,215,245,0.2)] transition active:scale-95 hover:brightness-105"
-        >
-          {creatorOpen ? 'Close Form' : 'Propose Plan 🚀'}
-        </button>
-      </div>
-
-      {creatorOpen && (
-        <form onSubmit={handleCreate} className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
-          <h4 className="font-['Outfit'] text-sm font-black text-white uppercase tracking-wider">Bespoke Outing Proposal</h4>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Activity</span>
-              <select 
-                value={newPlan.activity}
-                onChange={(e) => setNewPlan(prev => ({ ...prev, activity: e.target.value }))}
-                className="h-10 w-full rounded-xl bg-[#120f18] border border-white/10 text-white text-xs font-semibold px-3 outline-none"
-              >
-                {['Coffee Meetup', 'Movie Tonight', 'Road Trip', 'Pickleball Match', 'Night Out'].map(act => (
-                  <option key={act} value={act}>{act}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Catchphrase</span>
-              <input 
-                type="text"
-                placeholder="e.g. Flat white & indie bookstore chat"
-                value={newPlan.title}
-                onChange={(e) => setNewPlan(prev => ({ ...prev, title: e.target.value }))}
-                className="h-10 w-full rounded-xl bg-white/[0.03] border border-white/10 text-white text-xs font-semibold px-3 outline-none focus:border-cyan-300/30"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Time</span>
-              <input 
-                type="text"
-                placeholder="e.g. Tonight after 8:30"
-                value={newPlan.time}
-                onChange={(e) => setNewPlan(prev => ({ ...prev, time: e.target.value }))}
-                className="h-10 w-full rounded-xl bg-white/[0.03] border border-white/10 text-white text-xs font-semibold px-3 outline-none focus:border-cyan-300/30"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Lounge / Spot Location</span>
-              <input 
-                type="text"
-                placeholder="e.g. Subko Bandra West"
-                value={newPlan.location}
-                onChange={(e) => setNewPlan(prev => ({ ...prev, location: e.target.value }))}
-                className="h-10 w-full rounded-xl bg-white/[0.03] border border-white/10 text-white text-xs font-semibold px-3 outline-none focus:border-cyan-300/30"
-              />
-            </div>
-
-            <div className="space-y-1 sm:col-span-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[9px] font-black uppercase tracking-wider text-white/45">Outing Capacity (Size Limit)</span>
-                <span className="text-[10px] font-mono text-cyan-300 font-bold">{newPlan.capacity} seats</span>
-              </div>
-              <input 
-                type="range"
-                min="2"
-                max="12"
-                value={newPlan.capacity}
-                onChange={(e) => setNewPlan(prev => ({ ...prev, capacity: Number(e.target.value) }))}
-                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400 mt-2"
-              />
-            </div>
-          </div>
-
-          <button 
-            type="submit"
-            className="w-full flex min-h-[38px] items-center justify-center rounded-xl bg-gradient-to-r from-cyan-400 to-[#ff2e93] text-xs font-black uppercase tracking-wider text-white shadow-lg active:scale-95"
-          >
-            Broadcast Proposal 📡
-          </button>
-        </form>
-      )}
-
-      {/* Plans feed */}
-      {activePlans.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center bg-black/10">
-          <CalendarCheck className="mx-auto h-8 w-8 text-white/20 animate-bounce" />
-          <h4 className="mt-3 font-semibold text-sm text-white/60">No Instant Plans Tonight</h4>
-          <p className="text-xs text-white/40 max-w-xs mx-auto mt-1">Be the first to propose a movie, coffee mixer, road trip, or night out tonight!</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {activePlans.map(plan => {
-            const hasJoined = plan.members.some(m => m.id === appState?.profile?.user_id || m.id === appState?.profile?.id);
-            const isCreator = plan.creatorId === appState?.profile?.user_id || plan.creatorId === appState?.profile?.id;
-            
-            return (
-              <div 
-                key={plan.id}
-                className="rounded-2xl border border-white/5 bg-white/[0.015] hover:border-white/10 hover:bg-white/[0.025] transition duration-300 p-4 flex flex-col justify-between"
-              >
-                <div className="flex justify-between items-start gap-4">
-                  <div>
-                    <span className="inline-flex rounded-lg bg-cyan-900/30 border border-cyan-400/20 px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-cyan-200">
-                      {plan.activity}
-                    </span>
-                    {plan.score > 50 && (
-                      <span className="ml-2 inline-flex rounded-lg bg-purple-900/30 border border-purple-400/20 px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-purple-200">
-                        Match Score {plan.score}%
-                      </span>
-                    )}
-                    <h4 className="font-['Outfit'] text-base font-black text-white mt-1.5 leading-tight">{plan.title}</h4>
-                    <p className="text-[11px] text-white/60 font-semibold mt-1 flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5 text-cyan-300 shrink-0" /> {plan.time} • <MapPin className="h-3.5 w-3.5 text-fuchsia-300 shrink-0" /> {plan.location}
-                    </p>
-                  </div>
-
-                  {/* Creator detail */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="text-right">
-                      <p className="text-[9px] font-black uppercase tracking-wider text-white/30">Host</p>
-                      <p className="text-[10px] font-bold text-white/70 leading-none mt-0.5">{plan.creatorName}</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-full border border-white/10 overflow-hidden bg-white/[0.04] flex items-center justify-center font-['Outfit'] text-xs font-black">
-                      {plan.creatorAvatar ? <img src={plan.creatorAvatar} alt="" className="h-full w-full object-cover" /> : plan.creatorName.slice(0, 1)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sub-explanations if match score is high */}
-                {plan.explanations && plan.explanations.length > 0 && (
-                  <div className="mt-2.5 rounded-lg bg-white/[0.02] p-2 flex items-center gap-1.5 text-[9px] font-bold text-[#ff2e93]">
-                    <span>✓</span> <span>{plan.explanations[0]}</span>
-                  </div>
-                )}
-
-                {/* Attending checklist and join action */}
-                <div className="mt-4 pt-3.5 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-white/30">Seat Count</span>
-                    <span className="text-xs text-white font-black">{plan.attendeeCount} / {plan.capacity} joined</span>
-                    
-                    {/* Tiny member avatars */}
-                    <div className="flex -space-x-1.5 ml-2">
-                      {plan.members.map((m, idx) => (
-                        <div key={idx} className="w-5 h-5 rounded-full border border-[#08060d] overflow-hidden bg-white/[0.04] shrink-0" title={m.fullName}>
-                          {m.avatarUrl ? <img src={m.avatarUrl} alt="" className="h-full w-full object-cover" /> : <div className="h-full w-full flex items-center justify-center text-[7px] font-black uppercase">{m.fullName.slice(0, 1)}</div>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {isCreator ? (
-                    <span className="inline-flex min-h-[30px] px-3.5 items-center justify-center gap-1.5 rounded-lg border border-cyan-400/20 bg-cyan-950/20 text-cyan-300 text-[10px] font-black uppercase tracking-wider">
-                      ★ Hosting Outing
-                    </span>
-                  ) : hasJoined ? (
-                    <button
-                      onClick={() => handleLeave(plan.id)}
-                      className="inline-flex min-h-[30px] px-3.5 items-center justify-center rounded-lg border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/15 text-rose-300 text-[10px] font-black uppercase tracking-wider transition active:scale-95"
-                    >
-                      Leave Plan ✖
-                    </button>
-                  ) : plan.attendeeCount >= plan.capacity ? (
-                    <span className="text-[10px] font-black uppercase tracking-wider text-white/30">Lounge Full</span>
-                  ) : (
-                    <button
-                      onClick={() => handleJoin(plan.id)}
-                      className="inline-flex min-h-[30px] px-3.5 items-center justify-center rounded-lg bg-white hover:bg-white/90 text-[#050506] text-[10px] font-black uppercase tracking-wider transition active:scale-95 shadow-[0_4px_12px_rgba(255,255,255,0.1)]"
-                    >
-                      Join Instantly ⚡
-                    </button>
-                  )}
                 </div>
               </div>
             );
@@ -4242,5 +4170,3 @@ function MeetSomeoneThisWeekModal({ appState, resolvedMembers = [], onClose, onV
     </div>
   );
 }
-
-

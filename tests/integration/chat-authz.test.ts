@@ -13,6 +13,28 @@ async function bareChat(a: string, b: string): Promise<string> {
   return slug;
 }
 
+// Insert an instant-plan group chat with the given members. `expiresInH` controls
+// the plan TTL (negative => already expired).
+async function groupChat(planId: string, members: string[], expiresInH = 24): Promise<string> {
+  const slug = `plan-${planId}`;
+  const chatId = `chat-${slug}`;
+  const offsetMs = expiresInH * 60 * 60 * 1000;
+  const expiresAt = new Date(Date.now() + offsetMs).toISOString();
+  await env.DB.prepare(
+    `INSERT INTO instant_plans (id, creator_user_id, title, activity, time, location, capacity, expires_at)
+     VALUES (?, ?, 'Coffee', 'Coffee Meetup', 'Tonight', 'Cafe', 5, ?)`
+  ).bind(planId, members[0], expiresAt).run();
+  await env.DB.prepare(
+    `INSERT INTO chats (id, slug, kind, title, instant_plan_id) VALUES (?, ?, 'group', 'Coffee', ?)`
+  ).bind(chatId, slug, planId).run();
+  for (const m of members) {
+    await env.DB.prepare(
+      'INSERT OR IGNORE INTO chat_participants (chat_id, user_id) VALUES (?, ?)'
+    ).bind(chatId, m).run();
+  }
+  return slug;
+}
+
 describe('chat.assertCanSend', () => {
   it('returns chat_not_found when slug does not exist', async () => {
     await seedUser({ id: 'ch-sender-1' });
@@ -92,5 +114,40 @@ describe('chat.assertCanSend', () => {
     expect(res.status).toBe(200);
     expect(res.chatId).toBe(chatId);
     expect(res.peerId).toBe('ch-b-8');
+    expect(res.kind).toBe('direct');
+  });
+});
+
+describe('chat.assertCanSend (group chats)', () => {
+  it('happy path: a plan member may send; no connection/peer required', async () => {
+    await seedUser({ id: 'grp-a-1' });
+    await seedUser({ id: 'grp-b-1' });
+    await seedUser({ id: 'grp-c-1' });
+    const slug = await groupChat('plan-1', ['grp-a-1', 'grp-b-1', 'grp-c-1']);
+    const res = await assertCanSend(env.DB, 'grp-b-1', slug);
+    expect(res.ok).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.chatId).toBe(`chat-${slug}`);
+    expect(res.kind).toBe('group');
+    expect(res.peerId).toBeUndefined();
+  });
+
+  it('returns not_a_participant when sender never joined the plan', async () => {
+    await seedUser({ id: 'grp-a-2' });
+    await seedUser({ id: 'grp-out-2' });
+    const slug = await groupChat('plan-2', ['grp-a-2']);
+    const res = await assertCanSend(env.DB, 'grp-out-2', slug);
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+    expect(res.error).toBe('not_a_participant');
+  });
+
+  it('returns plan_expired once the plan TTL has passed', async () => {
+    await seedUser({ id: 'grp-a-3' });
+    const slug = await groupChat('plan-3', ['grp-a-3'], -1); // expired 1h ago
+    const res = await assertCanSend(env.DB, 'grp-a-3', slug);
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+    expect(res.error).toBe('plan_expired');
   });
 });

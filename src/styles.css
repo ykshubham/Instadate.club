@@ -2255,6 +2255,23 @@ body:has(.fullscreen-main) .app-toast {
   color: #fff !important;
 }
 
+:root[data-theme="light"] .guest-admissions-card {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 46, 147, 0.16), transparent 16rem),
+    radial-gradient(circle at 92% 14%, rgba(0, 215, 245, 0.12), transparent 14rem),
+    #08070d !important;
+  color: #fff !important;
+}
+
+:root[data-theme="light"] .guest-admissions-card [class*="text-white"] {
+  color: #fff !important;
+}
+
+:root[data-theme="light"] .guest-admissions-card .bg-white {
+  background-color: #fff !important;
+  color: #111827 !important;
+}
+
 @media (max-width: 420px) {
   .host-two-col {
     grid-template-columns: 1fr;

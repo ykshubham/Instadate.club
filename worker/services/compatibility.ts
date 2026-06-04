@@ -2,6 +2,14 @@ import { D1Database } from '@cloudflare/workers-types';
 import { calculateLocationScore } from './location';
 import { getOrInitializeTrustMetrics } from './trust';
 
+export const WEEKEND_TAGS = ['Coffee', 'Movie', 'Sports', 'Live music', 'Rooftop', 'Dinner', 'Gallery', 'Bookstore', 'Walk'];
+
+export function extractWeekendTags(statusText: string | null | undefined): string[] {
+  if (!statusText) return [];
+  const text = statusText.toLowerCase();
+  return WEEKEND_TAGS.filter(tag => text.includes(tag.toLowerCase()));
+}
+
 // Profession Categories mapping and Complementary matrix
 export type ProfessionCategory =
   | 'Technology'
@@ -256,14 +264,35 @@ export async function calculateCompatibilityV2(
     explanations.push('Verified partner');
   }
 
+  // 6b. Weekend Status Engine (15%)
+  const tagsA = extractWeekendTags(profileA.weekend_status);
+  const tagsB = extractWeekendTags(profileB.weekend_status);
+  let weekendScore = 50; // default baseline
+
+  if (tagsA.length > 0 && tagsB.length > 0) {
+    const sharedTags = tagsA.filter(tag => tagsB.includes(tag));
+    if (sharedTags.length > 0) {
+      weekendScore = 100;
+      if (sharedTags.length === 1) {
+        explanations.push(`Both planning a ${sharedTags[0]} meetup this weekend!`);
+      } else {
+        const formatted = sharedTags.slice(0, 2).join(' & ');
+        explanations.push(`Both planning a ${formatted} meetup this weekend!`);
+      }
+    } else {
+      weekendScore = 20;
+    }
+  }
+
   // Final Compatibility Score V2
   const totalScore = Math.round(
-    0.25 * intentScore +
-    0.20 * interestScore +
+    0.20 * intentScore +
+    0.15 * interestScore +
+    0.15 * weekendScore +
     0.15 * locationScore +
     0.10 * ageScore +
     0.10 * lifestyleScore +
-    0.10 * activityScore +
+    0.05 * activityScore +
     0.10 * trustScore
   );
 

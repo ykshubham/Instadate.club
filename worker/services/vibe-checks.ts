@@ -152,10 +152,12 @@ export async function getIncomingVibeChecks(db: D1Database, userId: string) {
   const { results } = await db.prepare(`
     SELECT vc.id, vc.voice_url, vc.voice_duration, vc.status, vc.listened_at, vc.created_at, vc.expires_at,
            vc.from_user_id,
-           p.full_name, p.age, p.city, p.bio, p.vibe, p.verification_level
+           p.full_name, p.age, p.city, p.bio, p.vibe, p.verification_level,
+           tm.trust_score
     FROM vibe_checks vc
     JOIN users u ON u.id = vc.from_user_id
     JOIN profiles p ON p.user_id = vc.from_user_id
+    LEFT JOIN trust_metrics tm ON tm.user_id = vc.from_user_id
     WHERE vc.to_user_id = ?1 AND vc.status IN ('pending', 'listened')
       AND (vc.expires_at IS NULL OR datetime(vc.expires_at) > datetime(CURRENT_TIMESTAMP))
       AND u.status = 'active'
@@ -185,6 +187,7 @@ export async function getIncomingVibeChecks(db: D1Database, userId: string) {
         bio: r.bio,
         vibe: r.vibe,
         verification_level: r.verification_level,
+        trustScore: r.trust_score ?? null,
         photos: photos.map(p => p.url),
         avatar: (r.full_name || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
         gradient: 'pink'
@@ -203,6 +206,8 @@ export async function getOutgoingVibeChecks(db: D1Database, userId: string) {
     FROM vibe_checks vc
     JOIN profiles p ON p.user_id = vc.to_user_id
     WHERE vc.from_user_id = ?1
+      AND vc.to_user_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE user_id = ?1)
+      AND vc.to_user_id NOT IN (SELECT user_id FROM user_blocks WHERE blocked_user_id = ?1)
     ORDER BY vc.created_at DESC
     LIMIT 50
   `).bind(userId).all<any>();
